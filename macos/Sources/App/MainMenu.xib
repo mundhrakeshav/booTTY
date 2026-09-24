@@ -358,6 +358,39 @@
                                     <action selector="toggleReadonly:" target="-1" id="Gqx-wT-K9v"/>
                                 </connections>
                             </menuItem>
+                            <menuItem isSeparatorItem="YES" id="a08-Q6-IOS"/>
+                            <menuItem title="Tab Bar" id="jJK-YU-0d2">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <menu key="submenu" title="Tab Bar" id="Brx-WP-CWI">
+                                    <items>
+                                        <menuItem title="Top" id="7v8-wC-IpU">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="setTabBarPosition:" target="bbz-4X-AYv" id="dqn-r1-cfL"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Left" tag="1" id="xYE-5W-ueq">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="setTabBarPosition:" target="bbz-4X-AYv" id="DoG-MF-2D4"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Right" tag="2" id="CB9-7C-rc0">
+                                            <modifierMask key="keyEquivalentModifierMask"/>
+                                            <connections>
+                                                <action selector="setTabBarPosition:" target="bbz-4X-AYv" id="2Jk-Jz-PUM"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem isSeparatorItem="YES" id="AhG-r0-lDZ"/>
+                                        <menuItem title="Collapse Tab Bar" keyEquivalent="s" id="HKA-Gp-2hV">
+                                            <modifierMask key="keyEquivalentModifierMask" control="YES" command="YES"/>
+                                            <connections>
+                                                <action selector="toggleTabBarCollapsed:" target="bbz-4X-AYv" id="bFo-YL-8sA"/>
+                                            </connections>
+                                        </menuItem>
+                                    </items>
+                                </menu>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="Vkj-tP-dMZ"/>
                             <menuItem title="Quick Terminal" id="1pv-LF-NBJ">
                                 <modifierMask key="keyEquivalentModifierMask"/>

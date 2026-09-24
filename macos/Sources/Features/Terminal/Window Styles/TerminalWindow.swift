@@ -12,6 +12,9 @@ class TerminalWindow: NSWindow {
     /// Posted when a terminal window will close
     static let terminalWillCloseNotification = Notification.Name("TerminalWindowWillClose")
 
+    /// Posted when something drawn in a tab (title, color) changes. The object is the window.
+    static let tabDidChangeNotification = Notification.Name("TerminalWindowTabDidChange")
+
     /// This is the key in UserDefaults to use for the default `level` value. This is
     /// used by the manual float on top menu item feature.
     static let defaultLevelKey: String = "TerminalDefaultLevel"
@@ -25,9 +28,9 @@ class TerminalWindow: NSWindow {
     /// Update notification UI in titlebar
     private let updateAccessory = NSTitlebarAccessoryViewController()
 
-    /// Visual indicator that mirrors the selected tab color.
+    /// Visual indicator that mirrors the selected tab color and agent status.
     private lazy var tabColorIndicator: NSHostingView<TabColorIndicatorView> = {
-        let view = NSHostingView(rootView: TabColorIndicatorView(tabColor: tabColor))
+        let view = NSHostingView(rootView: tabColorIndicatorView)
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
@@ -43,6 +46,23 @@ class TerminalWindow: NSWindow {
         hostWindow: self,
         delegate: self
     )
+
+    /// Draws this window's tab group when the tab bar is on a side.
+    private(set) lazy var verticalTabBar = VerticalTabBarModel(window: self)
+
+    /// Hides or shows the native tab bar when the tab bar position changes.
+    private var tabBarPositionCancellable: AnyCancellable?
+
+    /// Whether this window style can draw its tabs in a vertical tab bar. Styles that
+    /// put tabs in the titlebar or can't have tabs keep the native tab bar.
+    var supportsVerticalTabBar: Bool {
+        true
+    }
+
+    /// True when the native tab bar is hidden in favor of the vertical tab bar.
+    var showsVerticalTabBar: Bool {
+        supportsVerticalTabBar && TabBarSettings.shared.position.isVertical
+    }
 
     /// Whether this window supports the update accessory. If this is false, then views within this
     /// window should determine how to show update notifications.
@@ -64,9 +84,28 @@ class TerminalWindow: NSWindow {
     var tabColor: TerminalTabColor = .none {
         didSet {
             guard tabColor != oldValue else { return }
-            tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
+            tabColorIndicator.rootView = tabColorIndicatorView
             invalidateRestorableState()
+            NotificationCenter.default.post(name: Self.tabDidChangeNotification, object: self)
         }
+    }
+
+    /// The most urgent agent status of this tab's surfaces, drawn as a ring around the
+    /// tab color. The terminal controller keeps it current.
+    var agentStatus: Ghostty.AgentStatus? {
+        didSet {
+            guard agentStatus != oldValue else { return }
+            agentStatusDate = Date()
+            tabColorIndicator.rootView = tabColorIndicatorView
+            NotificationCenter.default.post(name: Self.tabDidChangeNotification, object: self)
+        }
+    }
+
+    /// When `agentStatus` last changed, so only a new finish pings.
+    private(set) var agentStatusDate: Date = .distantPast
+
+    private var tabColorIndicatorView: TabColorIndicatorView {
+        TabColorIndicatorView(tabColor: tabColor, agentStatus: agentStatus, agentStatusDate: agentStatusDate)
     }
 
     // MARK: NSWindow Overrides
@@ -93,6 +132,15 @@ class TerminalWindow: NSWindow {
         ) { [weak self] n in
             guard let self, let menu = n.object as? NSMenu else { return }
             self.configureTabContextMenuIfNeeded(menu)
+        }
+
+        // Hide or show the native tab bar when the tab bar moves. `@Published`
+        // emits before storing, so `receive(on:)` defers until the new position is set.
+        if supportsVerticalTabBar {
+            tabBarPositionCancellable = TabBarSettings.shared.$position
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.syncNativeTabBarVisibility() }
         }
 
         // This is required so that window restoration properly creates our tabs
@@ -159,7 +207,7 @@ class TerminalWindow: NSWindow {
         // Setup the accessory view for tabs that shows our keyboard shortcuts,
         // zoomed state, etc. Note I tried to use SwiftUI here but ran into issues
         // where buttons were not clickable on macOS 15.
-        tabColorIndicator.rootView = TabColorIndicatorView(tabColor: tabColor)
+        tabColorIndicator.rootView = tabColorIndicatorView
 
         let stackView = NSStackView()
         stackView.orientation = .horizontal
@@ -229,7 +277,11 @@ class TerminalWindow: NSWindow {
 
     @discardableResult
     func beginInlineTabTitleEdit(for targetWindow: NSWindow) -> Bool {
-        tabTitleEditor.beginEditing(for: targetWindow)
+        if showsVerticalTabBar {
+            return verticalTabBar.beginRename(targetWindow)
+        }
+
+        return tabTitleEditor.beginEditing(for: targetWindow)
     }
 
     @objc private func renameTabFromContextMenu(_ sender: NSMenuItem) {
@@ -253,6 +305,12 @@ class TerminalWindow: NSWindow {
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {
+        // With a vertical tab bar the native one is hidden before it is added so
+        // it never takes up space in the titlebar.
+        if showsVerticalTabBar && isTabBar(childViewController) {
+            childViewController.isHidden = true
+        }
+
         super.addTitlebarAccessoryViewController(childViewController)
 
         // Tab bar is attached as a titlebar accessory view controller (layout bottom). We
@@ -303,6 +361,12 @@ class TerminalWindow: NSWindow {
     }
 
     private func tabBarDidAppear() {
+        // A hidden native tab bar is no tab bar at all.
+        if showsVerticalTabBar {
+            tabBarDidDisappear()
+            return
+        }
+
         // Remove our reset zoom accessory. For some reason having a SwiftUI
         // titlebar accessory causes our content view scaling to be wrong.
         // Removing it fixes it, we just need to remember to add it again later.
@@ -319,6 +383,28 @@ class TerminalWindow: NSWindow {
             if titlebarAccessoryViewControllers.firstIndex(of: resetZoomAccessory) == nil {
                 addTitlebarAccessoryViewController(resetZoomAccessory)
             }
+        }
+    }
+
+    /// Hides or shows the native tab bar to match the tab bar position.
+    private func syncNativeTabBarVisibility() {
+        // An inline rename would otherwise stay focused inside the hidden tab bar.
+        tabTitleEditor.finishEditing(commit: true)
+
+        // Non-native fullscreen removes the titlebar, and AppKit throws when asked for
+        // titlebar accessories without one. Exiting re-adds the tab bar through
+        // addTitlebarAccessoryViewController, which applies the position then.
+        guard styleMask.contains(.titled) else { return }
+
+        let hidden = showsVerticalTabBar
+        for controller in titlebarAccessoryViewControllers where isTabBar(controller) {
+            controller.isHidden = hidden
+        }
+
+        if tabBarView != nil {
+            tabBarDidAppear()
+        } else {
+            tabBarDidDisappear()
         }
     }
 
@@ -394,6 +480,7 @@ class TerminalWindow: NSWindow {
             guard title != oldValue else { return }
 
             syncWindowTitleAppearance()
+            NotificationCenter.default.post(name: Self.tabDidChangeNotification, object: self)
         }
     }
 
@@ -402,6 +489,9 @@ class TerminalWindow: NSWindow {
         didSet {
             let font = titlebarFont ?? NSFont.titleBarFont(ofSize: NSFont.systemFontSize)
             tab.attributedTitle = attributedTitle
+            if verticalTabBar.titleFont != titlebarFont {
+                verticalTabBar.titleFont = titlebarFont
+            }
 
             // We need to call this every time the font is set,
             // after entering or exiting fullscreen, or other cases,
@@ -519,6 +609,13 @@ class TerminalWindow: NSWindow {
 
     /// This is called by the controller when there is a need to reset the window appearance.
     func syncAppearance(_ surfaceConfig: Ghostty.SurfaceView.DerivedConfig) {
+        // The vertical tab bar blends into the terminal background. It is set even
+        // while hidden so a tab shows the right colors as soon as it is selected.
+        let barBackground = preferredBackgroundColor
+        if verticalTabBar.backgroundColor != barBackground {
+            verticalTabBar.backgroundColor = barBackground
+        }
+
         // If our window is not visible, then we do nothing. Some things such as blurring
         // have no effect if the window is not visible. Ultimately, we'll have this called
         // at some point when a surface becomes focused.
@@ -733,23 +830,18 @@ extension TerminalWindow {
 
 }
 
-/// A small circle indicator displayed in the tab accessory view that shows
-/// the user-assigned tab color. When no color is set, the view is hidden.
+/// A small circle indicator displayed in the tab accessory view that shows the
+/// user-assigned tab color, ringed by the agent status. Clear when there is neither.
 private struct TabColorIndicatorView: View {
     /// The tab color to display.
     let tabColor: TerminalTabColor
 
+    let agentStatus: Ghostty.AgentStatus?
+    let agentStatusDate: Date
+
     var body: some View {
-        if let color = tabColor.displayColor {
-            Circle()
-                .fill(Color(color))
-                .frame(width: 6, height: 6)
-        } else {
-            Circle()
-                .fill(Color.clear)
-                .frame(width: 6, height: 6)
-                .hidden()
-        }
+        // Always the same view so a new status animates in place.
+        StatusDot(color: tabColor, status: agentStatus, since: agentStatusDate, dotSize: 6, echoScale: 1.5)
     }
 }
 
@@ -761,6 +853,8 @@ extension TerminalWindow {
     private static let tabColorSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorSeparator")
 
     private static let tabColorPaletteIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabColorPalette")
+    private static let tabBarPositionSeparatorIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabBarPositionSeparator")
+    private static let tabBarPositionMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.mitchellh.ghostty.tabBarPositionMenuItem")
 
     func configureTabContextMenuIfNeeded(_ menu: NSMenu) {
         guard isTabContextMenu(menu) else { return }
@@ -792,6 +886,7 @@ extension TerminalWindow {
         }
 
         appendTabModifierSection(to: menu, target: targetController)
+        appendTabBarPositionSection(to: menu)
     }
 
     private func isTabContextMenu(_ menu: NSMenu) -> Bool {
@@ -837,6 +932,31 @@ extension TerminalWindow {
         }
         menu.addItem(paletteItem)
     }
+
+    /// Offers moving the tab bar to a side of the window, where it becomes vertical.
+    private func appendTabBarPositionSection(to menu: NSMenu) {
+        menu.removeItems(withIdentifiers: [
+            Self.tabBarPositionSeparatorIdentifier,
+            Self.tabBarPositionMenuItemIdentifier
+        ])
+        guard supportsVerticalTabBar else { return }
+
+        let separator = NSMenuItem.separator()
+        separator.identifier = Self.tabBarPositionSeparatorIdentifier
+        menu.addItem(separator)
+
+        for (tag, position) in TabBarPosition.allCases.enumerated() where position.isVertical {
+            let item = NSMenuItem(
+                title: "Move Tab Bar to \(position.title)",
+                action: #selector(AppDelegate.setTabBarPosition(_:)),
+                keyEquivalent: "")
+            item.identifier = Self.tabBarPositionMenuItemIdentifier
+            item.tag = tag
+            item.target = NSApp.delegate
+            item.setImageIfDesired(systemSymbolName: position == .left ? "sidebar.left" : "sidebar.right")
+            menu.addItem(item)
+        }
+    }
 }
 
 private func makeTabColorPaletteView(
@@ -858,7 +978,10 @@ extension TerminalWindow: TabTitleEditorDelegate {
         _ editor: TabTitleEditor,
         canRenameTabFor targetWindow: NSWindow
     ) -> Bool {
-        targetWindow.windowController is BaseTerminalController
+        // A native tab bar hidden behind the vertical tab bar keeps its frame over the
+        // titlebar, so it would still catch double-clicks (via the editor's event monitor
+        // too, not just sendEvent) and open an invisible editor.
+        !showsVerticalTabBar && targetWindow.windowController is BaseTerminalController
     }
 
     func tabTitleEditor(

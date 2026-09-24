@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="en" data-bg="dark" data-motion="full" data-vision="normal">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Agent status dots · booTTY tab bar</title>
+<style>
+  :root {
+    color-scheme: dark;
+    /* The mocks are macOS chrome, so they use the system face; mono carries specs. */
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    --rounded: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+    /* Page chrome stays neutral so the only colour on the page is status. */
+    --page: #0f1012;
+    --panel: #17181b;
+    --line: #26272b;
+    --line-strong: #3a3b40;
+    --ink: #eceae4;
+    --muted: #97958e;
+    --faint: #64635e;
+
+    /* Status palette (dark). Light values are set on .mock below. */
+    --done: oklch(0.80 0.17 150);  /* #5EDB81 */
+    --ask: oklch(0.85 0.135 80);   /* #FCC35D */
+
+    --ease-out: cubic-bezier(.2, .8, .2, 1);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font: 400 14px/1.5 var(--ui);
+    -webkit-font-smoothing: antialiased;
+  }
+  .defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+  .shell { max-width: 1320px; margin: 0 auto; padding: 40px 32px 80px; }
+  code { font: 12px/1 var(--mono); color: var(--ink); }
+
+  /* ---------- Intro ---------- */
+  .intro {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 24px 56px;
+    align-items: end;
+    padding-bottom: 28px;
+  }
+  .eyebrow {
+    margin: 0 0 14px;
+    font: 500 11px/1 var(--mono);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 { margin: 0 0 12px; font: 650 36px/1.05 var(--display); letter-spacing: -0.025em; }
+  .lede { margin: 0; max-width: 66ch; color: var(--muted); text-wrap: pretty; }
+  .lede b { color: var(--ink); font-weight: 600; }
+  .legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; color: var(--muted); }
+  .legend li { display: flex; align-items: center; gap: 10px; }
+  .key { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .key.none { box-shadow: inset 0 0 0 1px var(--faint); }
+
+  /* ---------- Scenario + tweaks ---------- */
+  .tweaks {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 24px;
+    padding: 12px 0;
+    background: var(--page);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .btn {
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    font: 500 13px/1 var(--ui);
+    cursor: pointer;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--line-strong); }
+  .btn:disabled { color: var(--faint); cursor: not-allowed; }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: var(--page); }
+  .hint { font-size: 12.5px; color: var(--muted); }
+  .seg { display: inline-flex; align-items: center; gap: 8px; }
+  .seg-label { font: 500 10.5px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+  .seg-opts { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .seg-opts button {
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    font: 500 12.5px/1 var(--ui);
+    cursor: pointer;
+  }
+  .seg-opts button:hover { color: var(--ink); }
+  .seg-opts button[aria-pressed="true"] { background: var(--ink); color: var(--page); }
+  :is(.btn, .seg-opts button):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  /* ---------- Sections ---------- */
+  section { padding-top: 44px; }
+  .section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 18px; }
+  .section-head h2 { margin: 0; font: 600 19px/1.2 var(--display); letter-spacing: -0.01em; }
+  .section-head p { margin: 0; font-size: 13px; color: var(--muted); }
+  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .variant-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 6px; }
+  .variant-head h3 { margin: 0 4px 0 0; font: 600 15px/1.2 var(--display); }
+  .tag { font: 500 10.5px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .tag.rec { padding: 4px 6px; border-radius: 4px; background: var(--ink); color: var(--page); }
+  .rule { margin: 0 0 14px; max-width: 50ch; min-height: 3em; font-size: 13px; color: var(--muted); text-wrap: pretty; }
+
+  /* ---------- Mock tokens (lifted from VerticalTabBar.swift + macOS dark/light labels) ---------- */
+  .mock {
+    --term: #282c34;                    /* Ghostty default background */
+    --bar: #22252c;                     /* terminal + 16% black, as the tab bar draws it */
+    --ink-1: rgba(255, 255, 255, .85);  /* labelColor */
+    --ink-2: rgba(255, 255, 255, .55);  /* secondaryLabelColor */
+    --ink-3: rgba(255, 255, 255, .25);  /* tertiaryLabelColor */
+    --sel: rgba(255, 255, 255, .14);    /* Color.primary.opacity(0.14) */
+    --hover: rgba(255, 255, 255, .06);
+    --hair: rgba(255, 255, 255, .10);
+    --edge: rgba(255, 255, 255, .08);
+    --shadow: 0 12px 32px rgba(0, 0, 0, .45);
+    --native-bar: #262626;
+    --native-sel: #474747;
+    --native-edge: rgba(255, 255, 255, .14);
+    --grid: rgba(255, 255, 255, .05);
+    --tc-green: #32d74b;                /* NSColor.systemGreen */
+    --tc-purple: #bf5af2;               /* NSColor.systemPurple */
+    --glass: none;
+  }
+  [data-bg="light"] .mock {
+    --term: #fafaf7;
+    --bar: #f0f0ed;
+    --ink-1: rgba(0, 0, 0, .85);
+    --ink-2: rgba(0, 0, 0, .5);
+    --ink-3: rgba(0, 0, 0, .26);
+    --sel: rgba(0, 0, 0, .14);
+    --hover: rgba(0, 0, 0, .05);
+    --hair: rgba(0, 0, 0, .10);
+    --edge: rgba(0, 0, 0, .12);
+    --shadow: 0 10px 28px rgba(0, 0, 0, .14);
+    --native-bar: #e6e6e6;
+    --native-sel: #ffffff;
+    --native-edge: rgba(0, 0, 0, .12);
+    --grid: rgba(0, 0, 0, .06);
+    --tc-green: #28cd41;
+    --tc-purple: #af52de;
+    --done: oklch(0.52 0.14 150);       /* #0A7E3A */
+    --ask: oklch(0.54 0.13 55);         /* #A6560A */
+  }
+  [data-bg="glass"] .mock {
+    /* background-opacity = 0.94 + background-blur = macos-glass-regular, from your Ghostty config */
+    --term: rgba(40, 44, 52, .94);
+    --bar: rgba(34, 37, 44, .94);
+    --native-bar: rgba(38, 38, 38, .88);
+    --glass: blur(28px) saturate(1.4);
+  }
+
+  /* ---------- Stage + window ---------- */
+  .stage, .strip-stage {
+    padding: 14px;
+    border-radius: 12px;
+    background: #08090a;
+    border: 1px solid var(--line);
+  }
+  .stage { display: flex; align-items: flex-start; gap: 12px; }
+  .strip-stage { overflow-x: auto; }
+  [data-bg="light"] :is(.stage, .strip-stage) { background: #d8d7d2; }
+  [data-bg="glass"] :is(.stage, .strip-stage) {
+    background:
+      radial-gradient(120% 90% at 0% 0%, #7a4630 0%, transparent 55%),
+      radial-gradient(100% 90% at 100% 100%, #1d5550 0%, transparent 60%),
+      linear-gradient(135deg, #2b1c17, #0f1f1e);
+  }
+  .window {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--term);
+    box-shadow: var(--shadow), 0 0 0 1px var(--edge);
+    -webkit-backdrop-filter: var(--glass);
+    backdrop-filter: var(--glass);
+  }
+  .window.narrow { flex: none; }
+  .term {
+    flex: 1;
+    min-width: 0;
+    padding: 12px;
+    font: 11px/1.7 var(--mono);
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+  .term div { overflow: hidden; text-overflow: ellipsis; }
+  .term .term-title { color: var(--ink-2); }
+  .caret { display: inline-block; width: 6px; height: 12px; vertical-align: -2px; background: var(--ink-2); }
+
+  /* ---------- Vertical bar ---------- */
+  .vbar {
+    width: 200px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    min-height: 268px;
+    background: var(--bar);
+    box-shadow: inset -1px 0 0 var(--hair);
+  }
+  .vbar.collapsed { width: 44px; box-shadow: none; }
+  .vbar-top { height: 34px; display: flex; align-items: center; padding: 0 6px; }
+  .vbar.collapsed .vbar-top { justify-content: center; }
+  .sidebar-icon { width: 24px; height: 24px; display: grid; place-items: center; color: var(--ink-2); }
+  .vrows { display: grid; gap: 2px; padding: 0 6px 8px; }
+
+  .vrow, .crow, .ntab {
+    all: unset;
+    box-sizing: border-box;
+    position: relative;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .vrow {
+    height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 8px;
+    border-radius: 7px;
+    color: var(--ink-2);
+    font: 400 12.5px/1 var(--ui);
+  }
+  .vrow:hover, .crow:hover { background: var(--hover); }
+  :is(.vrow, .crow)[aria-current="true"] { background: var(--sel); color: var(--ink-1); }
+  :is(.vrow, .crow, .ntab):focus-visible { outline: 2px solid var(--ink-1); outline-offset: -2px; }
+  .vrow .title { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; transition: color .16s; }
+  .plus { width: 7px; display: grid; place-items: center; }
+  .newtab .new-label { flex: 1; }
+
+  .slot { position: relative; width: 7px; height: 7px; flex: none; display: grid; place-items: center; }
+  .cdot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tc, transparent);
+    transition: opacity .16s var(--ease-out);
+  }
+  .trail {
+    position: relative;
+    min-width: 16px;
+    height: 16px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .kbd {
+    font: 400 11px/1 var(--ui);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-3);
+    white-space: nowrap;
+    transition: opacity .12s;
+  }
+  .x {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--ink-2);
+    opacity: 0;
+  }
+  .vrow:hover .x { opacity: 1; }
+  .vrow:hover :is(.kbd, .tshape) { opacity: 0 !important; }
+
+  /* Collapsed bar: numbers match goto_tab keybinds */
+  .crow {
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 7px;
+    color: var(--ink-2);
+    font: 600 12px/1 var(--rounded);
+    font-variant-numeric: tabular-nums;
+  }
+  .crow[data-colored] .num { color: var(--tc); }
+
+  /* ---------- Native top tabs ---------- */
+  .nbar {
+    min-width: 900px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 5px;
+    border-radius: 10px;
+    background: var(--native-bar);
+    box-shadow: var(--shadow), 0 0 0 1px var(--edge);
+    -webkit-backdrop-filter: var(--glass);
+    backdrop-filter: var(--glass);
+  }
+  .ntab {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px 0 28px;
+    border-radius: 14px;
+    color: var(--ink-2);
+    font: 500 11.5px/1 var(--ui);
+  }
+  .ntab:hover:not([aria-current="true"]) { background: var(--hover); }
+  .ntab[aria-current="true"] { background: var(--native-sel); box-shadow: inset 0 0 0 1px var(--native-edge); color: var(--ink-1); }
+  .ntitle { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .16s; }
+  .acc { display: flex; align-items: center; gap: 6px; flex: none; }
+  .ntab .slot { width: 9px; height: 9px; }
+  .ntab .cdot { width: 6px; height: 6px; }  /* TabColorIndicatorView */
+  .nclose {
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    margin: auto 0;
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--ink-2);
+    opacity: 0;
+  }
+  .ntab:hover .nclose { opacity: 1; }
+  .nplus { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: var(--ink-2); }
+  .strips { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .strip h3 { margin: 0 0 8px; font: 600 13px/1.2 var(--display); color: var(--muted); }
+
+  /* ---------- Status: shared ---------- */
+  [data-status="done"] { --st: var(--done); }
+  [data-status="ask"] { --st: var(--ask); }
+  .sdot, .tshape {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .16s var(--ease-out), transform .18s var(--ease-out);
+  }
+
+  /* A · Slot dot: a plain 6 pt dot that takes the tab-colour slot */
+  [data-variant="a"] .sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--st); transform: scale(.4); }
+  [data-variant="a"] [data-live] .sdot { opacity: 1; transform: none; }
+  [data-variant="a"] [data-live] .cdot { opacity: 0; }
+
+  /* B · Ringed dot: the ring is status, the fill stays identity */
+  [data-variant="b"] .sdot { width: 5px; height: 5px; border-radius: 50%; background: var(--core, var(--st)); transform: scale(.4); }
+  [data-variant="b"] .sdot::before,
+  [data-variant="b"] .sdot::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px var(--st);  /* not snapped to whole pixels like borders */
+  }
+  [data-variant="b"] .sdot::after { opacity: 0; }
+  [data-variant="b"] [data-live] .sdot { opacity: 1; transform: none; }
+  [data-variant="b"] [data-live] .cdot { opacity: 0; }
+  [data-variant="b"] [data-colored] { --core: var(--tc); }
+  [data-variant="b"] .crow { --core: initial; }  /* the numeral already carries the tab colour */
+  [data-variant="b"] [data-status="ask"] .sdot::after { animation: pulse 2.4s var(--ease-out) infinite; }
+  [data-variant="b"] [data-status="done"].arrive .sdot::after { animation: ping .9s var(--ease-out); }
+  [data-variant="b"] [data-status="done"] :is(.title, .ntitle) { color: var(--ink-1); font-weight: 600; }
+  [data-motion="reduced"] [data-variant="b"] [data-status="ask"] .sdot::before { inset: -2.5px; box-shadow: inset 0 0 0 1.5px var(--st); }
+  @keyframes pulse {
+    0% { transform: scale(1); opacity: .8; }
+    75%, 100% { transform: scale(2.1); opacity: 0; }
+  }
+  @keyframes ping {
+    0% { transform: scale(1); opacity: .9; }
+    100% { transform: scale(2.6); opacity: 0; }
+  }
+
+  /* C · Trailing shapes: ● done, ◆ waiting, in place of the ⌘N hint */
+  [data-variant="c"] .tshape { width: 6px; height: 6px; border-radius: 50%; background: var(--st); transform: scale(.4); }
+  [data-variant="c"] [data-status="ask"] .tshape { width: 5.5px; height: 5.5px; border-radius: 1.2px; transform: rotate(45deg) scale(.4); }
+  [data-variant="c"] [data-live] .tshape { opacity: 1; transform: none; }
+  [data-variant="c"] [data-live][data-status="ask"] .tshape { transform: rotate(45deg); }
+  [data-variant="c"] [data-live] .kbd { opacity: 0; }
+
+  /* Collapsed placement */
+  [data-variant] .crow :is(.sdot, .tshape) { inset: auto; margin: 0; top: 50%; }
+  [data-variant="a"] .crow .sdot { top: 7px; left: calc(50% + 4px); width: 5px; height: 5px; }
+  [data-variant="b"] .crow .sdot { left: 4px; margin-top: -2.5px; }
+  [data-variant="c"] .crow .tshape { right: 5px; margin-top: -3px; }
+  [data-variant="c"] .crow[data-status="ask"] .tshape { margin-top: -2.75px; }
+
+  /* ---------- Spec ---------- */
+  .palette {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px 24px;
+    margin-bottom: 20px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+  }
+  .palette h4, .notes h2 {
+    margin: 0 0 10px;
+    font: 500 10.5px/1 var(--mono);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .palette p { margin: 0 0 6px; font-size: 12.5px; color: var(--muted); text-wrap: pretty; }
+  .chip { display: flex; align-items: center; gap: 10px; }
+  .chip i { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .spec { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  .zooms { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 16px; }
+  .zooms figure { margin: 0; display: grid; gap: 8px; justify-items: center; }
+  .zoom {
+    width: 88px;
+    height: 88px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    overflow: hidden;
+    background-color: var(--bar);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 8px 8px;
+    background-position: 4px 4px;
+  }
+  .zoom > * { transform: scale(8); }
+  .zoom.gray { filter: grayscale(1); }
+  .zoom.gray > * { transform: scale(4); }
+  .pair { display: flex; gap: 4px; }
+  .pair .trail { min-width: 8px; width: 8px; height: 8px; }
+  figcaption { font: 500 10px/1.2 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); text-align: center; max-width: 88px; }
+  .spec dl { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 8px 12px; margin: 0; font-size: 12.5px; }
+  .spec dt { font: 500 10.5px/1.7 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--faint); }
+  .spec dd { margin: 0; color: var(--ink); text-wrap: pretty; }
+
+  .notes { margin-top: 44px; padding-top: 24px; border-top: 1px solid var(--line); }
+  .notes ul { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 32px; }
+  .notes li { font-size: 13px; color: var(--muted); text-wrap: pretty; }
+  .notes li b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- Vision + motion ---------- */
+  [data-vision="deutan"] main { filter: url(#deutan); }
+  [data-vision="gray"] main { filter: grayscale(1); }
+  [data-motion="reduced"] .mock *,
+  [data-motion="reduced"] .mock *::before,
+  [data-motion="reduced"] .mock *::after { animation: none !important; transition: none !important; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 1180px) {
+    .cols, .palette { grid-template-columns: minmax(0, 1fr); }
+    .rule { min-height: 0; }
+  }
+  @media (max-width: 720px) {
+    .shell { padding: 24px 16px 56px; }
+    .intro { grid-template-columns: minmax(0, 1fr); }
+    h1 { font-size: 28px; }
+    .tweaks { position: static; }
+    .stage { overflow-x: auto; }
+    .notes ul { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (pointer: coarse) {
+    .btn { height: 44px; }
+    .seg-opts button { height: 40px; }
+  }
+</style>
+</head>
+<body>
+<svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+  <!-- Machado et al. 2009, deuteranopia at full severity -->
+  <filter id="deutan" color-interpolation-filters="linearRGB">
+    <feColorMatrix type="matrix" values="0.367322 0.860646 -0.227968 0 0  0.280085 0.672501 0.047413 0 0  -0.011820 0.042940 0.968881 0 0  0 0 0 1 0"/>
+  </filter>
+</svg>
+
+<div class="shell">
+  <header class="intro">
+    <div>
+      <p class="eyebrow">booTTY · tab bar · design exploration</p>
+      <h1>Agent status dots</h1>
+      <p class="lede"><b>Surface: Monitor.</b> From any tab, spot which agent finished and which one is waiting on you. Three replacements for the 🟢/🟡 title emoji, all under 10 pt, drawn by the tab bar itself so they can never be mistaken for a tab colour.</p>
+    </div>
+    <ul class="legend" aria-label="States">
+      <li><span class="key" style="background: var(--done)"></span>Finished, not viewed yet</li>
+      <li><span class="key" style="background: var(--ask)"></span>Waiting for your answer</li>
+      <li><span class="key none"></span>Working or viewed: no dot</li>
+    </ul>
+  </header>
+
+  <nav class="tweaks" aria-label="Scenario and view settings">
+    <div class="group">
+      <button type="button" class="btn primary" id="play">Play scenario</button>
+      <button type="button" class="btn" id="answer" disabled>Answer</button>
+      <button type="button" class="btn" id="reset">Reset</button>
+      <span class="hint" id="hint" aria-live="polite"></span>
+    </div>
+    <div class="group">
+      <div class="seg" data-pref="bg" role="group" aria-label="Background">
+        <span class="seg-label" aria-hidden="true">Background</span>
+        <span class="seg-opts"><button type="button" data-value="dark">Dark</button><button type="button" data-value="light">Light</button><button type="button" data-value="glass">Glass</button></span>
+      </div>
+      <div class="seg" data-pref="motion" role="group" aria-label="Motion">
+        <span class="seg-label" aria-hidden="true">Motion</span>
+        <span class="seg-opts"><button type="button" data-value="full">Full</button><button type="button" data-value="reduced">Reduced</button></span>
+      </div>
+      <div class="seg" data-pref="vision" role="group" aria-label="Vision">
+        <span class="seg-label" aria-hidden="true">Vision</span>
+        <span class="seg-opts"><button type="button" data-value="normal">Normal</button><button type="button" data-value="deutan">Deuteranopia</button><button type="button" data-value="gray">Grayscale</button></span>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <section id="vertical" aria-labelledby="vertical-h">
+      <div class="section-head">
+        <h2 id="vertical-h">Vertical tab bar</h2>
+        <p>200 pt expanded, 44 pt collapsed. Rows, radius and type lifted from <code>VerticalTabBar.swift</code>.</p>
+      </div>
+      <div class="cols">
+        <article>
+          <div class="variant-head"><h3>A · Slot dot</h3><span class="tag">Conservative</span></div>
+          <p class="rule">A 6 pt dot takes the tab-colour slot while a status is live. Hue alone says which one.</p>
+          <div class="stage mock" data-variant="a"></div>
+        </article>
+        <article>
+          <div class="variant-head"><h3>B · Ringed dot</h3><span class="tag">Strong fit</span><span class="tag rec">Recommended</span></div>
+          <p class="rule">Status is always a ring; the fill stays the tab's own colour. Waiting pulses; done bolds the title until you look.</p>
+          <div class="stage mock" data-variant="b"></div>
+        </article>
+        <article>
+          <div class="variant-head"><h3>C · Trailing shapes</h3><span class="tag">Divergent</span></div>
+          <p class="rule">Status replaces the ⌘N hint at the end of the row: ● done, ◆ waiting. Shape, not motion, tells them apart.</p>
+          <div class="stage mock" data-variant="c"></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="native" aria-labelledby="native-h">
+      <div class="section-head">
+        <h2 id="native-h">Native top tabs</h2>
+        <p>Tab Bar Position: Top. Status joins the tab-colour indicator in each tab's accessory view (<code>TerminalWindow.swift</code>).</p>
+      </div>
+      <div class="strips">
+        <div class="strip"><h3>A · Slot dot</h3><div class="strip-stage mock" data-variant="a"></div></div>
+        <div class="strip"><h3>B · Ringed dot</h3><div class="strip-stage mock" data-variant="b"></div></div>
+        <div class="strip"><h3>C · Trailing shapes</h3><div class="strip-stage mock" data-variant="c"></div></div>
+      </div>
+    </section>
+
+    <section id="spec" aria-labelledby="spec-h">
+      <div class="section-head">
+        <h2 id="spec-h">Spec</h2>
+        <p>Magnified 8×; one grid square is 1 pt.</p>
+      </div>
+      <div class="palette">
+        <div>
+          <h4>Done</h4>
+          <p class="chip"><i style="background: #5EDB81"></i><code>oklch(0.80 0.17 150)</code> #5EDB81, dark</p>
+          <p class="chip"><i style="background: #0A7E3A"></i><code>oklch(0.52 0.14 150)</code> #0A7E3A, light</p>
+        </div>
+        <div>
+          <h4>Waiting</h4>
+          <p class="chip"><i style="background: #FCC35D"></i><code>oklch(0.85 0.135 80)</code> #FCC35D, dark</p>
+          <p class="chip"><i style="background: #A6560A"></i><code>oklch(0.54 0.13 55)</code> #A6560A, light</p>
+        </div>
+        <div>
+          <h4>Contrast</h4>
+          <p>At least 5.2:1 in dark and 3.2:1 in light against the bar, the selected row and the native tabs shown here. WCAG asks 3:1 for indicators.</p>
+        </div>
+      </div>
+      <div class="cols">
+        <article class="spec mock" data-variant="a">
+          <div class="variant-head"><h3>A · Slot dot</h3><span class="tag">Conservative</span></div>
+          <div class="zooms">
+            <figure><div class="zoom" data-status="done" data-live><span class="slot"><span class="cdot"></span><span class="sdot"></span></span></div><figcaption>Done</figcaption></figure>
+            <figure><div class="zoom" data-status="ask" data-live><span class="slot"><span class="cdot"></span><span class="sdot"></span></span></div><figcaption>Waiting</figcaption></figure>
+            <figure><div class="zoom" data-status="idle" data-colored style="--tc: var(--tc-green)"><span class="slot"><span class="cdot"></span><span class="sdot"></span></span></div><figcaption>Green tab colour</figcaption></figure>
+          </div>
+          <dl>
+            <dt>Size</dt><dd>6 pt solid dot.</dd>
+            <dt>Where</dt><dd>The tab-colour slot before the title. Collapsed: a badge on the number. Native: beside ⌘N.</dd>
+            <dt>Tells apart</dt><dd>Hue only.</dd>
+            <dt>Motion</dt><dd>160 ms fade in, then still.</dd>
+            <dt>Tab colour</dt><dd>Hidden by the status until it clears.</dd>
+            <dt>Risk</dt><dd>Same shape as a tab colour, so a green tab reads as finished. Weak under red–green colour blindness.</dd>
+            <dt>Build</dt><dd><code>ColorDot</code> and <code>TabColorIndicatorView</code> take a status override.</dd>
+          </dl>
+        </article>
+        <article class="spec mock" data-variant="b">
+          <div class="variant-head"><h3>B · Ringed dot</h3><span class="tag rec">Recommended</span></div>
+          <div class="zooms">
+            <figure><div class="zoom" data-status="done" data-live><span class="slot"><span class="cdot"></span><span class="sdot"></span></span></div><figcaption>Done</figcaption></figure>
+            <figure><div class="zoom" data-status="ask" data-live><span class="slot"><span class="cdot"></span><span class="sdot"></span></span></div><figcaption>Waiting</figcaption></figure>
+            <figure><div class="zoom" data-status="done" data-live data-colored style="--tc: var(--tc-purple)"><span class="slot"><span class="cdot"></span><span class="sdot"></span></span></div><figcaption>Done, purple tab</figcaption></figure>
+          </div>
+          <dl>
+            <dt>Size</dt><dd>5 pt core, 1 pt gap, 1 pt ring: 9 pt overall.</dd>
+            <dt>Where</dt><dd>The tab-colour slot. Collapsed: left of the number. Native: beside ⌘N.</dd>
+            <dt>Tells apart</dt><dd>Motion and type: waiting pulses; done bolds the title until you view it.</dd>
+            <dt>Motion</dt><dd>Done pings once (0.9 s). Waiting pulses every 2.4 s until answered. Reduced motion: both still, and the waiting ring thickens to 1.5 pt.</dd>
+            <dt>Tab colour</dt><dd>Kept as the fill; the ring carries status. Rings only ever mean status.</dd>
+            <dt>Risk</dt><dd>A question left unanswered keeps pulsing.</dd>
+            <dt>Build</dt><dd>New <code>StatusDot</code> (circle, ring, repeating pulse) in the <code>ColorDot</code> slot; title weight follows status. Native: accessory view plus <code>NSWindowTab.attributedTitle</code>.</dd>
+          </dl>
+        </article>
+        <article class="spec mock" data-variant="c">
+          <div class="variant-head"><h3>C · Trailing shapes</h3><span class="tag">Divergent</span></div>
+          <div class="zooms">
+            <figure><div class="zoom" data-status="done" data-live><span class="trail"><span class="tshape"></span></span></div><figcaption>Done</figcaption></figure>
+            <figure><div class="zoom" data-status="ask" data-live><span class="trail"><span class="tshape"></span></span></div><figcaption>Waiting</figcaption></figure>
+            <figure><div class="zoom gray"><span class="pair"><span class="trail" data-status="done" data-live><span class="tshape"></span></span><span class="trail" data-status="ask" data-live><span class="tshape"></span></span></span></div><figcaption>Grayscale, 4×</figcaption></figure>
+          </div>
+          <dl>
+            <dt>Size</dt><dd>6 pt dot; 5.5 pt diamond, 7.8 pt tip to tip.</dd>
+            <dt>Where</dt><dd>Replaces ⌘N at the end of the row. Collapsed: right of the number. Native: replaces the ⌘N label.</dd>
+            <dt>Tells apart</dt><dd>Shape: circle or diamond, readable in grayscale.</dd>
+            <dt>Motion</dt><dd>180 ms pop in, then still.</dd>
+            <dt>Tab colour</dt><dd>Untouched: identity leads, status trails.</dd>
+            <dt>Risk</dt><dd>Off the scan line of a left-docked bar; hovering swaps it for ×. In native tabs it lands beside the tab-colour dot.</dd>
+            <dt>Build</dt><dd>The trailing <code>ZStack</code> in <code>VerticalTabRow</code> swaps the shortcut <code>Text</code>; native swaps <code>keyEquivalentLabel</code>.</dd>
+          </dl>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="notes">
+    <h2>Notes</h2>
+    <ul>
+      <li><b>booTTY has to draw these.</b> A program can only set a tab's title text, and the only coloured characters text can carry are emoji, which have a fixed size and colour. The omp extension would send a status instead, and the tab bar draws the dot.</li>
+      <li><b>Shared rules.</b> Green clears when you view the tab; amber clears when you answer. A finish in the tab you're viewing gets no dot, since the whistle covers it. Working has no dot: omp's spinner in the title already shows it. A tab with several panes shows its most urgent one.</li>
+    </ul>
+  </footer>
+</div>
+
+<script>
+  const TABS = [
+    { id: 1, name: "Remove residual defensive slop checks" },
+    { id: 2, name: "Wayfinder relayer single binary map" },
+    { id: 3, name: "Inline seat member proposer/executor setup" },
+    { id: 4, name: "Rename repo to BooTTY" },
+    { id: 5, name: "Tighten fuzz harness", color: "green" },
+    { id: 6, name: "zsh — ~/Workspace", color: "purple", shell: true },
+  ];
+  const SHOWCASE = { 1: "done", 2: "ask", 3: "working", 4: "idle", 5: "done", 6: "idle" };
+  const BASELINE = { 1: "working", 2: "working", 3: "working", 4: "idle", 5: "working", 6: "idle" };
+  const SCRIPT = [[1000, 3, "done"], [2300, 2, "ask"], [3700, 1, "done"], [5100, 5, "done"]];
+  const SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+  const SAY = { idle: "", working: "working", done: "finished, not viewed yet", ask: "waiting for your answer" };
+  const PREFS_KEY = "booTTY-status-dots";
+
+  const X_ICON = '<svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true"><path d="M1.2 1.2l5.6 5.6M6.8 1.2L1.2 6.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  const SIDEBAR_ICON = '<svg width="15" height="12" viewBox="0 0 15 12" aria-hidden="true"><rect x=".65" y=".65" width="13.7" height="10.7" rx="2.3" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M5.2 1v10" stroke="currentColor" stroke-width="1.3"/></svg>';
+  const PLUS_ICON = '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 1v8M1 5h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+
+  const root = document.documentElement;
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+
+  let status = { ...SHOWCASE };
+  let selected = 4;
+  let frame = 0;
+  let timers = [];
+
+  // ---------- Markup ----------
+  const tabAttrs = tab =>
+    `data-id="${tab.id}"${tab.color ? ` data-colored style="--tc: var(--tc-${tab.color})"` : ""}`;
+
+  const verticalRow = tab => `
+    <button type="button" class="vrow" ${tabAttrs(tab)}>
+      <span class="slot"><span class="cdot"></span><span class="sdot"></span></span>
+      <span class="title"></span>
+      <span class="trail"><span class="kbd">⌘${tab.id}</span><span class="tshape"></span><span class="x">${X_ICON}</span></span>
+    </button>`;
+
+  const collapsedRow = tab => `
+    <button type="button" class="crow" ${tabAttrs(tab)}><span class="num">${tab.id}</span><span class="sdot"></span><span class="tshape"></span></button>`;
+
+  const nativeTab = tab => `
+    <button type="button" class="ntab" ${tabAttrs(tab)}>
+      <span class="nclose">${X_ICON}</span>
+      <span class="ntitle"></span>
+      <span class="acc">
+        <span class="slot"><span class="cdot"></span><span class="sdot"></span></span>
+        <span class="trail"><span class="kbd">⌘${tab.id}</span><span class="tshape"></span></span>
+      </span>
+    </button>`;
+
+  const stage = v => `
+    <div class="window">
+      <div class="vbar" role="group" aria-label="Expanded tab bar, option ${v.toUpperCase()}">
+        <div class="vbar-top"><span class="sidebar-icon">${SIDEBAR_ICON}</span></div>
+        <div class="vrows">
+          ${TABS.map(verticalRow).join("")}
+          <div class="vrow newtab" aria-hidden="true"><span class="plus">${PLUS_ICON}</span><span class="new-label">New Tab</span></div>
+        </div>
+      </div>
+      <div class="term" aria-hidden="true">
+        <div>~/Workspace/personal/booTTY</div>
+        <div>❯ omp</div>
+        <div class="term-title"></div>
+        <div>❯ <span class="caret"></span></div>
+      </div>
+    </div>
+    <div class="window narrow">
+      <div class="vbar collapsed" role="group" aria-label="Collapsed tab bar, option ${v.toUpperCase()}">
+        <div class="vbar-top"><span class="sidebar-icon">${SIDEBAR_ICON}</span></div>
+        <div class="vrows">
+          ${TABS.map(collapsedRow).join("")}
+          <div class="crow newtab" aria-hidden="true">${PLUS_ICON}</div>
+        </div>
+      </div>
+    </div>`;
+
+  const strip = v => `
+    <div class="nbar" role="group" aria-label="Native tab bar, option ${v.toUpperCase()}">
+      ${TABS.map(nativeTab).join("")}
+      <span class="nplus" aria-hidden="true">${PLUS_ICON}</span>
+    </div>`;
+
+  // ---------- Titles ----------
+  function titleOf(tab) {
+    if (tab.shell) return tab.name;
+    const s = status[tab.id];
+    const mark = s === "working" ? SPINNER[frame % SPINNER.length] : s === "ask" ? "!" : ">";
+    return `π ${mark} ${tab.name}`;
+  }
+
+  // SwiftUI's .truncationMode(.middle), which CSS can't do.
+  const measure = document.createElement("canvas").getContext("2d");
+  function fitMiddle(text, el) {
+    const max = el.clientWidth;
+    if (!max) return text;
+    const cs = getComputedStyle(el);
+    measure.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    if (measure.measureText(text).width <= max) return text;
+    const cut = n => {
+      const head = Math.ceil(n / 2);
+      const tail = n - head;
+      return text.slice(0, head) + "…" + (tail ? text.slice(text.length - tail) : "");
+    };
+    let lo = 0;
+    let hi = text.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (measure.measureText(cut(mid)).width <= max) lo = mid;
+      else hi = mid - 1;
+    }
+    return cut(lo);
+  }
+
+  function paintTitles(onlyWorking = false) {
+    for (const el of $$(onlyWorking ? '[data-id][data-status="working"]' : "[data-id]")) {
+      const text = titleOf(TABS[el.dataset.id - 1]);
+      el.title = text;
+      const t = $(".title, .ntitle", el);
+      if (t) t.textContent = el.classList.contains("vrow") ? fitMiddle(text, t) : text;
+    }
+    const current = `  ${titleOf(TABS[selected - 1])}`;
+    for (const t of $$(".term-title")) t.textContent = current;
+  }
+
+  // ---------- State ----------
+  function update(arrived) {
+    for (const el of $$("[data-id]")) {
+      const id = Number(el.dataset.id);
+      const s = status[id];
+      el.dataset.status = s;
+      el.toggleAttribute("data-live", s === "done" || s === "ask");
+      el.setAttribute("aria-current", String(id === selected));
+      el.setAttribute("aria-label", `Tab ${id}: ${titleOf(TABS[id - 1])}${SAY[s] ? `, ${SAY[s]}` : ""}`);
+      if (id === arrived) {
+        el.classList.remove("arrive");
+        void el.offsetWidth; // restart the one-shot arrival animation
+        el.classList.add("arrive");
+        setTimeout(() => el.classList.remove("arrive"), 1000);
+      }
+    }
+    paintTitles();
+    const asking = status[selected] === "ask";
+    $("#answer").disabled = !asking;
+    const hint = asking
+      ? "This tab is waiting on you. Answer clears amber."
+      : "Click a tab to view it: green clears. Amber stays until you answer.";
+    if ($("#hint").textContent !== hint) $("#hint").textContent = hint;
+  }
+
+  function set(id, s) {
+    if (s === "done" && id === selected) s = "idle"; // you're already looking at it
+    if (status[id] === s) return;
+    status[id] = s;
+    update(s === "done" || s === "ask" ? id : undefined);
+  }
+
+  function select(id) {
+    selected = id;
+    if (status[id] === "done") status[id] = "idle"; // viewing clears green
+    update();
+  }
+
+  const later = (ms, fn) => timers.push(setTimeout(fn, ms));
+  function stopScript() {
+    timers.forEach(clearTimeout);
+    timers = [];
+  }
+
+  function answer() {
+    const id = selected;
+    if (status[id] !== "ask") return;
+    set(id, "working");
+    later(1800, () => set(id, "done"));
+  }
+
+  function play() {
+    stopScript();
+    status = { ...BASELINE };
+    selected = 4;
+    update();
+    for (const [ms, id, s] of SCRIPT) later(ms, () => set(id, s));
+  }
+
+  function reset() {
+    stopScript();
+    status = { ...SHOWCASE };
+    selected = 4;
+    update();
+  }
+
+  // ---------- Preferences ----------
+  const prefs = (() => {
+    try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch { return {}; }
+  })();
+  function applyPref(key, value) {
+    root.dataset[key] = value;
+    for (const b of $$(`[data-pref="${key}"] button`)) b.setAttribute("aria-pressed", String(b.dataset.value === value));
+    prefs[key] = value;
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+  }
+
+  // ---------- Wire up ----------
+  for (const el of $$(".stage[data-variant]")) el.innerHTML = stage(el.dataset.variant);
+  for (const el of $$(".strip-stage[data-variant]")) el.innerHTML = strip(el.dataset.variant);
+
+  document.addEventListener("click", e => {
+    const pref = e.target.closest("[data-pref] button");
+    if (pref) return applyPref(pref.closest("[data-pref]").dataset.pref, pref.dataset.value);
+    const tab = e.target.closest("[data-id]");
+    if (tab) select(Number(tab.dataset.id));
+  });
+  $("#play").addEventListener("click", play);
+  $("#answer").addEventListener("click", answer);
+  $("#reset").addEventListener("click", reset);
+
+  applyPref("bg", prefs.bg || "dark");
+  applyPref("motion", prefs.motion || (matchMedia("(prefers-reduced-motion: reduce)").matches ? "reduced" : "full"));
+  applyPref("vision", prefs.vision || "normal");
+  update();
+  document.fonts?.ready.then(() => paintTitles());
+
+  setInterval(() => {
+    if (root.dataset.motion === "reduced") return;
+    frame++;
+    paintTitles(true);
+  }, 90);
+</script>
+</body>
+</html>

@@ -61,6 +61,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The notification cancellable for focused surface property changes.
     private var surfaceAppearanceCancellables: Set<AnyCancellable> = []
 
+    /// Draws the most urgent agent status of this tab's surfaces on the tab.
+    private var agentStatusCancellable: AnyCancellable?
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -1107,18 +1110,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface = view
         }
 
-        // Initialize our content view to the SwiftUI root
+        // Initialize our content view to the SwiftUI root. Window styles that support
+        // it get a vertical tab bar beside the terminal when the tab bar is on a side.
+        let terminalWindow = window as? TerminalWindow
+        let verticalTabBar = terminalWindow?.supportsVerticalTabBar == true ? terminalWindow?.verticalTabBar : nil
         let container = TerminalViewContainer {
-            TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            VerticalTabBarLayout(model: verticalTabBar) {
+                TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
+            }
         }
 
         // Set the initial content size on the container so that
         // intrinsicContentSize returns the correct value immediately,
         // without waiting for @FocusedValue to propagate through the
-        // SwiftUI focus chain.
-        container.initialContentSize = focusedSurface?.initialSize
+        // SwiftUI focus chain. A vertical tab bar adds to the terminal size.
+        let tabBarWidth = terminalWindow?.showsVerticalTabBar == true ? TabBarSettings.shared.verticalWidth : 0
+        container.initialContentSize = focusedSurface?.initialSize.map {
+            NSSize(width: $0.width + tabBarWidth, height: $0.height)
+        }
 
         window.contentView = container
+
+        // The tab shows its most urgent agent status. This emits the current value
+        // right away, so tabs moved into a new window keep their ring.
+        agentStatusCancellable = surfaceValuesPublisher(
+            valueKeyPath: \.agentStatus,
+            publisherKeyPath: \.$agentStatus
+        )
+            .map { $0.values.compactMap { $0 }.max() }
+            .removeDuplicates()
+            .sink { [weak terminalWindow] in terminalWindow?.agentStatus = $0 }
 
         // If we have a default size, we want to apply it.
         if let defaultSize {

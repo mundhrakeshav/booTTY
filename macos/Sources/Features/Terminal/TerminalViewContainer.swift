@@ -45,9 +45,14 @@ class TerminalViewContainer: NSView {
         // with the correct idealWidth/idealHeight. Before that (when
         // @FocusedValue hasn't propagated), it returns a tiny default.
         // Fall back to initialContentSize in that case.
-        if let initialContentSize,
-           hostingSize.width < initialContentSize.width || hostingSize.height < initialContentSize.height {
-            return initialContentSize
+        if let initialContentSize {
+            if hostingSize.width < initialContentSize.width || hostingSize.height < initialContentSize.height {
+                return initialContentSize
+            }
+
+            // SwiftUI has laid out, so stop using the fallback. Otherwise it goes stale
+            // when the content's ideal size shrinks, e.g. a narrower vertical tab bar.
+            self.initialContentSize = nil
         }
         return hostingSize
     }

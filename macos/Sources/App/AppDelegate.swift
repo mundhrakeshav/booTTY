@@ -1281,6 +1281,20 @@ extension AppDelegate {
     }
 }
 
+// MARK: Tab Bar
+
+extension AppDelegate {
+    /// View > Tab Bar > Top, Left, Right. The item tag indexes `TabBarPosition.allCases`.
+    @IBAction func setTabBarPosition(_ sender: NSMenuItem) {
+        guard let position = TabBarPosition.allCases[safe: sender.tag] else { return }
+        TabBarSettings.shared.position = position
+    }
+
+    @IBAction func toggleTabBarCollapsed(_ sender: Any?) {
+        TabBarSettings.shared.isCollapsed.toggle()
+    }
+}
+
 // MARK: NSMenuItemValidation
 
 extension AppDelegate: NSMenuItemValidation {
@@ -1294,6 +1308,15 @@ extension AppDelegate: NSMenuItemValidation {
             // Float on top items only active if the key window is a primary
             // terminal window (not quick terminal).
             return NSApp.keyWindow is TerminalWindow
+
+        case #selector(setTabBarPosition(_:)):
+            let settings = TabBarSettings.shared
+            item.state = TabBarPosition.allCases[safe: item.tag] == settings.position ? .on : .off
+            return (NSApp.keyWindow as? TerminalWindow)?.supportsVerticalTabBar ?? false
+
+        case #selector(toggleTabBarCollapsed(_:)):
+            item.title = TabBarSettings.shared.isCollapsed ? "Expand Tab Bar" : "Collapse Tab Bar"
+            return (NSApp.keyWindow as? TerminalWindow)?.showsVerticalTabBar ?? false
 
         case #selector(undo(_:)):
             if undoManager.canUndo {

@@ -4,6 +4,9 @@ class HiddenTitlebarTerminalWindow: TerminalWindow {
     // No titlebar, we don't support accessories.
     override var supportsUpdateAccessory: Bool { false }
 
+    // Tabbing is disallowed without a titlebar, so there is nothing to list.
+    override var supportsVerticalTabBar: Bool { false }
+
     override func awakeFromNib() {
         super.awakeFromNib()
 

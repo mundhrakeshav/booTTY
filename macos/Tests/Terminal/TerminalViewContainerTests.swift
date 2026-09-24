@@ -5,6 +5,7 @@
 //  Created by Lukas on 26.02.2026.
 //
 
+import Combine
 import SwiftUI
 import Testing
 @testable import Ghostty
@@ -59,5 +60,25 @@ struct TerminalViewContainerTests {
         } else {
             #expect(view.glassEffectView == nil)
         }
+    }
+
+    /// Once SwiftUI reports the content's ideal size, the initial size fallback must not
+    /// hold the window at a size the content has since shrunk from.
+    @MainActor
+    @Test func followsContentAfterLayout() async throws {
+        final class IdealWidth: ObservableObject { @Published var value: CGFloat = 400 }
+        struct Content: View {
+            @ObservedObject var width: IdealWidth
+            var body: some View { Color.clear.frame(idealWidth: width.value, idealHeight: 300) }
+        }
+
+        let width = IdealWidth()
+        let view = TerminalViewContainer { Content(width: width) }
+        view.initialContentSize = NSSize(width: 400, height: 300)
+        #expect(view.intrinsicContentSize == NSSize(width: 400, height: 300))
+
+        width.value = 250
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(view.intrinsicContentSize == NSSize(width: 250, height: 300))
     }
 }
