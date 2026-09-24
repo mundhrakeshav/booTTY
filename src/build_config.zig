@@ -57,6 +57,12 @@ pub const i18n: bool = config.i18n;
 /// avoid it in Zig coe as much as possible.
 pub const bundle_id = "com.mitchellh.ghostty";
 
+/// booTTY: name of the per-user directory for config, themes, and crash
+/// data (`$XDG_CONFIG_HOME/<name>`, `~/Library/Application Support/<name>`,
+/// etc.). Deliberately differs from upstream so booTTY never reads or
+/// writes Ghostty's files.
+pub const user_dir_name = "bootty";
+
 /// True if we should have "slow" runtime safety checks. The initial motivation
 /// for this was terminal page/pagelist integrity checks. These were VERY
 /// slow but very thorough. But they made it so slow that the terminal couldn't

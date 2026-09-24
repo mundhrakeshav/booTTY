@@ -142,7 +142,7 @@ fn commonDir(
 
     return try std.fs.path.join(
         alloc,
-        &.{ base_dir, build_config.bundle_id, sub_path },
+        &.{ base_dir, build_config.user_dir_name, sub_path },
     );
 }
 
@@ -157,7 +157,7 @@ test "cacheDir paths" {
         const cache_path = try cacheDir(alloc, "");
         defer alloc.free(cache_path);
         try testing.expect(std.mem.indexOf(u8, cache_path, "Caches") != null);
-        try testing.expect(std.mem.indexOf(u8, cache_path, build_config.bundle_id) != null);
+        try testing.expect(std.mem.indexOf(u8, cache_path, build_config.user_dir_name) != null);
     }
 
     // Test with subdir
@@ -165,9 +165,9 @@ test "cacheDir paths" {
         const cache_path = try cacheDir(alloc, "test");
         defer alloc.free(cache_path);
         try testing.expect(std.mem.indexOf(u8, cache_path, "Caches") != null);
-        try testing.expect(std.mem.indexOf(u8, cache_path, build_config.bundle_id) != null);
+        try testing.expect(std.mem.indexOf(u8, cache_path, build_config.user_dir_name) != null);
 
-        const bundle_path = try std.fmt.allocPrint(alloc, "{s}/test", .{build_config.bundle_id});
+        const bundle_path = try std.fmt.allocPrint(alloc, "{s}/test", .{build_config.user_dir_name});
         defer alloc.free(bundle_path);
         try testing.expect(std.mem.indexOf(u8, cache_path, bundle_path) != null);
     }
