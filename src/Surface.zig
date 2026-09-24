@@ -1129,6 +1129,19 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
             };
         },
 
+        .set_user_var => |v| {
+            _ = self.rt_app.performAction(
+                .{ .surface = self },
+                .set_user_var,
+                .{
+                    .name = std.mem.sliceTo(&v.name, 0),
+                    .value = std.mem.sliceTo(&v.value, 0),
+                },
+            ) catch |err| {
+                log.warn("apprt failed to set user var err={}", .{err});
+            };
+        },
+
         .selection_scroll_tick => |active| {
             self.selection_scroll_active = active;
             try self.selectionScrollTick();

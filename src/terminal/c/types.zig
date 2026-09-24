@@ -1016,6 +1016,7 @@ test "manifest uses public enum names" {
     try std.testing.expectEqual(@as(i64, 24), osc_values.get("KITTY_DND_PROTOCOL").?.integer);
     try std.testing.expectEqual(@as(i64, 25), osc_values.get("CONTEXT_SIGNAL").?.integer);
     try std.testing.expectEqual(@as(i64, 26), osc_values.get("KITTY_DESKTOP_NOTIFICATION").?.integer);
+    try std.testing.expectEqual(@as(i64, 27), osc_values.get("SET_USER_VAR").?.integer);
     try std.testing.expect(osc_values.contains("TYPE_MAX_VALUE"));
     try std.testing.expect(!osc_values.contains("MAX_VALUE"));
 

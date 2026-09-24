@@ -931,6 +931,13 @@ typedef struct {
   ssize_t selected;
 } ghostty_action_search_selected_s;
 
+// apprt.action.SetUserVar.C
+typedef struct {
+  const char* name;
+  // Decoded from the base64 the program sent.
+  const char* value;
+} ghostty_action_set_user_var_s;
+
 // terminal.Scrollbar
 typedef struct {
   uint64_t total;
@@ -1009,6 +1016,7 @@ typedef enum {
   GHOSTTY_ACTION_READONLY,
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
+  GHOSTTY_ACTION_SET_USER_VAR,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1052,6 +1060,7 @@ typedef union {
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
   ghostty_action_open_config_e open_config;
+  ghostty_action_set_user_var_s set_user_var;
 } ghostty_action_u;
 
 typedef struct {

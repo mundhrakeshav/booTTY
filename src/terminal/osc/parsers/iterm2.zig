@@ -154,6 +154,30 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
             return &parser.command;
         },
 
+        .SetUserVar => {
+            // <name>=<base64 value>; the value may be empty (clears it).
+            const value = value_ orelse {
+                parser.command = .invalid;
+                return null;
+            };
+            const index = std.mem.indexOfScalar(u8, value, '=') orelse {
+                parser.command = .invalid;
+                return null;
+            };
+            if (index == 0) {
+                parser.command = .invalid;
+                return null;
+            }
+            value[index] = 0;
+            parser.command = .{
+                .set_user_var = .{
+                    .name = value[0..index :0],
+                    .value = value[index + 1 .. value.len :0],
+                },
+            };
+            return &parser.command;
+        },
+
         .AddAnnotation,
         .AddHiddenAnnotation,
         .Block,
@@ -184,7 +208,6 @@ pub fn parse(parser: *Parser, _: ?u8) ?*Command {
         .SetKeyLabel,
         .SetMark,
         .SetProfile,
-        .SetUserVar,
         .ShellIntegrationVersion,
         .StealFocus,
         .UnicodeVersion,
@@ -432,4 +455,58 @@ test "OSC: 1337: test CurrentDir with non-empty value" {
     const cmd = p.end('\x1b').?.*;
     try testing.expect(cmd == .report_pwd);
     try testing.expectEqualStrings("abc123", cmd.report_pwd.value);
+}
+
+test "OSC: 1337: test SetUserVar with valid value" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const input = "1337;SetUserVar=agent_status=ZG9uZQ==";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x07').?.*;
+    try testing.expect(cmd == .set_user_var);
+    try testing.expectEqualStrings("agent_status", cmd.set_user_var.name);
+    try testing.expectEqualStrings("ZG9uZQ==", cmd.set_user_var.value);
+}
+
+test "OSC: 1337: test SetUserVar with empty value" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const input = "1337;SetUserVar=agent_status=";
+    for (input) |ch| p.next(ch);
+
+    const cmd = p.end('\x1b').?.*;
+    try testing.expect(cmd == .set_user_var);
+    try testing.expectEqualStrings("agent_status", cmd.set_user_var.name);
+    try testing.expectEqualStrings("", cmd.set_user_var.value);
+}
+
+test "OSC: 1337: test SetUserVar with no value" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const input = "1337;SetUserVar=agent_status";
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
+}
+
+test "OSC: 1337: test SetUserVar with empty name" {
+    const testing = std.testing;
+
+    var p: Parser = .init(testing.allocator);
+    defer p.deinit();
+
+    const input = "1337;SetUserVar==ZG9uZQ==";
+    for (input) |ch| p.next(ch);
+
+    try testing.expect(p.end('\x1b') == null);
 }

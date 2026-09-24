@@ -339,6 +339,7 @@ pub const StreamHandler = struct {
             .progress_report => self.progressReport(value),
             .start_hyperlink => try self.startHyperlink(value.uri, value.id),
             .clipboard_contents => try self.clipboardContents(value.kind, value.data),
+            .set_user_var => self.setUserVar(value.name, value.value),
             .semantic_prompt => try self.semanticPrompt(value),
             .mouse_shape => try self.setMouseShape(value),
             .configure_charset => self.configureCharset(value.slot, value.charset),
@@ -1784,6 +1785,14 @@ pub const StreamHandler = struct {
         self.surfaceMessageWriter(.{
             .desktop_notification = .init(title, body),
         });
+    }
+
+    fn setUserVar(self: *StreamHandler, name: []const u8, value: []const u8) void {
+        const uv = apprt.surface.Message.UserVar.init(name, value) catch |err| {
+            log.warn("invalid OSC 1337 SetUserVar name={s} err={}", .{ name, err });
+            return;
+        };
+        self.surfaceMessageWriter(.{ .set_user_var = uv });
     }
 
     /// Send a report to the pty.

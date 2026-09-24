@@ -469,6 +469,9 @@ extension Ghostty {
                 // We unset our bell state if we gained focus
                 bell = false
 
+                // Looking at the surface is all a finished agent was waiting for.
+                if agentStatus == .done { agentStatus = nil }
+
                 // Remove any notifications for this surface once we gain focus.
                 if !notificationIdentifiers.isEmpty {
                     UNUserNotificationCenter.current()

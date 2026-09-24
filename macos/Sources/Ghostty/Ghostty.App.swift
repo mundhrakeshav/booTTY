@@ -780,6 +780,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD:
                 return copyTitleToClipboard(app, target: target)
 
+            case GHOSTTY_ACTION_SET_USER_VAR:
+                setUserVar(app, target: target, v: action.action.set_user_var)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
@@ -2228,6 +2231,33 @@ extension Ghostty {
                     } else {
                         surfaceView.progressReport = progressReport
                     }
+                }
+
+            default:
+                assertionFailure()
+            }
+        }
+
+        private static func setUserVar(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_set_user_var_s) {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("set user var does nothing with an app target")
+                return
+
+            case GHOSTTY_TARGET_SURFACE:
+                // The only user var the app reads so far.
+                guard String(cString: v.name) == "agent_status" else { return }
+                guard let surface = target.target.surface else { return }
+                guard let surfaceView = self.surfaceView(from: surface) else { return }
+
+                // The strings only live for this callback.
+                let status = AgentStatus(userVar: String(cString: v.value))
+                DispatchQueue.main.async {
+                    // A finish in the surface the user is looking at needs no marker.
+                    surfaceView.agentStatus = status == .done && surfaceView.focused ? nil : status
                 }
 
             default:

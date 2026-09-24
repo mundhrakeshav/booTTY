@@ -130,6 +130,7 @@ pub const Action = union(Key) {
     semantic_prompt: SemanticPrompt,
     kitty_clipboard: KittyClipboard,
     kitty_dnd: KittyDnd,
+    set_user_var: SetUserVar,
 
     pub const Key = lib.Enum(
         lib.target,
@@ -231,6 +232,7 @@ pub const Action = union(Key) {
             "semantic_prompt",
             "kitty_clipboard",
             "kitty_dnd",
+            "set_user_var",
         },
     );
 
@@ -392,6 +394,24 @@ pub const Action = union(Key) {
             return .{
                 .title = .init(self.title),
                 .body = .init(self.body),
+            };
+        }
+    };
+
+    /// OSC 1337 SetUserVar. `value` is still base64 encoded.
+    pub const SetUserVar = struct {
+        name: []const u8,
+        value: []const u8,
+
+        pub const C = extern struct {
+            name: lib.String,
+            value: lib.String,
+        };
+
+        pub fn cval(self: SetUserVar) SetUserVar.C {
+            return .{
+                .name = .init(self.name),
+                .value = .init(self.value),
             };
         }
     };
@@ -2681,6 +2701,13 @@ pub fn Stream(comptime H: type) type {
 
                 .kitty_dnd_protocol => |v| {
                     self.handler.vt(.kitty_dnd, v);
+                },
+
+                .set_user_var => |v| {
+                    self.handler.vt(.set_user_var, .{
+                        .name = v.name,
+                        .value = v.value,
+                    });
                 },
 
                 .conemu_sleep,

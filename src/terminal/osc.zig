@@ -167,6 +167,13 @@ pub const Command = union(Key) {
     /// Kitty desktop notifications (OSC 99)
     kitty_desktop_notification: KittyDesktopNotification,
 
+    /// iTerm2 SetUserVar (OSC 1337;SetUserVar=<name>=<base64>). The value
+    /// is passed through still base64 encoded; it may be empty.
+    set_user_var: struct {
+        name: [:0]const u8,
+        value: [:0]const u8,
+    },
+
     pub const SemanticPrompt = parsers.semantic_prompt.Command;
 
     pub const KittyClipboardProtocol = parsers.kitty_clipboard_protocol.OSC;
@@ -206,6 +213,7 @@ pub const Command = union(Key) {
             "kitty_dnd_protocol",
             "context_signal",
             "kitty_desktop_notification",
+            "set_user_var",
         },
     );
 
@@ -454,6 +462,7 @@ pub const Parser = struct {
             .kitty_dnd_protocol,
             .kitty_desktop_notification,
             .context_signal,
+            .set_user_var,
             => {},
         }
 

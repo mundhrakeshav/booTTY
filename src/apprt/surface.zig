@@ -57,6 +57,31 @@ pub const Message = union(enum) {
         }
     };
 
+    /// A fixed-size OSC 1337 SetUserVar payload sent to the app thread.
+    pub const UserVar = struct {
+        /// User variable name, non-empty.
+        name: [63:0]u8,
+
+        /// Decoded user variable value, possibly empty.
+        value: [255:0]u8,
+
+        /// Decodes `base64_value`. Oversized input is rejected rather than
+        /// truncated since a partial value would be misleading.
+        pub fn init(name: []const u8, base64_value: []const u8) !UserVar {
+            var result: UserVar = undefined;
+            if (name.len == 0 or name.len > result.name.len) return error.InvalidName;
+            @memcpy(result.name[0..name.len], name);
+            result.name[name.len] = 0;
+
+            const decoder = std.base64.standard.Decoder;
+            const len = try decoder.calcSizeForSlice(base64_value);
+            if (len > result.value.len) return error.ValueTooLong;
+            try decoder.decode(result.value[0..len], base64_value);
+            result.value[len] = 0;
+            return result;
+        }
+    };
+
     /// Set the title of the surface.
     /// TODO: we should change this to a "WriteReq" style structure in
     /// the termio message so that we can more efficiently send strings
@@ -104,6 +129,9 @@ pub const Message = union(enum) {
 
     /// Show a desktop notification.
     desktop_notification: DesktopNotification,
+
+    /// A program set a user variable (OSC 1337 SetUserVar).
+    set_user_var: UserVar,
 
     /// Health status change for the renderer.
     renderer_health: renderer.Health,
@@ -249,6 +277,27 @@ test "DesktopNotification init" {
 
     try std.testing.expectEqualStrings("Title", std.mem.sliceTo(&notification.title, 0));
     try std.testing.expectEqualStrings("Body", std.mem.sliceTo(&notification.body, 0));
+}
+
+test "UserVar init" {
+    const testing = std.testing;
+    const UserVar = Message.UserVar;
+
+    const uv = try UserVar.init("agent_status", "ZG9uZQ==");
+    try testing.expectEqualStrings("agent_status", std.mem.sliceTo(&uv.name, 0));
+    try testing.expectEqualStrings("done", std.mem.sliceTo(&uv.value, 0));
+
+    const empty = try UserVar.init("agent_status", "");
+    try testing.expectEqualStrings("", std.mem.sliceTo(&empty.value, 0));
+
+    try testing.expectError(error.InvalidCharacter, UserVar.init("a", "!!!!"));
+    try testing.expectError(error.InvalidName, UserVar.init("a" ** 64, ""));
+    try testing.expectError(error.InvalidName, UserVar.init("", ""));
+
+    // 256 decoded bytes: one too many for the buffer.
+    var buf: [344]u8 = undefined;
+    const encoded = std.base64.standard.Encoder.encode(&buf, &@as([256]u8, @splat('x')));
+    try testing.expectError(error.ValueTooLong, UserVar.init("a", encoded));
 }
 
 test "copyUtf8Z handles len at the final byte of every UTF-8 sequence length" {

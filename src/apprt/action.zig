@@ -357,6 +357,10 @@ pub const Action = union(Key) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
+    /// A program running in the surface set a user variable via
+    /// OSC 1337 SetUserVar. The value is already base64 decoded.
+    set_user_var: SetUserVar,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -428,6 +432,7 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         move_tab_to_new_window,
+        set_user_var,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -814,6 +819,25 @@ pub const DesktopNotification = struct {
             value.title,
             value.body,
         });
+    }
+};
+
+/// A user variable set by OSC 1337 SetUserVar.
+pub const SetUserVar = struct {
+    name: [:0]const u8,
+    value: [:0]const u8,
+
+    // Sync with: ghostty_action_set_user_var_s
+    pub const C = extern struct {
+        name: [*:0]const u8,
+        value: [*:0]const u8,
+    };
+
+    pub fn cval(self: SetUserVar) C {
+        return .{
+            .name = self.name.ptr,
+            .value = self.value.ptr,
+        };
     }
 };
 

@@ -32,6 +32,10 @@ extension Ghostty {
         // The progress report (if any)
         @Published var progressReport: Action.ProgressReport?
 
+        // What the agent running in this surface is waiting on, if anything. Programs
+        // publish it with `OSC 1337 ; SetUserVar=agent_status=<base64>`.
+        @Published var agentStatus: AgentStatus?
+
         // The currently active key tables. Empty if no tables are active.
         @Published var keyTables: [String] = []
 
@@ -110,6 +114,30 @@ extension Ghostty {
         func focusDidChange(_ focused: Bool) {}
 
         func sizeDidChange(_ size: CGSize) {}
+    }
+}
+
+// MARK: Agent Status
+
+extension Ghostty {
+    /// The state of an agent running in a surface, drawn as a ring on its tab.
+    /// Ordered by urgency: a tab shows its most urgent surface.
+    enum AgentStatus: Comparable {
+        /// Finished and not looked at yet. Focusing the surface clears it.
+        case done
+
+        /// Blocked on the user until the program clears it.
+        case waiting
+
+        /// The status for an `agent_status` user var. Anything else, including
+        /// the empty value programs send to clear it, is no status.
+        init?(userVar value: String) {
+            switch value {
+            case "done": self = .done
+            case "waiting": self = .waiting
+            default: return nil
+            }
+        }
     }
 }
 
