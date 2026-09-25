@@ -331,6 +331,26 @@ final class VerticalTabBarModel: ObservableObject {
         tab.performAction("new_workspace", on: surface)
     }
 
+    /// A dot's drag payload. With no Window to name, it names none that exists, so every
+    /// dot refuses it.
+    func dragItem(for id: Workspace.ID) -> DraggedWorkspace {
+        DraggedWorkspace(window: workspaceTab?.workspaceStore.id ?? UUID(), workspace: id)
+    }
+
+    /// Something dropped on the dot of Workspace `target` (SPEC §5.5). A dot moves its
+    /// Workspace to the target's place, and dots from another Window are refused.
+    func drop(_ item: WorkspaceDrop, on target: Workspace.ID) -> Bool {
+        guard let store = workspaceTab?.workspaceStore,
+              let index = store.workspaces.firstIndex(where: { $0.id == target })
+        else { return false }
+
+        switch item {
+        case .workspace(let dragged):
+            guard dragged.window == store.id else { return false }
+            return store.moveWorkspace(dragged.workspace, to: index)
+        }
+    }
+
     /// The expanded bar's rows of dots (SPEC §5.1): indices of `count` 14 pt dots, then
     /// "+" (22 pt) as index `count`, broken greedily into rows no wider than `width`. A row
     /// breaks before the item that doesn't fit and is never empty.
@@ -450,6 +470,28 @@ struct DraggedTab: Codable, Transferable {
 
 extension UTType {
     static let ghosttyTab = UTType(exportedAs: "com.mitchellh.ghosttyTab")
+    static let ghosttyWorkspace = UTType(exportedAs: "com.mitchellh.ghosttyWorkspace")
+}
+
+/// A Workspace's dot dragged in a vertical tab bar, the twin of `DraggedTab`. It names the
+/// Window id and the Workspace id, so a dot only lands among its own Window's dots.
+struct DraggedWorkspace: Codable, Transferable {
+    let window: UUID
+    let workspace: UUID
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .ghosttyWorkspace)
+    }
+}
+
+/// What a dot accepts. Chained `.dropDestination`s honor only the first matching type, so
+/// each dot has one destination for this enum, which wraps every payload it takes.
+enum WorkspaceDrop: Transferable {
+    case workspace(DraggedWorkspace)
+
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(importing: { (dragged: DraggedWorkspace) in .workspace(dragged) })
+    }
 }
 
 // MARK: - Views
@@ -881,6 +923,8 @@ private struct WorkspaceDot: View {
     let collapsed: Bool
     @Binding var hovered: VerticalTabBarModel.Workspace.ID?
 
+    @State private var isDropTarget = false
+
     var body: some View {
         let long: CGFloat = workspace.isShown ? 12 : 6
         let fill = workspace.color.displayColor.map { Color(nsColor: $0) } ?? .primary
@@ -890,6 +934,8 @@ private struct WorkspaceDot: View {
             .fill(fill.opacity(opacity))
             .frame(width: collapsed ? 6 : long, height: collapsed ? long : 6)
             .frame(width: collapsed ? 32 : 14, height: collapsed ? 14 : 22)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isDropTarget ? Color.accentColor.opacity(0.25) : .clear))
             .contentShape(Rectangle())
             .onTapGesture { model.showWorkspace(workspace.id) }
             .onHover { inside in
@@ -898,6 +944,12 @@ private struct WorkspaceDot: View {
                 } else if hovered == workspace.id {
                     hovered = nil
                 }
+            }
+            .draggable(model.dragItem(for: workspace.id))
+            .dropDestination(for: WorkspaceDrop.self) { items, _ in
+                items.first.map { model.drop($0, on: workspace.id) } ?? false
+            } isTargeted: {
+                isDropTarget = $0
             }
             .help(collapsed ? workspace.name : "")
             .accessibilityElement(children: .ignore)

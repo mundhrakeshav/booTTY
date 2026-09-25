@@ -1396,6 +1396,15 @@ extension Ghostty {
                                 from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
                             return store.newWorkspace(from: tab, withBaseConfig: config)
 
+                        case GHOSTTY_ACTION_WORKSPACE_MOVE:
+                            // The target Split's own Workspace, even a hidden one, which moves
+                            // out of sight (SPEC §14). Nothing is shown or refused, so it also
+                            // runs in non-native fullscreen.
+                            let id = store.hiddenWorkspace(holding: tab)?.id ?? store.shownID
+                            guard let from = store.workspaces.firstIndex(where: { $0.id == id }) else { return false }
+                            let count = store.workspaces.count
+                            return store.moveWorkspace(id, to: from + min(max(v.n, -count), count))
+
                         default:
                             return false
                         }

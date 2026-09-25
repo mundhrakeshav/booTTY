@@ -624,6 +624,15 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     goto_workspace: usize,
 
+    /// Moves this window's current Workspace by a relative offset.
+    ///
+    /// Positive values move the Workspace to the right, and negative values
+    /// move it to the left. Unlike `move_tab`, it doesn't wrap around: a
+    /// Workspace moved past either end stops there.
+    ///
+    /// Only implemented on macOS.
+    move_workspace: isize,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1482,6 +1491,7 @@ pub const Action = union(enum) {
             .previous_workspace,
             .next_workspace,
             .goto_workspace,
+            .move_workspace,
             .new_split,
             .goto_split,
             .goto_window,
@@ -3492,11 +3502,20 @@ test "parse: workspace actions" {
         Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .goto_workspace = 3 } },
         try parseSingle("a=goto_workspace:3"),
     );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .move_workspace = -1 } },
+        try parseSingle("a=move_workspace:-1"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .move_workspace = 2 } },
+        try parseSingle("a=move_workspace:2"),
+    );
 
     // goto_workspace is a 1-based index, so it needs one and it can't be negative.
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:-1"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_workspace"));
 }
 
 test "parse: action with a tuple" {

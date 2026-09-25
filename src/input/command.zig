@@ -459,6 +459,19 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Open a new Workspace in this window."),
         }},
 
+        .move_workspace => comptime &.{
+            .{
+                .action = .{ .move_workspace = -1 },
+                .title = i18n.N_("Move Workspace Left"),
+                .description = i18n.N_("Move the current Workspace to the left."),
+            },
+            .{
+                .action = .{ .move_workspace = 1 },
+                .title = i18n.N_("Move Workspace Right"),
+                .description = i18n.N_("Move the current Workspace to the right."),
+            },
+        },
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),

@@ -656,6 +656,7 @@ typedef enum {
   GHOSTTY_ACTION_WORKSPACE_PREVIOUS,
   GHOSTTY_ACTION_WORKSPACE_NEXT,
   GHOSTTY_ACTION_WORKSPACE_NEW,
+  GHOSTTY_ACTION_WORKSPACE_MOVE,  // n: signed offset
 } ghostty_action_workspace_op_e;
 
 // apprt.action.Workspace

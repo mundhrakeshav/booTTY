@@ -220,6 +220,7 @@ pub const CommandPalette = extern struct {
             .previous_workspace,
             .next_workspace,
             .goto_workspace,
+            .move_workspace,
             => false,
 
             else => true,
