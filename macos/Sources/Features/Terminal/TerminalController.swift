@@ -212,6 +212,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
               NSEvent.pressedMouseButtons == 0,
               window.attachedSheet == nil,
               window.verticalTabBar.renamingTab == nil,
+              window.verticalTabBar.renamingWorkspace == nil,
               !workspaceStore.isInNonNativeFullscreen
         else { return false }
 
