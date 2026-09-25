@@ -637,6 +637,15 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     set_workspace_name: []const u8,
 
+    /// Moves this window's current Workspace by a relative offset.
+    ///
+    /// Positive values move the Workspace to the right, and negative values
+    /// move it to the left. Unlike `move_tab`, it doesn't wrap around: a
+    /// Workspace moved past either end stops there.
+    ///
+    /// Only implemented on macOS.
+    move_workspace: isize,
+
     /// Move the current tab to the Workspace with the specific index in
     /// this window, starting from 1. It goes at the end of that Workspace's
     /// tabs, and the window keeps showing the Workspace it shows.
@@ -653,7 +662,6 @@ pub const Action = union(enum) {
     ///
     /// Only implemented on macOS.
     move_tab_to_new_workspace,
-
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1514,6 +1522,7 @@ pub const Action = union(enum) {
             .goto_workspace,
             .prompt_workspace_name,
             .set_workspace_name,
+            .move_workspace,
             .move_tab_to_workspace,
             .move_tab_to_new_workspace,
             .new_split,
@@ -3526,6 +3535,14 @@ test "parse: workspace actions" {
         Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .goto_workspace = 3 } },
         try parseSingle("a=goto_workspace:3"),
     );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .move_workspace = -1 } },
+        try parseSingle("a=move_workspace:-1"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .move_workspace = 2 } },
+        try parseSingle("a=move_workspace:2"),
+    );
 
     // goto_workspace is a 1-based index, so it needs one and it can't be negative.
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace"));
@@ -3549,6 +3566,7 @@ test "parse: workspace actions" {
     }
     try testing.expectError(Error.InvalidFormat, parseSingle("a=set_workspace_name"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_workspace"));
 }
 
 test "parse: move tab to workspace actions" {

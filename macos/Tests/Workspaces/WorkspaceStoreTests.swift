@@ -84,6 +84,48 @@ struct WorkspaceStoreTests {
         #expect(store.shownIndex == 1)
     }
 
+    // MARK: Reordering
+
+    private func names(_ store: WorkspaceStore) -> [String] { store.workspaces.map(\.name) }
+
+    @Test func movedWorkspaceLandsAtTheTargetsPlace() {
+        // Third onto first: it becomes first.
+        var store = store(["a", "b", "c"])
+        #expect(store.moveWorkspace(store.workspaces[2].id, to: 0))
+        #expect(names(store) == ["c", "a", "b"])
+
+        // First onto third: moving right lands after the target.
+        store = self.store(["a", "b", "c"])
+        #expect(store.moveWorkspace(store.workspaces[0].id, to: 2))
+        #expect(names(store) == ["b", "c", "a"])
+
+        // Goto numbers follow the new order.
+        #expect(store.index(of: .number(1)).map { store.workspaces[$0].name } == "b")
+    }
+
+    @Test func movingKeepsTheShownWorkspaceShown() {
+        let store = store(["a", "b", "c"], shown: 1)
+        let shown = store.shownID
+        #expect(store.moveWorkspace(shown, to: 0))
+        #expect(store.shownID == shown)
+        #expect(store.shownIndex == 0)
+    }
+
+    @Test func movingStopsAtTheEndsAndStillReportsTrue() {
+        let store = store(["a", "b", "c"])
+        #expect(store.moveWorkspace(store.workspaces[2].id, to: 3))
+        #expect(store.moveWorkspace(store.workspaces[0].id, to: -5))
+        #expect(names(store) == ["a", "b", "c"])
+        #expect(store.moveWorkspace(store.workspaces[1].id, to: .max))
+        #expect(names(store) == ["a", "c", "b"])
+    }
+
+    @Test func movingReportsFalseWithOneWorkspaceOrAnUnknownOne() {
+        let one = store(["a"])
+        #expect(one.moveWorkspace(one.workspaces[0].id, to: 1) == false)
+        #expect(store(["a", "b"]).moveWorkspace(UUID(), to: 0) == false)
+    }
+
     // MARK: Ending
 
     @Test func anEndingShownWorkspaceHandsOffToTheRightElseTheLeft() {

@@ -1424,12 +1424,20 @@ extension Ghostty {
                             guard !store.isHidden(tab) else { return false }
                             return store.promptName(for: store.shownID)
 
+                        case GHOSTTY_ACTION_WORKSPACE_MOVE:
+                            // The target Split's own Workspace, even a hidden one, which moves
+                            // out of sight (SPEC §14). Nothing is shown or refused, so it also
+                            // runs in non-native fullscreen.
+                            let id = store.workspace(holding: tab).id
+                            guard let from = store.workspaces.firstIndex(where: { $0.id == id }) else { return false }
+                            let count = store.workspaces.count
+                            return store.moveWorkspace(id, to: from + min(max(v.n, -count), count))
+
                         case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO:
                             return store.moveTab(tab, toWorkspaceAt: v.n)
 
                         case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO_NEW:
                             return store.moveTabToNewWorkspace(tab)
-
                         default:
                             return false
                         }

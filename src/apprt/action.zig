@@ -580,7 +580,7 @@ pub const MoveTab = extern struct {
 };
 
 /// A Workspace command. `n` is the 1-based index for `goto` and `move_tab_to`,
-/// unused otherwise.
+/// the signed offset for `move`, and unused otherwise.
 ///
 /// Sync with: ghostty_action_workspace_s
 pub const Workspace = extern struct {
@@ -594,6 +594,7 @@ pub const Workspace = extern struct {
         next,
         new,
         prompt_name,
+        move,
         move_tab_to,
         move_tab_to_new,
 

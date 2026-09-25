@@ -465,6 +465,19 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Prompt for a new name for the current Workspace."),
         }},
 
+        .move_workspace => comptime &.{
+            .{
+                .action = .{ .move_workspace = -1 },
+                .title = i18n.N_("Move Workspace Left"),
+                .description = i18n.N_("Move the current Workspace to the left."),
+            },
+            .{
+                .action = .{ .move_workspace = 1 },
+                .title = i18n.N_("Move Workspace Right"),
+                .description = i18n.N_("Move the current Workspace to the right."),
+            },
+        },
+
         .move_tab_to_new_workspace => comptime &.{.{
             .action = .move_tab_to_new_workspace,
             .title = i18n.N_("Move Tab to New Workspace"),

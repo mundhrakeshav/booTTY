@@ -289,6 +289,23 @@ final class WorkspaceStore: ObservableObject {
         return true
     }
 
+    /// Moves Workspace `id` to `index` in bar order, so ⌘⌥N order follows (SPEC §1.3). It
+    /// lands at `index` by the Tab rows' rule, so moving right lands after the Workspace that
+    /// was there, and an `index` past either end stops there. The shown Workspace stays
+    /// shown. Reports false only when the Window has one Workspace or doesn't hold `id`, and
+    /// true when nothing moves (SPEC §7.1).
+    @discardableResult
+    func moveWorkspace(_ id: Workspace.ID, to index: Int) -> Bool {
+        guard workspaces.count > 1, let from = workspaces.firstIndex(where: { $0.id == id }) else { return false }
+        let to = min(max(index, 0), workspaces.count - 1)
+        guard to != from else { return true }
+
+        var reordered = workspaces
+        reordered.insert(reordered.remove(at: from), at: to)
+        workspaces = reordered
+        invalidateRestorableState()
+        return true
+    }
     /// Whether a requested command that would change the shown Workspace may run now. `tab`
     /// is the Tab of the command's target Split. Otherwise the command reports false:
     /// - aimed at a hidden Split, with nothing shown (SPEC §14);
