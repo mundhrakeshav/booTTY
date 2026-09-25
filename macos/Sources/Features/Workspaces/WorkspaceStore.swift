@@ -551,14 +551,9 @@ final class WorkspaceStore: ObservableObject {
     /// `window-new-tab-position = end`, and becomes remembered, as a new Tab is selected. Its
     /// shell starts now. Nil if `parent` isn't hidden.
     func newHiddenTab(beside parent: TerminalController, withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?) -> TerminalController? {
-        guard let index = hiddenIndex(of: parent) else { return nil }
-
-        let tab = TerminalController(parent.ghostty, withBaseConfig: baseConfig, windowStyle: parent.windowStyle)
-        tab.isBackgroundOpaque = parent.isBackgroundOpaque
-        tab.workspaceStore = self
-
-        // Loads the window without showing it, as for New Workspace (SPEC §2.6).
-        guard tab.window != nil else { return nil }
+        guard let index = hiddenIndex(of: parent),
+              let tab = newTab(from: parent, withBaseConfig: baseConfig)
+        else { return nil }
 
         var workspace = workspaces[index]
         let atEnd = parent.ghostty.config.windowNewTabPosition == "end"
