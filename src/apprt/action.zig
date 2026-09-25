@@ -365,6 +365,11 @@ pub const Action = union(Key) {
     /// on macOS.
     workspace: Workspace,
 
+    /// Set the name of the Workspace holding the target's tab. An empty
+    /// name restores the Workspace's original name. Only implemented on
+    /// macOS.
+    set_workspace_name: SetTitle,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -438,6 +443,7 @@ pub const Action = union(Key) {
         move_tab_to_new_window,
         set_user_var,
         workspace,
+        set_workspace_name,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -586,6 +592,7 @@ pub const Workspace = extern struct {
         previous,
         next,
         new,
+        prompt_name,
 
         test "ghostty.h Workspace.Op" {
             try lib.checkGhosttyHEnum(Op, "GHOSTTY_ACTION_WORKSPACE_");

@@ -53,6 +53,7 @@
                 <outlet property="menuReadonly" destination="xpe-ia-Yjw" id="MMT-Sl-AfD"/>
                 <outlet property="menuRedo" destination="EX8-lB-4s7" id="wON-2J-yT1"/>
                 <outlet property="menuReloadConfig" destination="KKH-XX-5py" id="Wvp-7J-wqX"/>
+                <outlet property="menuRenameWorkspace" destination="Wk8-Rn-Itm" id="Wk8-Ol-Rnw"/>
                 <outlet property="menuResetFontSize" destination="Jah-MY-aLX" id="ger-qM-wrm"/>
                 <outlet property="menuReturnToDefaultSize" destination="Gbx-Vi-OGC" id="po9-qC-Iz6"/>
                 <outlet property="menuScrollToSelection" destination="1rN-4k-Dz3" id="aRr-aT-oe3"/>
@@ -420,6 +421,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="newWorkspace:" target="-1" id="Wk4-Nw-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Rename Workspace…" id="Wk8-Rn-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="renameWorkspace:" target="-1" id="Wk8-Rn-Act"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="Wk4-Sp-Nav"/>

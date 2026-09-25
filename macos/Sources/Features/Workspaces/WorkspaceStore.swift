@@ -219,6 +219,43 @@ final class WorkspaceStore: ObservableObject {
         return workspace.id
     }
 
+    /// Names Workspace `id` (SPEC §1.2). A blank name restores its original name; names
+    /// needn't be unique, and a rename can't be undone.
+    func rename(_ id: Workspace.ID, to name: String) {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let isBlank = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        workspaces[index].name = isBlank ? workspaces[index].originalName : name
+        invalidateRestorableState()
+    }
+
+    /// The rename prompt (SPEC §7.5), as a sheet on the shown Tab. Any Workspace can be
+    /// its target, hidden ones included. False when there's no shown Tab to put it on.
+    func promptName(for id: Workspace.ID) -> Bool {
+        guard let window = shownTab?.window,
+              let current = workspaces.first(where: { $0.id == id })?.name
+        else { return false }
+
+        let alert = NSAlert()
+        alert.messageText = "Rename Workspace"
+        alert.informativeText = "Leave blank to restore the original name."
+        alert.alertStyle = .informational
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        textField.stringValue = current
+        alert.accessoryView = textField
+
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.window.initialFirstResponder = textField
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.rename(id, to: textField.stringValue)
+        }
+        return true
+    }
+
     /// Whether a requested command that would change the shown Workspace may run now. `tab`
     /// is the Tab of the command's target Split. Otherwise the command reports false:
     /// - aimed at a hidden Split, with nothing shown (SPEC §14);

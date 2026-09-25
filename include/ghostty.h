@@ -656,6 +656,7 @@ typedef enum {
   GHOSTTY_ACTION_WORKSPACE_PREVIOUS,
   GHOSTTY_ACTION_WORKSPACE_NEXT,
   GHOSTTY_ACTION_WORKSPACE_NEW,
+  GHOSTTY_ACTION_WORKSPACE_PROMPT_NAME,
 } ghostty_action_workspace_op_e;
 
 // apprt.action.Workspace
@@ -1032,6 +1033,7 @@ typedef enum {
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
   GHOSTTY_ACTION_SET_USER_VAR,
   GHOSTTY_ACTION_WORKSPACE,
+  GHOSTTY_ACTION_SET_WORKSPACE_NAME,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1077,6 +1079,7 @@ typedef union {
   ghostty_action_open_config_e open_config;
   ghostty_action_set_user_var_s set_user_var;
   ghostty_action_workspace_s workspace;
+  ghostty_action_set_title_s set_workspace_name;
 } ghostty_action_u;
 
 typedef struct {

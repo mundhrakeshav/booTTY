@@ -83,6 +83,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuMoveSplitDividerRight: NSMenuItem?
 
     @IBOutlet private var menuNewWorkspace: NSMenuItem?
+    @IBOutlet private var menuRenameWorkspace: NSMenuItem?
     @IBOutlet private var menuPreviousWorkspace: NSMenuItem?
     @IBOutlet private var menuNextWorkspace: NSMenuItem?
     /// The Workspace menu's list of Workspaces follows this separator.
@@ -1247,6 +1248,7 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
 
         syncMenuShortcut(config, action: "new_workspace", menuItem: self.menuNewWorkspace)
+        syncMenuShortcut(config, action: "prompt_workspace_name", menuItem: self.menuRenameWorkspace)
         syncMenuShortcut(config, action: "previous_workspace", menuItem: self.menuPreviousWorkspace)
         syncMenuShortcut(config, action: "next_workspace", menuItem: self.menuNextWorkspace)
 

@@ -459,6 +459,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Open a new Workspace in this window."),
         }},
 
+        .prompt_workspace_name => comptime &.{.{
+            .action = .prompt_workspace_name,
+            .title = i18n.N_("Rename Workspace…"),
+            .description = i18n.N_("Prompt for a new name for the current Workspace."),
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),
@@ -735,6 +741,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .write_scrollback_file,
         .goto_tab,
         .goto_workspace,
+        .set_workspace_name,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,

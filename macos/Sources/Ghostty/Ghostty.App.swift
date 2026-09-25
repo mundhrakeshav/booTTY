@@ -786,6 +786,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_WORKSPACE:
                 return workspace(app, target: target, v: action.action.workspace)
 
+            case GHOSTTY_ACTION_SET_WORKSPACE_NAME:
+                return setWorkspaceName(app, target: target, v: action.action.set_workspace_name)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
@@ -1396,9 +1399,45 @@ extension Ghostty {
                                 from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
                             return store.newWorkspace(from: tab, withBaseConfig: config)
 
+                        case GHOSTTY_ACTION_WORKSPACE_PROMPT_NAME:
+                            // Aimed at a hidden Split, it's refused with nothing shown (SPEC §14).
+                            guard !store.isHidden(tab) else { return false }
+                            return store.promptName(for: store.shownID)
+
                         default:
                             return false
                         }
+                    }
+
+                default:
+                    assertionFailure()
+                    return false
+                }
+        }
+
+        private static func setWorkspaceName(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_set_title_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("set workspace name does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let name = String(cString: v.title!, encoding: .utf8),
+                          let surface = target.target.surface,
+                          let surfaceView = self.surfaceView(from: surface),
+                          let controller = BaseTerminalController.controller(owning: surfaceView)
+                    else { return false }
+
+                    return MainActor.assumeIsolated {
+                        guard let tab = controller.tabForWorkspaceCommand() else { return false }
+                        let store = tab.workspaceStore
+
+                        // A hidden Split's own Workspace is renamed out of sight (SPEC §14).
+                        store.rename(store.hiddenWorkspace(holding: tab)?.id ?? store.shownID, to: name)
+                        return true
                     }
 
                 default:
