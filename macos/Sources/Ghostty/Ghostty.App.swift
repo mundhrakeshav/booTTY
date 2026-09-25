@@ -1424,6 +1424,12 @@ extension Ghostty {
                             guard !store.isHidden(tab) else { return false }
                             return store.promptName(for: store.shownID)
 
+                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO:
+                            return store.moveTab(tab, toWorkspaceAt: v.n)
+
+                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO_NEW:
+                            return store.moveTabToNewWorkspace(tab)
+
                         default:
                             return false
                         }

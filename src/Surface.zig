@@ -5392,6 +5392,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .next_workspace,
         .goto_workspace,
         .prompt_workspace_name,
+        .move_tab_to_workspace,
+        .move_tab_to_new_workspace,
         => |v, tag| return try self.rt_app.performAction(
             .{ .surface = self },
             .workspace,
@@ -5404,6 +5406,11 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                     .n = std.math.cast(isize, v) orelse std.math.maxInt(isize),
                 },
                 .prompt_workspace_name => .{ .op = .prompt_name, .n = 0 },
+                .move_tab_to_workspace => .{
+                    .op = .move_tab_to,
+                    .n = std.math.cast(isize, v) orelse std.math.maxInt(isize),
+                },
+                .move_tab_to_new_workspace => .{ .op = .move_tab_to_new, .n = 0 },
                 else => comptime unreachable,
             },
         ),

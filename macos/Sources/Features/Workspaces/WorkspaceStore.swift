@@ -307,12 +307,16 @@ final class WorkspaceStore: ObservableObject {
             return false
         }
 
-        if let fullscreen = tabs(of: shownID).first(where: { $0.isInNonNativeFullscreen }) {
-            let isWindowedSelection = tab.window != nil && tab.window === tabGroup?.selectedWindow
-            alert.show(on: isWindowedSelection ? tab.window : fullscreen.window)
-            return false
-        }
+        return !refusesInFullscreen(tab, showing: alert)
+    }
 
+    /// In non-native fullscreen, refuses a command touching the shown Workspace (SPEC §3):
+    /// returns true after showing `alert`, if any, on `tab` when that's the windowed group's
+    /// selected Tab, else on the fullscreen Tab.
+    private func refusesInFullscreen(_ tab: TerminalController, showing alert: WorkspaceAlert?) -> Bool {
+        guard let fullscreen = tabs(of: shownID).first(where: { $0.isInNonNativeFullscreen }) else { return false }
+        let isWindowedSelection = tab.window != nil && tab.window === tabGroup?.selectedWindow
+        alert?.show(on: isWindowedSelection ? tab.window : fullscreen.window)
         return true
     }
 
@@ -513,6 +517,123 @@ final class WorkspaceStore: ObservableObject {
         if allowsUndoSwitch() { show(saved.id, comingForward: true) }
         registerUndoForNewWorkspace(tab, previous: previous, withBaseConfig: baseConfig)
     }
+
+    // MARK: Moving Tabs
+
+    /// The Workspace holding `tab`: its hidden one, else the shown one.
+    func workspaceID(holding tab: TerminalController) -> Workspace.ID {
+        hiddenWorkspace(holding: tab)?.id ?? shownID
+    }
+
+    /// `move_tab_to_workspace:N` (SPEC §11.1): moves `tab` to the Nth Workspace in bar order,
+    /// or the last one when N is past the end. False for N < 1, and for the Tab's own
+    /// Workspace, which a Window with one Workspace always is.
+    func moveTab(_ tab: TerminalController, toWorkspaceAt n: Int) -> Bool {
+        reconcile()
+        guard let index = index(of: .number(n)) else { return false }
+        return moveTab(tab, to: workspaces[index].id)
+    }
+
+    /// `move_tab_to_new_workspace` (SPEC §11.1): moves `tab` into a new "Workspace N" at the
+    /// end. A Workspace's only Tab is refused.
+    func moveTabToNewWorkspace(_ tab: TerminalController) -> Bool {
+        reconcile()
+        guard tabs(of: workspaceID(holding: tab)).count > 1 else { return false }
+
+        let id = addWorkspace(holding: [])
+        if moveTab(tab, to: id) { return true }
+        workspaces.removeAll { $0.id == id }
+        return false
+    }
+
+    /// Moves `tab` to the end of Workspace `id`'s Tabs. The Window keeps showing what it
+    /// shows, and the target keeps its remembered Tab (SPEC §11.2), except that moving the
+    /// shown Workspace's only Tab ends that Workspace and shows `id` with `tab` selected
+    /// (§11.3). A Tab moved into the shown Workspace joins its tab bar unselected (§14).
+    ///
+    /// Reports false with nothing moved when `id` is the Tab's own Workspace, the Tab has a
+    /// sheet up (§11.6), AppKit threw, or the move would touch the shown Workspace in
+    /// non-native fullscreen, which shows "Cannot Move Tab" for a shown Tab and refuses a
+    /// hidden one silently (§3). Moves between two hidden Workspaces run there.
+    func moveTab(_ tab: TerminalController, to id: Workspace.ID) -> Bool {
+        reconcile()
+        let source = workspaceID(holding: tab)
+        guard id != source,
+              workspaces.contains(where: { $0.id == id }),
+              tabs(of: source).contains(where: { $0 === tab }),
+              let window = tab.window,
+              window.attachedSheet == nil
+        else { return false }
+
+        if source == shownID || id == shownID,
+           refusesInFullscreen(tab, showing: source == shownID ? .cannotMoveTab : nil) {
+            return false
+        }
+
+        if source != shownID {
+            if id == shownID {
+                guard let group = tabGroup else { return false }
+                isChanging = true
+                let added = Self.withoutAnimation { Self.performSafely(.add) { group.addWindow(window) } }
+                isChanging = false
+                guard added else { return false }
+            }
+
+            removeHiddenTab(tab)
+            if id == shownID {
+                reconcile()
+                shownTab?.relabelTabs()
+            } else {
+                appendHidden(tab, to: id)
+            }
+            return true
+        }
+
+        guard let group = tabGroup else { return false }
+
+        // The shown Workspace's only Tab: the target's Tabs join the group in front of it,
+        // so the Window is never empty, and the source Workspace ends.
+        if tabs(of: shownID).count == 1 {
+            guard let target = workspaces.firstIndex(where: { $0.id == id }) else { return false }
+            isChanging = true
+            let inserted = Self.insert(workspaces[target].hiddenTabs.compactMap(\.window), before: window, in: group)
+            isChanging = false
+            guard inserted else { return false }
+
+            let outgoing = shownIndex
+            workspaces[target].hiddenTabs = []
+            workspaces[target].rememberedTab = nil
+            shownID = id
+            workspaces.remove(at: outgoing)
+
+            reconcile()
+            invalidateRestorableState()
+            didShow(window)
+            return true
+        }
+
+        let wasSelected = group.selectedWindow === window
+        isChanging = true
+        let detached = Self.detach(window, from: group, makeKey: window.isKeyWindow || window.isMainWindow)
+        isChanging = false
+        guard detached else { return false }
+
+        appendHidden(tab, to: id)
+        reconcile()
+        if wasSelected, let surface = shownTab?.focusedSurface { Ghostty.moveFocus(to: surface) }
+        shownTab?.relabelTabs()
+        return true
+    }
+
+    /// Adds `tab`, ordered out and in a group of its own, to the end of hidden Workspace
+    /// `id`. A Workspace with no remembered Tab (a new one) remembers it.
+    private func appendHidden(_ tab: TerminalController, to id: Workspace.ID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        workspaces[index].hiddenTabs.append(tab)
+        if workspaces[index].rememberedTab == nil { workspaces[index].rememberedTab = tab }
+        invalidateRestorableState()
+    }
+
     // MARK: Restoring
 
     /// Brings back a restored Window's Workspaces (SPEC §17.2). The shown Workspace's Tabs are
@@ -645,11 +766,17 @@ final class WorkspaceStore: ObservableObject {
 
         reconcile()
         invalidateRestorableState()
+        didShow(incoming)
+        return true
+    }
 
+    /// After Workspace `shownID` was shown with `incoming` selected: focus goes to its
+    /// focused Split, the Tabs are relabeled, and VoiceOver announces the name.
+    private func didShow(_ incoming: NSWindow) {
         let tab = incoming.windowController as? TerminalController
         if let surface = tab?.focusedSurface { Ghostty.moveFocus(to: surface) }
         tab?.relabelTabs()
-        if incoming.isKeyWindow, let name = workspaces.first(where: { $0.id == id })?.name {
+        if incoming.isKeyWindow, let name = workspaces.first(where: { $0.id == shownID })?.name {
             NSAccessibility.post(
                 element: incoming,
                 notification: .announcementRequested,
@@ -658,8 +785,6 @@ final class WorkspaceStore: ObservableObject {
                     .priority: NSAccessibilityPriorityLevel.high.rawValue,
                 ])
         }
-
-        return true
     }
 
     /// The AppKit steps of a switch, each run through `perform`.
@@ -781,6 +906,68 @@ final class WorkspaceStore: ObservableObject {
         let tab = remembered.windowController as? TerminalController
         if let surface = tab?.focusedSurface { Ghostty.moveFocus(to: surface) }
         tab?.relabelTabs()
+    }
+
+    /// Takes `window` out of `group`, detaching it and ordering it out in one step with
+    /// animation off (SPEC §11.7). A selected `window` hands the selection to its right
+    /// neighbor, else its left, first, so ordering it out reveals nothing; `makeKey` selects
+    /// by making that neighbor key. False, with the old selection back, when AppKit throws.
+    static func detach(
+        _ window: NSWindow,
+        from group: NSWindowTabGroup,
+        makeKey: Bool,
+        perform: (SwapStep, () -> Void) -> Bool = performSafely
+    ) -> Bool {
+        func select(_ selected: NSWindow) -> Bool {
+            perform(.select) {
+                if makeKey { selected.makeKeyAndOrderFront(nil) } else { group.selectedWindow = selected }
+            }
+        }
+
+        return withoutAnimation {
+            let windows = group.windows
+            let neighbor = group.selectedWindow === window
+                ? windows.firstIndex(of: window).flatMap { neighbor(of: $0, in: windows) }
+                : nil
+            if let neighbor, !select(neighbor) { return false }
+
+            guard perform(.orderOut, { window.orderOut(nil) }) else {
+                if neighbor != nil { _ = select(window) }
+                return false
+            }
+            return true
+        }
+    }
+
+    /// Inserts `incoming`, still ordered out, into `group` in front of `window`, keeping the
+    /// selection, with animation off. All or nothing: if one fails, the added ones are
+    /// ordered out again and this returns false.
+    static func insert(
+        _ incoming: [NSWindow],
+        before window: NSWindow,
+        in group: NSWindowTabGroup,
+        perform: (SwapStep, () -> Void) -> Bool = performSafely
+    ) -> Bool {
+        withoutAnimation {
+            let start = group.windows.firstIndex(of: window) ?? 0
+            let inserted = incoming.enumerated().allSatisfy { offset, added in
+                perform(.add) { group.insertWindow(added, at: start + offset) }
+            }
+            guard inserted else {
+                for added in incoming where group.windows.contains(added) {
+                    _ = perform(.orderOut) { added.orderOut(nil) }
+                }
+                return false
+            }
+            return true
+        }
+    }
+
+    private static func withoutAnimation<T>(_ body: () -> T) -> T {
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        defer { NSAnimationContext.endGrouping() }
+        return body()
     }
 
     /// Runs one AppKit step under an Objective-C exception catcher and logs what threw.

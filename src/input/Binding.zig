@@ -637,6 +637,23 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     set_workspace_name: []const u8,
 
+    /// Move the current tab to the Workspace with the specific index in
+    /// this window, starting from 1. It goes at the end of that Workspace's
+    /// tabs, and the window keeps showing the Workspace it shows.
+    ///
+    /// If the number is higher than the number of Workspaces, this moves
+    /// the tab to the last Workspace. Naming the tab's own Workspace does
+    /// nothing.
+    ///
+    /// Only implemented on macOS.
+    move_tab_to_workspace: usize,
+
+    /// Move the current tab to a new Workspace, named "Workspace N", at the
+    /// end of this window's Workspaces. A Workspace's only tab can't move.
+    ///
+    /// Only implemented on macOS.
+    move_tab_to_new_workspace,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1497,6 +1514,8 @@ pub const Action = union(enum) {
             .goto_workspace,
             .prompt_workspace_name,
             .set_workspace_name,
+            .move_tab_to_workspace,
+            .move_tab_to_new_workspace,
             .new_split,
             .goto_split,
             .goto_window,
@@ -3530,6 +3549,24 @@ test "parse: workspace actions" {
     }
     try testing.expectError(Error.InvalidFormat, parseSingle("a=set_workspace_name"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
+}
+
+test "parse: move tab to workspace actions" {
+    const testing = std.testing;
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .move_tab_to_workspace = 2 } },
+        try parseSingle("a=move_tab_to_workspace:2"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .move_tab_to_new_workspace },
+        try parseSingle("a=move_tab_to_new_workspace"),
+    );
+
+    // move_tab_to_workspace is a 1-based index, so it needs one and it can't be negative.
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_tab_to_workspace"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_tab_to_workspace:-1"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_tab_to_new_workspace:1"));
 }
 
 test "parse: action with a tuple" {

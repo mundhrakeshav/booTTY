@@ -299,6 +299,13 @@ final class VerticalTabBarModel: ObservableObject {
         controller(id)?.closeTabsOnTheRight(nil)
     }
 
+    /// Move Tab to Workspace ▸: runs `move_tab_to_workspace:N`, or with no number
+    /// `move_tab_to_new_workspace`, on the row's Tab, as the Workspace menu does.
+    func moveToWorkspace(_ id: Tab.ID, number: Int?) {
+        guard let tab = controller(id), let surface = tab.focusedSurface else { return }
+        tab.performAction(number.map { "move_tab_to_workspace:\($0)" } ?? "move_tab_to_new_workspace", on: surface)
+    }
+
     func moveToNewWindow(_ id: Tab.ID) {
         tabWindow(id)?.moveTabToNewWindow(nil)
     }
@@ -782,6 +789,20 @@ private struct VerticalTabRow: View {
             .disabled(model.tabs.count < 2)
         Button("Close Tabs Below") { model.closeBelow(tab.id) }
             .disabled(index >= model.tabs.count - 1)
+        if !model.workspaces.isEmpty {
+            Menu("Move Tab to Workspace") {
+                ForEach(Array(model.workspaces.enumerated()), id: \.element.id) { index, workspace in
+                    if workspace.isShown {
+                        Toggle(workspace.name, isOn: .constant(true)).disabled(true)
+                    } else {
+                        Button(workspace.name) { model.moveToWorkspace(tab.id, number: index + 1) }
+                    }
+                }
+                Divider()
+                Button("New Workspace") { model.moveToWorkspace(tab.id, number: nil) }
+                    .disabled(model.tabs.count < 2)
+            }
+        }
         Button("Move Tab to New Window") { model.moveToNewWindow(tab.id) }
             .disabled(model.tabs.count < 2)
 
