@@ -41,6 +41,26 @@ struct WorkspaceStoreTests {
         #expect(store.workspaces[1].originalName == "Workspace 2")
     }
 
+    @Test func folderNameIsItsBasenameOrTildeForHome() {
+        #expect(WorkspaceStore.name(ofFolder: "/Users/me/code/app") == "app")
+        #expect(WorkspaceStore.name(ofFolder: "/Users/me/code/app/") == "app")
+        #expect(WorkspaceStore.name(ofFolder: NSHomeDirectory()) == "~")
+        #expect(WorkspaceStore.name(ofFolder: NSHomeDirectory() + "/") == "~")
+        #expect(WorkspaceStore.name(ofFolder: NSHomeDirectory() + "/app") == "app")
+        #expect(WorkspaceStore.name(ofFolder: "/") == "/")
+    }
+
+    @Test func folderWorkspaceKeepsItsNameAsTheOriginal() {
+        // Opening the same folder twice makes two Workspaces, with no suffix.
+        let store = store(["app"])
+        let id = store.addWorkspace(holding: [], named: "app")
+        #expect(store.workspaces.map(\.name) == ["app", "app"])
+
+        store.rename(id, to: "api")
+        store.rename(id, to: "")
+        #expect(store.workspaces[1].name == "app")
+    }
+
     // MARK: Recency
 
     @Test func recencyPutsTheShownFirstThenTheMostRecentlyShown() {
@@ -261,6 +281,25 @@ struct WorkspaceStoreTests {
         #expect(saved.name == "b")
         #expect(saved.position == 1)
         #expect(store.undoState(of: UUID()) == nil)
+    }
+
+    @Test func eachFolderOfOneOpenIsItsOwnUndoStep() {
+        // AppKit opens every dropped folder in one event, which `groupsByEvent` would undo
+        // as one step.
+        let undoManager = UndoManager()
+        let target = NSObject()
+        var undone: [String] = []
+        for name in ["a", "b"] {
+            undoManager.registerAsOwnStep {
+                undoManager.registerUndo(withTarget: target) { _ in undone.append(name) }
+            }
+        }
+
+        undoManager.undo()
+        #expect(undone == ["b"])
+        undoManager.undo()
+        #expect(undone == ["b", "a"])
+        #expect(!undoManager.canUndo)
     }
 
     // MARK: Closing the Window
