@@ -670,7 +670,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 withTarget: target.ghostty,
                 expiresAfter: target.undoExpiration
             ) { ghostty in
-                (parent.windowController as? BaseTerminalController)?.showForUndo()
+                if let tab = parent.windowController as? TerminalController {
+                    tab.showForUndo()
+                    // Joining the shown Workspace leaves non-native fullscreen first (SPEC §16).
+                    if !tab.isHidden { tab.workspaceStore.leaveNonNativeFullscreen() }
+                }
                 _ = TerminalController.newTab(
                     ghostty,
                     from: parent,
@@ -820,9 +824,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return window.tabGroup?.windows ?? [window]
     }
 
+    /// How many Tabs this one's Workspace holds: `groupedTabs`, except that in non-native
+    /// fullscreen the shown Workspace's are the windowed group's plus the fullscreen Tab,
+    /// which has left that group (SPEC §3).
+    private var workspaceTabCount: Int {
+        let store = workspaceStore
+        store.reconcile()
+        guard !isHidden, store.isInNonNativeFullscreen else { return groupedTabs.count }
+        return store.tabs(of: store.shownID).count
+    }
+
     /// Whether this is the only Tab of its Window's only Workspace, so closing it closes
     /// the Window (SPEC §13.2).
-    var isOnlyTabInWindow: Bool { groupedTabs.count <= 1 && workspaceStore.workspaces.count <= 1 }
+    var isOnlyTabInWindow: Bool { workspaceTabCount <= 1 && workspaceStore.workspaces.count <= 1 }
 
     override var isHidden: Bool { workspaceStore.isHidden(self) }
 
@@ -892,13 +906,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let undoState = self.undoState
 
         // The shown Workspace's last Tab ends it. The neighbor is shown first, so the live
-        // group never empties and the Window stays (SPEC §13). If that switch can't run,
-        // the Window closes, as for a lone Tab.
-        if groupedTabs.count <= 1, !isHidden {
+        // group never empties and the Window stays (SPEC §13); non-native fullscreen has no
+        // group to switch, so the Window leaves it before that (§13.6). If that switch can't
+        // run, the Window closes, as for a lone Tab.
+        if workspaceTabCount <= 1, !isHidden {
             let store = workspaceStore
             let next = neighbor.flatMap { id in
                 id != store.shownID && store.workspaces.contains { $0.id == id } ? id : nil
             } ?? store.neighborID
+            store.leaveNonNativeFullscreen()
             guard let next, store.show(next) else {
                 closeWindowImmediately()
                 return

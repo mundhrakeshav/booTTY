@@ -415,8 +415,9 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Closes Workspace `id` and its Tabs without asking, and registers Undo Close Workspace.
-    /// The shown one shows its neighbor first, so the live group never empties (SPEC §13);
-    /// if that switch fails, nothing closes. The only Workspace closes the Window.
+    /// The shown one shows its neighbor first, so the live group never empties (SPEC §13),
+    /// leaving non-native fullscreen before that switch (§13.6); if the switch fails, nothing
+    /// closes. The only Workspace closes the Window.
     @discardableResult
     func closeWorkspaceImmediately(_ id: Workspace.ID) -> Bool {
         reconcile()
@@ -426,6 +427,7 @@ final class WorkspaceStore: ObservableObject {
             return true
         }
         if id == shownID {
+            leaveNonNativeFullscreen()
             guard let neighborID, show(neighborID) else { return false }
         }
 
@@ -470,6 +472,17 @@ final class WorkspaceStore: ObservableObject {
         let isWindowedSelection = tab.window != nil && tab.window === tabGroup?.selectedWindow
         alert?.show(on: isWindowedSelection ? tab.window : fullscreen.window)
         return true
+    }
+
+    /// Leaves non-native fullscreen, for an undo or a close that changes the shown Workspace's
+    /// Tabs (SPEC §13.6, §16): the fullscreen Tab exits and rejoins the windowed group behind
+    /// it, or, with that group empty, forms the Window's group itself, and the store binds to
+    /// it. Does nothing outside non-native fullscreen.
+    func leaveNonNativeFullscreen() {
+        let fullscreen = tabs(of: shownID).filter(\.isInNonNativeFullscreen)
+        guard !fullscreen.isEmpty else { return }
+        for tab in fullscreen { tab.fullscreenStyle?.exit() }
+        reconcile()
     }
 
     /// A Jump into `tab` (SPEC §2.4): shows its hidden Workspace with `tab` selected and the
@@ -622,14 +635,15 @@ final class WorkspaceStore: ObservableObject {
         }
     }
 
-    /// Undo or Redo Organize: brings back `arrangement`, then registers the opposite entry.
-    /// With a sheet on the shown Tab, the Workspace holding that Tab is shown instead, with
-    /// the Tab still selected, and the Window comes forward with its sheet (SPEC §16).
+    /// Undo or Redo Organize: leaves non-native fullscreen, brings back `arrangement`, then
+    /// registers the opposite entry. With a sheet on the shown Tab, the Workspace holding that
+    /// Tab is shown instead, with the Tab still selected, and the Window comes forward with
+    /// its sheet (SPEC §16).
     private func restoreArrangement(_ arrangement: Arrangement) {
         reconcile()
-        guard let tab = shownTab,
-              Set(arrangement.workspaces.flatMap(\.hiddenTabs).map(ObjectIdentifier.init)) == tabIDs
-        else { return }
+        guard Set(arrangement.workspaces.flatMap(\.hiddenTabs).map(ObjectIdentifier.init)) == tabIDs else { return }
+        leaveNonNativeFullscreen()
+        guard let tab = shownTab else { return }
 
         let replaced = self.arrangement
         var arrangement = arrangement
@@ -639,8 +653,6 @@ final class WorkspaceStore: ObservableObject {
             arrangement.workspaces[holding].rememberedTab = tab
         }
 
-        // SPEC §16 leaves non-native fullscreen first. Until that exists, `arrange` refuses
-        // there and the entry is spent.
         guard arrange(arrangement, comingForward: true) else { return }
         registerUndoOrganize(restoring: replaced, from: tab)
     }
@@ -723,14 +735,15 @@ final class WorkspaceStore: ObservableObject {
     /// at `index`, recreating the Workspace if it ended, then shows that Workspace with `tab`
     /// selected, coming forward. When `allowsUndoSwitch()` refuses, nothing switches: a
     /// recreated Workspace stays hidden and a Tab going back into the shown Workspace joins
-    /// it unselected. False, with nothing changed, when the Tab goes back into the shown
-    /// Workspace but there's no tab group to join (non-native fullscreen).
+    /// it unselected. A Tab going back into the shown Workspace leaves non-native fullscreen
+    /// first. False, with nothing changed, when there's no tab group for it to join.
     func returnTab(_ tab: TerminalController, to saved: UndoState, at index: Int?) -> Bool {
         reconcile()
         guard let window = tab.window else { return false }
 
         let target = workspaces.firstIndex { $0.id == saved.id }
         if let target, workspaces[target].id == shownID {
+            leaveNonNativeFullscreen()
             guard let group = tabGroup, !group.windows.isEmpty else { return false }
             tab.workspaceStore = self
             let select = allowsUndoSwitch()
@@ -814,14 +827,12 @@ final class WorkspaceStore: ObservableObject {
 
     /// Undo or Redo Move Tab: moves `tab` to Workspace `saved.id` at `index`, recreating that
     /// Workspace hidden if it has ended; a new Workspace the move made ends if this leaves it
-    /// empty. `showing` (undo) then shows the Workspace with `tab` selected and focused,
-    /// unless `allowsUndoSwitch()` refuses. Otherwise (redo) the view follows the move.
+    /// empty. A Tab going into or out of the shown Workspace leaves non-native fullscreen
+    /// first (SPEC §16). `showing` (undo) then shows the Workspace with `tab` selected and
+    /// focused, unless `allowsUndoSwitch()` refuses. Otherwise (redo) the view follows the move.
     private func moveBack(_ tab: TerminalController, to saved: UndoState, at index: Int, showing: Bool) {
         reconcile()
-
-        // SPEC §16 leaves non-native fullscreen first for a Tab going into or out of the
-        // shown Workspace. Until that exists, such an undo does nothing, without an alert.
-        if isInNonNativeFullscreen, saved.id == shownID || !isHidden(tab) { return }
+        if saved.id == shownID || !isHidden(tab) { leaveNonNativeFullscreen() }
 
         let recreated = !workspaces.contains { $0.id == saved.id }
         if recreated { recreate(saved, holding: []) }
