@@ -5,7 +5,6 @@ const builtin = @import("builtin");
 const RunStep = std.Build.Step.Run;
 const Config = @import("Config.zig");
 const Docs = @import("GhosttyDocs.zig");
-const I18n = @import("GhosttyI18n.zig");
 const Resources = @import("GhosttyResources.zig");
 const XCFramework = @import("GhosttyXCFramework.zig");
 
@@ -17,7 +16,6 @@ xctest: *std.Build.Step.Run,
 pub const Deps = struct {
     xcframework: *const XCFramework,
     docs: *const Docs,
-    i18n: ?*const I18n,
     resources: *const Resources,
 };
 
@@ -81,7 +79,6 @@ pub fn init(
         // We also need all these resources because the xcode project
         // references them via symlinks.
         deps.resources.addStepDependencies(&step.step);
-        if (deps.i18n) |v| v.addStepDependencies(&step.step);
         deps.docs.installDummy(&step.step);
 
         // Expect success
@@ -115,7 +112,6 @@ pub fn init(
         // We also need all these resources because the xcode project
         // references them via symlinks.
         deps.resources.addStepDependencies(&step.step);
-        if (deps.i18n) |v| v.addStepDependencies(&step.step);
         deps.docs.installDummy(&step.step);
 
         // Expect success

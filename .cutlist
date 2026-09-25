@@ -25,3 +25,5 @@ test/windows
 valgrind.supp
 src/build/webgen
 src/build/GhosttyWebdata.zig
+po
+src/build/GhosttyI18n.zig
