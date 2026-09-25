@@ -96,6 +96,19 @@ struct WorkspaceStoreTests {
         #expect(WorkspaceStore.recencyOrder(remaining, shownID: ids[0], recent: recent).map(\.id) == [ids[0], ids[2]])
     }
 
+    @Test func setColorColorsAnyWorkspaceWithoutSwitching() {
+        let store = store(["Workspace 1", "Workspace 2"])
+        let hidden = store.workspaces[1].id
+        _ = store.addWorkspace(holding: [])
+        #expect(store.workspaces.map(\.color) == [.none, .none, .none])
+
+        store.setColor(.blue, of: hidden)
+        #expect(store.workspaces.map(\.color) == [.none, .blue, .none])
+        #expect(store.shownIndex == 0)
+
+        store.setColor(.none, of: hidden)
+        #expect(store.workspaces[1].color == .none)
+    }
     // MARK: Ordering
 
     @Test func addedWorkspaceGoesAtTheEnd() {
