@@ -89,6 +89,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuMoveWorkspaceLeft: NSMenuItem?
     @IBOutlet private var menuMoveWorkspaceRight: NSMenuItem?
     @IBOutlet private var menuMoveTabToWorkspace: NSMenuItem?
+    @IBOutlet private var menuOrganizeByRepo: NSMenuItem?
+    @IBOutlet private var menuOrganizeByFolder: NSMenuItem?
     /// The Workspace menu's list of Workspaces follows this separator.
     @IBOutlet private var menuWorkspaceListSeparator: NSMenuItem?
 
@@ -1263,6 +1265,8 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "next_workspace", menuItem: self.menuNextWorkspace)
         syncMenuShortcut(config, action: "move_workspace:-1", menuItem: self.menuMoveWorkspaceLeft)
         syncMenuShortcut(config, action: "move_workspace:1", menuItem: self.menuMoveWorkspaceRight)
+        syncMenuShortcut(config, action: "organize_workspaces:repo", menuItem: self.menuOrganizeByRepo)
+        syncMenuShortcut(config, action: "organize_workspaces:folder", menuItem: self.menuOrganizeByFolder)
 
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 

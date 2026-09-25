@@ -597,6 +597,8 @@ pub const Workspace = extern struct {
         move,
         move_tab_to,
         move_tab_to_new,
+        organize_repo,
+        organize_folder,
 
         test "ghostty.h Workspace.Op" {
             try lib.checkGhosttyHEnum(Op, "GHOSTTY_ACTION_WORKSPACE_");

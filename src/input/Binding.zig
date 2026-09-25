@@ -662,6 +662,23 @@ pub const Action = union(enum) {
     ///
     /// Only implemented on macOS.
     move_tab_to_new_workspace,
+
+    /// Regroup every tab in this window, including hidden Workspaces'
+    /// tabs, into new Workspaces: one per repository (`repo`) or one per
+    /// folder (`folder`) that each tab's focused split sits in. The new
+    /// Workspaces replace the window's old ones. Tabs whose focused split
+    /// never reported a working directory collect in a Workspace named
+    /// "Other".
+    ///
+    /// Valid values:
+    ///
+    ///   - `repo`: the nearest folder at or above the working directory
+    ///     that holds `.git`, else the working directory itself.
+    ///   - `folder`: the working directory.
+    ///
+    /// Only implemented on macOS.
+    organize_workspaces: OrganizeWorkspaces,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1270,6 +1287,11 @@ pub const Action = union(enum) {
         pub const default: CloseTabMode = .this;
     };
 
+    pub const OrganizeWorkspaces = enum {
+        repo,
+        folder,
+    };
+
     pub const OpenConfig = enum {
         /// Open the config in the OS default editor.
         os_open,
@@ -1525,6 +1547,7 @@ pub const Action = union(enum) {
             .move_workspace,
             .move_tab_to_workspace,
             .move_tab_to_new_workspace,
+            .organize_workspaces,
             .new_split,
             .goto_split,
             .goto_window,
@@ -3567,6 +3590,18 @@ test "parse: workspace actions" {
     try testing.expectError(Error.InvalidFormat, parseSingle("a=set_workspace_name"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=move_workspace"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .organize_workspaces = .repo } },
+        try parseSingle("a=organize_workspaces:repo"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .organize_workspaces = .folder } },
+        try parseSingle("a=organize_workspaces:folder"),
+    );
+
+    // organize_workspaces has no default, so it needs a payload.
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=organize_workspaces"));
 }
 
 test "parse: move tab to workspace actions" {

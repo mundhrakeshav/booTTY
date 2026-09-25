@@ -484,6 +484,19 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Move the current tab to a new Workspace."),
         }},
 
+        .organize_workspaces => comptime &.{
+            .{
+                .action = .{ .organize_workspaces = .repo },
+                .title = i18n.N_("Organize Workspaces by Repo"),
+                .description = i18n.N_("Regroup this window's tabs into one Workspace per repository."),
+            },
+            .{
+                .action = .{ .organize_workspaces = .folder },
+                .title = i18n.N_("Organize Workspaces by Folder"),
+                .description = i18n.N_("Regroup this window's tabs into one Workspace per folder."),
+            },
+        },
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),

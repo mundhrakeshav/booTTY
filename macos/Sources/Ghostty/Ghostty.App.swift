@@ -1438,6 +1438,12 @@ extension Ghostty {
 
                         case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO_NEW:
                             return store.moveTabToNewWorkspace(tab)
+
+                        case GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO,
+                             GHOSTTY_ACTION_WORKSPACE_ORGANIZE_FOLDER:
+                            guard store.allowsRequest(from: tab, orShow: .cannotOrganize) else { return false }
+                            return store.organize(by: v.op == GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO ? .repo : .folder)
+
                         default:
                             return false
                         }

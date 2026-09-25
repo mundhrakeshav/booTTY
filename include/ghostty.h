@@ -660,6 +660,8 @@ typedef enum {
   GHOSTTY_ACTION_WORKSPACE_MOVE,  // n: signed offset
   GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO,  // n: 1-based index
   GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO_NEW,
+  GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO,
+  GHOSTTY_ACTION_WORKSPACE_ORGANIZE_FOLDER,
 } ghostty_action_workspace_op_e;
 
 // apprt.action.Workspace
