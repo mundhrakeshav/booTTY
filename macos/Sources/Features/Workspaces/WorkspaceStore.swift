@@ -244,6 +244,63 @@ final class WorkspaceStore: ObservableObject {
         invalidateRestorableState()
     }
 
+    // MARK: Hidden Tabs
+
+    /// `new_tab` aimed at hidden `parent` (SPEC §14): a Tab made from `baseConfig` joins
+    /// `parent`'s Workspace out of sight, right after its remembered Tab, or at the end under
+    /// `window-new-tab-position = end`, and becomes remembered, as a new Tab is selected. Its
+    /// shell starts now. Nil if `parent` isn't hidden.
+    func newHiddenTab(beside parent: TerminalController, withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?) -> TerminalController? {
+        guard let index = hiddenIndex(holding: parent) else { return nil }
+
+        let tab = TerminalController(parent.ghostty, withBaseConfig: baseConfig, windowStyle: parent.windowStyle)
+        tab.isBackgroundOpaque = parent.isBackgroundOpaque
+        tab.workspaceStore = self
+
+        // Loads the window without showing it, as for New Workspace (SPEC §2.6).
+        guard tab.window != nil else { return nil }
+
+        var workspace = workspaces[index]
+        let atEnd = parent.ghostty.config.windowNewTabPosition == "end"
+        workspace.hiddenTabs.insert(tab, at: Self.newTabIndex(after: workspace.rememberedTab, in: workspace.hiddenTabs, atEnd: atEnd))
+        workspace.rememberedTab = tab
+        workspaces[index] = workspace
+        invalidateRestorableState()
+        return tab
+    }
+
+    /// Where a new Tab goes among `tabs`: right after `remembered`, or at the end when `atEnd`
+    /// or `remembered` isn't one of them.
+    static func newTabIndex<Tab: AnyObject>(after remembered: Tab?, in tabs: [Tab], atEnd: Bool) -> Int {
+        guard !atEnd, let index = tabs.firstIndex(where: { $0 === remembered }) else { return tabs.count }
+        return index + 1
+    }
+
+    /// Makes hidden `tab` its Workspace's remembered Tab, so showing the Workspace selects it.
+    func remember(_ tab: TerminalController) {
+        guard let index = hiddenIndex(holding: tab), workspaces[index].rememberedTab !== tab else { return }
+        workspaces[index].rememberedTab = tab
+        invalidateRestorableState()
+    }
+
+    /// Moves hidden `tab` to `position` among its Workspace's Tabs.
+    func moveHiddenTab(_ tab: TerminalController, to position: Int) {
+        guard let index = hiddenIndex(holding: tab),
+              let from = workspaces[index].hiddenTabs.firstIndex(where: { $0 === tab }),
+              from != position
+        else { return }
+
+        var workspace = workspaces[index]
+        workspace.hiddenTabs.remove(at: from)
+        workspace.hiddenTabs.insert(tab, at: position)
+        workspaces[index] = workspace
+        invalidateRestorableState()
+    }
+
+    private func hiddenIndex(holding tab: TerminalController) -> Int? {
+        workspaces.firstIndex { $0.hiddenTabs.contains { $0 === tab } }
+    }
+
     // MARK: Switching
 
     /// The one switch path (SPEC §2.3): shows Workspace `id`. Returns false, with the old

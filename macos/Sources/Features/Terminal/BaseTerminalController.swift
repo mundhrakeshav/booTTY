@@ -82,6 +82,10 @@ class BaseTerminalController: NSWindowController,
         return fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs
     }
 
+    /// Whether this Tab is in one of its Window's hidden Workspaces. Actions aimed at it run
+    /// out of sight or are refused, and never show it (SPEC §14).
+    var isHidden: Bool { false }
+
     /// Event monitor (see individual events for why)
     private var eventMonitor: Any?
 
@@ -553,9 +557,7 @@ class BaseTerminalController: NSWindowController,
         let oldTree = surfaceTree
         surfaceTree = newTree
         if let newView {
-            DispatchQueue.main.async {
-                Ghostty.moveFocus(to: newView, from: oldView)
-            }
+            moveFocus(to: newView, from: oldView)
         }
 
         // Setup our undo
@@ -585,6 +587,15 @@ class BaseTerminalController: NSWindowController,
                     moveFocusFrom: target.focusedSurface,
                     undoAction: undoAction)
             }
+        }
+    }
+
+    /// Moves focus to `view` on the next turn. A hidden Tab also records `view` as its focused
+    /// Split now, so showing the Tab focuses it (SPEC §14).
+    private func moveFocus(to view: Ghostty.SurfaceView, from oldView: Ghostty.SurfaceView? = nil) {
+        if isHidden { focusedSurfaceDidChange(to: view) }
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: view, from: oldView)
         }
     }
 
@@ -731,9 +742,7 @@ class BaseTerminalController: NSWindowController,
         }
 
         // Move focus to the next surface
-        DispatchQueue.main.async {
-            Ghostty.moveFocus(to: nextSurface, from: target)
-        }
+        moveFocus(to: nextSurface, from: target)
     }
 
     @objc private func ghosttyDidToggleSplitZoom(_ notification: Notification) {
@@ -755,13 +764,14 @@ class BaseTerminalController: NSWindowController,
 
         // Move focus to our window. Importantly this ensures that if we click the
         // reset zoom button in a tab bar of an unfocused tab that we become focused.
-        window?.makeKeyAndOrderFront(nil)
+        // A hidden Tab stays out of sight (SPEC §14).
+        if !isHidden {
+            window?.makeKeyAndOrderFront(nil)
+        }
 
         // Ensure focus stays on the target surface. We lose focus when we do
         // this so we need to grab it again.
-        DispatchQueue.main.async {
-            Ghostty.moveFocus(to: target)
-        }
+        moveFocus(to: target)
     }
 
     @objc private func ghosttyDidResizeSplit(_ notification: Notification) {

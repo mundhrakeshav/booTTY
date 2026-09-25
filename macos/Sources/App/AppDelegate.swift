@@ -735,7 +735,14 @@ class AppDelegate: NSObject,
     @objc private func ghosttyNewWindow(_ notification: Notification) {
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
         let config = configAny as? Ghostty.SurfaceConfiguration
-        _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+
+        // A Window opened from a Tab reads whether to start fullscreen from that Tab's
+        // Window, hidden Tabs included (SPEC §14).
+        let parent = (notification.object as? Ghostty.SurfaceView)?.window
+        _ = TerminalController.newWindow(
+            ghostty,
+            withBaseConfig: config,
+            withParent: parent?.windowController is TerminalController ? parent : nil)
     }
 
     @objc private func ghosttyNewTab(_ notification: Notification) {
