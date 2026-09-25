@@ -22,3 +22,6 @@ src/build/docker/debian
 Makefile
 passthrough.glsl
 test/windows
+valgrind.supp
+src/build/webgen
+src/build/GhosttyWebdata.zig

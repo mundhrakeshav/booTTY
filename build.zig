@@ -61,10 +61,6 @@ pub fn build(b: *std.Build) !void {
     // All our steps which we'll hook up later. The steps are shown
     // up here just so that they are more self-documenting.
     const run_step = b.step("run", "Run the app");
-    const run_valgrind_step = b.step(
-        "run-valgrind",
-        "Run the app under valgrind",
-    );
     const test_step = b.step("test", "Run tests");
     const test_lib_vt_step = b.step(
         "test-lib-vt",
@@ -77,10 +73,6 @@ pub fn build(b: *std.Build) !void {
     const test_lib_vt_schema_step = b.step(
         "test-lib-vt-schema",
         "Validate the libghostty-vt ABI type manifest",
-    );
-    const test_valgrind_step = b.step(
-        "test-valgrind",
-        "Run tests under valgrind",
     );
     const translations_step = b.step(
         "update-translations",
@@ -105,24 +97,10 @@ pub fn build(b: *std.Build) !void {
         docs.installDummy(b.getInstallStep());
     }
 
-    // Ghostty webdata
-    const webdata = try buildpkg.GhosttyWebdata.init(b, &deps);
-    if (config.emit_webdata) webdata.install();
-
     // Ghostty bench tools
     if (config.emit_bench) {
         const bench = try buildpkg.GhosttyBench.init(b, &deps);
         bench.install();
-    }
-
-    // Ghostty dist tarball
-    const dist = try buildpkg.GhosttyDist.init(b, &config);
-    {
-        const step = b.step("dist", "Build the dist tarball");
-        step.dependOn(dist.install_step);
-        const check_step = b.step("distcheck", "Install and validate the dist tarball");
-        check_step.dependOn(dist.check_step);
-        check_step.dependOn(dist.install_step);
     }
 
     // libghostty-vt
@@ -330,32 +308,6 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    // Valgrind
-    if (config.app_runtime != .none) {
-        // We need to rebuild Ghostty with a baseline CPU target.
-        const valgrind_exe = exe: {
-            var valgrind_config = config;
-            valgrind_config.target = valgrind_config.baselineTarget(b.graph.io);
-            break :exe try buildpkg.GhosttyExe.init(
-                b,
-                &valgrind_config,
-                &deps,
-            );
-        };
-
-        const run_cmd = b.addSystemCommand(&.{
-            "valgrind",
-            "--leak-check=full",
-            "--error-exitcode=1",
-            "--num-callers=50",
-            b.fmt("--suppressions={s}", .{b.pathFromRoot("valgrind.supp")}),
-            "--gen-suppressions=all",
-        });
-        run_cmd.addArtifactArg(valgrind_exe.exe);
-        if (b.args) |args| run_cmd.addArgs(args);
-        run_valgrind_step.dependOn(&run_cmd.step);
-    }
-
     // Zig module tests
     {
         const mod_vt_test = b.addTest(.{
@@ -408,19 +360,6 @@ pub fn build(b: *std.Build) !void {
 
         // Normal tests always test our libghostty modules
         //test_step.dependOn(test_lib_vt_step);
-
-        // Valgrind test running
-        const valgrind_run = b.addSystemCommand(&.{
-            "valgrind",
-            "--leak-check=full",
-            "--error-exitcode=1",
-            "--num-callers=50",
-            b.fmt("--suppressions={s}", .{b.pathFromRoot("valgrind.supp")}),
-            "--gen-suppressions=all",
-        });
-        valgrind_run.addArtifactArg(test_exe);
-        config.addPatchElf(test_exe, &valgrind_run.step);
-        test_valgrind_step.dependOn(&valgrind_run.step);
     }
 
     // update-translations does what it sounds like and updates the "pot"

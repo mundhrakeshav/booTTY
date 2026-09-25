@@ -59,7 +59,6 @@ emit_termcap: bool = false,
 emit_test_exe: bool = false,
 emit_themes: bool = false,
 emit_xcframework: bool = false,
-emit_webdata: bool = false,
 emit_unicode_table_gen: bool = false,
 
 /// Feature gates for libghostty-vt artifacts (-Dvt-features). The full
@@ -527,12 +526,6 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         "emit-themes",
         "Install bundled iTerm2-Color-Schemes Ghostty themes",
     ) orelse true;
-
-    config.emit_webdata = b.option(
-        bool,
-        "emit-webdata",
-        "Build the website data for the website.",
-    ) orelse false;
 
     config.emit_xcframework = b.option(
         bool,
