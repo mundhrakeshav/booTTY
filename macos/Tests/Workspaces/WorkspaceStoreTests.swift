@@ -478,8 +478,17 @@ struct WorkspaceStoreTests {
         let (group, old, incoming) = try tabGroup()
         defer { (old + incoming).forEach { $0.close() } }
 
-        #expect(WorkspaceStore.insert(incoming, before: old[1], in: group))
+        #expect(WorkspaceStore.insert(incoming, around: old[1], in: group))
         #expect(group.windows == [old[0]] + incoming + [old[1]])
+        #expect(group.selectedWindow === old[0])
+    }
+
+    @Test func insertingWithLeadingPutsTheRestAfterTheTab() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        #expect(WorkspaceStore.insert(incoming, around: old[0], leading: 1, in: group))
+        #expect(group.windows == [incoming[0], old[0], incoming[1], old[1]])
         #expect(group.selectedWindow === old[0])
     }
 
@@ -488,7 +497,7 @@ struct WorkspaceStoreTests {
         defer { (old + incoming).forEach { $0.close() } }
 
         var adds = 0
-        let inserted = WorkspaceStore.insert(incoming, before: old[0], in: group) { step, block in
+        let inserted = WorkspaceStore.insert(incoming, around: old[0], in: group) { step, block in
             if step == .add { adds += 1 }
             if step == .add && adds == 2 { return false }
             return WorkspaceStore.performSafely(step, block)
