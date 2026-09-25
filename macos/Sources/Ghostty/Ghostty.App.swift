@@ -1396,6 +1396,12 @@ extension Ghostty {
                                 from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
                             return store.newWorkspace(from: tab, withBaseConfig: config)
 
+                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO:
+                            return store.moveTab(tab, toWorkspaceAt: v.n)
+
+                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO_NEW:
+                            return store.moveTabToNewWorkspace(tab)
+
                         default:
                             return false
                         }

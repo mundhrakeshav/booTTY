@@ -573,7 +573,8 @@ pub const MoveTab = extern struct {
     amount: isize,
 };
 
-/// A Workspace command. `n` is the 1-based index for `goto`, unused otherwise.
+/// A Workspace command. `n` is the 1-based index for `goto` and `move_tab_to`,
+/// unused otherwise.
 ///
 /// Sync with: ghostty_action_workspace_s
 pub const Workspace = extern struct {
@@ -586,6 +587,8 @@ pub const Workspace = extern struct {
         previous,
         next,
         new,
+        move_tab_to,
+        move_tab_to_new,
 
         test "ghostty.h Workspace.Op" {
             try lib.checkGhosttyHEnum(Op, "GHOSTTY_ACTION_WORKSPACE_");

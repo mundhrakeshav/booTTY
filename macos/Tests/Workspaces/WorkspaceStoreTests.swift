@@ -142,4 +142,76 @@ struct WorkspaceStoreTests {
         #expect(group.windows == old)
         #expect(group.selectedWindow === old[0])
     }
+
+    // MARK: Moving Tabs
+
+    @Test func detachingTheSelectedTabSelectsItsNeighborFirst() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        var steps: [WorkspaceStore.SwapStep] = []
+        let detached = WorkspaceStore.detach(old[0], from: group, makeKey: false) { step, block in
+            steps.append(step)
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(detached)
+        #expect(steps == [.select, .orderOut])
+        #expect(group.windows == [old[1]])
+        #expect(group.selectedWindow === old[1])
+    }
+
+    @Test func detachingAnUnselectedTabKeepsTheSelection() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        #expect(WorkspaceStore.detach(old[1], from: group, makeKey: false))
+        #expect(group.windows == [old[0]])
+        #expect(group.selectedWindow === old[0])
+    }
+
+    @Test(arguments: [WorkspaceStore.SwapStep.select, .orderOut])
+    func failedDetachKeepsTheTab(failing: WorkspaceStore.SwapStep) throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // Fails only the first try of the step, so a rollback's select still runs.
+        var failed = false
+        let detached = WorkspaceStore.detach(old[0], from: group, makeKey: false) { step, block in
+            if step == failing && !failed {
+                failed = true
+                return false
+            }
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(!detached)
+        #expect(group.windows == old)
+        #expect(group.selectedWindow === old[0])
+    }
+
+    @Test func insertingPutsTheTargetsTabsInFrontAndKeepsTheSelection() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        #expect(WorkspaceStore.insert(incoming, before: old[1], in: group))
+        #expect(group.windows == [old[0]] + incoming + [old[1]])
+        #expect(group.selectedWindow === old[0])
+    }
+
+    @Test func failedInsertOrdersTheAddedTabsOutAgain() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        var adds = 0
+        let inserted = WorkspaceStore.insert(incoming, before: old[0], in: group) { step, block in
+            if step == .add { adds += 1 }
+            if step == .add && adds == 2 { return false }
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(!inserted)
+        #expect(group.windows == old)
+        #expect(group.selectedWindow === old[0])
+    }
 }

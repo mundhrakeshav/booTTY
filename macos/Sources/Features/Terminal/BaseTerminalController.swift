@@ -1475,6 +1475,17 @@ class BaseTerminalController: NSWindowController,
         performAction("goto_workspace:\(sender.tag)", on: focusedSurface)
     }
 
+    /// A row of Move Tab to Workspace ▸; its tag is the Workspace's 1-based number.
+    @IBAction func moveTabToWorkspace(_ sender: NSMenuItem) {
+        guard let focusedSurface else { return }
+        performAction("move_tab_to_workspace:\(sender.tag)", on: focusedSurface)
+    }
+
+    @IBAction func moveTabToNewWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("move_tab_to_new_workspace", on: focusedSurface)
+    }
+
     @IBAction func find(_ sender: Any) {
         focusedSurface?.find(sender)
     }

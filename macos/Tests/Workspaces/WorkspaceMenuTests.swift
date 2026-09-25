@@ -38,4 +38,27 @@ struct WorkspaceMenuTests {
         #expect(rows[1].keyEquivalentModifierMask == [.control])
         #expect(rows[9].keyEquivalent == "")
     }
+
+    @Test func moveTabRowsDisableTheShownWorkspaceThenOfferNewWorkspace() throws {
+        let items = store(["api", "web", "docs"], shown: 1).moveTabMenuItems(config: try TemporaryConfig(""))
+
+        #expect(items.map(\.title) == ["api", "web", "docs", "", "New Workspace"])
+        #expect(items[3].isSeparatorItem)
+        #expect(items[0..<3].map(\.state) == [.off, .on, .off])
+        #expect(items[0..<3].map(\.tag) == [1, 2, 3])
+        // No action is how an auto-enabled menu disables the shown row.
+        #expect(items[0..<3].map(\.action) == [#selector(BaseTerminalController.moveTabToWorkspace(_:)), nil, #selector(BaseTerminalController.moveTabToWorkspace(_:))])
+        #expect(items[4].action == #selector(BaseTerminalController.moveTabToNewWorkspace(_:)))
+        // move_tab_to_workspace ships unbound.
+        #expect(items.allSatisfy { $0.keyEquivalent == "" })
+    }
+
+    @Test func moveTabRowsShowTheMoveTabToWorkspaceShortcuts() throws {
+        let config = try TemporaryConfig("keybind = ctrl+k=move_tab_to_workspace:2")
+        let items = store(["a", "b"], shown: 0).moveTabMenuItems(config: config)
+
+        #expect(items[0].keyEquivalent == "") // not goto_workspace:1's ⌘⌥1
+        #expect(items[1].keyEquivalent == "k")
+        #expect(items[1].keyEquivalentModifierMask == [.control])
+    }
 }

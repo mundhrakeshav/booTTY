@@ -85,6 +85,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuNewWorkspace: NSMenuItem?
     @IBOutlet private var menuPreviousWorkspace: NSMenuItem?
     @IBOutlet private var menuNextWorkspace: NSMenuItem?
+    @IBOutlet private var menuMoveTabToWorkspace: NSMenuItem?
     /// The Workspace menu's list of Workspaces follows this separator.
     @IBOutlet private var menuWorkspaceListSeparator: NSMenuItem?
 
@@ -1276,11 +1277,16 @@ extension AppDelegate: NSMenuDelegate {
         while menu.numberOfItems > start { menu.removeItem(at: start) }
 
         let tab = NSApp.keyWindow?.windowController as? TerminalController
-        let rows = tab.flatMap {
-            $0.workspacesUnavailableAlert == nil ? $0.workspaceStore.menuItems(config: ghostty.config) : nil
-        } ?? []
+        let store = tab.flatMap { $0.workspacesUnavailableAlert == nil ? $0.workspaceStore : nil }
+        let rows = store?.menuItems(config: ghostty.config) ?? []
         rows.forEach(menu.addItem)
         separator.isHidden = rows.isEmpty
+
+        if let submenu = menuMoveTabToWorkspace?.submenu {
+            submenu.removeAllItems()
+            let items = store?.moveTabMenuItems(config: ghostty.config) ?? [WorkspaceStore.moveTabToNewWorkspaceItem()]
+            items.forEach(submenu.addItem)
+        }
     }
 }
 
