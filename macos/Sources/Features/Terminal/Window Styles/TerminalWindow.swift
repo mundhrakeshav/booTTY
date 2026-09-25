@@ -86,6 +86,8 @@ class TerminalWindow: NSWindow {
             guard tabColor != oldValue else { return }
             tabColorIndicator.rootView = tabColorIndicatorView
             invalidateRestorableState()
+            // Only the app-level Workspaces entry saves a hidden Tab.
+            if let tab = terminalController, tab.workspaceStore.isHidden(tab) { NSApp.invalidateRestorableState() }
             NotificationCenter.default.post(name: Self.tabDidChangeNotification, object: self)
         }
     }

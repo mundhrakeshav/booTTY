@@ -54,11 +54,26 @@ extension TerminalRestorable {
 
         AppDelegate.logger.debug("saved terminal state: \(debugDescription, privacy: .public)")
     }
+
+    /// This state archived on its own, for state saved outside a window's coder: a hidden
+    /// Tab's, kept in the app-level Workspaces entry.
+    func archived() -> Data {
+        let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+        encode(with: archiver)
+        archiver.finishEncoding()
+        return archiver.encodedData
+    }
+
+    init?(archived data: Data) {
+        guard let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: data) else { return nil }
+        defer { unarchiver.finishDecoding() }
+        self.init(coder: unarchiver)
+    }
 }
 
 /// The state stored for terminal window restoration.
 final class TerminalRestorableState: TerminalRestorable {
-    static var version: Int { 7 }
+    static var version: Int { 8 }
     static var minimumVersion: Int { 5 }
 
     var focusedSurface: String? {
@@ -75,6 +90,9 @@ final class TerminalRestorableState: TerminalRestorable {
     }
     var titleOverride: String? {
         internalState.titleOverride
+    }
+    var windowID: UUID? {
+        internalState.windowID
     }
 
     /// Internal State we use to perform unit tests
@@ -151,17 +169,42 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
+        guard let c = makeTab(from: state, ghostty: appDelegate.ghostty), let window = c.window else {
+            completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
+            return
+        }
+
+        // The Tab joins its Window's store, which brings back the Window's Workspaces.
+        // State from before Window ids gets a store of its own, holding "Workspace 1".
+        if let windowID = state.windowID {
+            c.workspaceStore = WorkspaceRestoration.store(for: windowID, restoring: c)
+        }
+
+        if let view = c.focusedSurface, view.id.uuidString == state.focusedSurface {
+            restoreFocus(to: view, inWindow: window)
+        }
+
+        completionHandler(window, nil)
+        guard let mode = state.effectiveFullscreenMode, mode != .native else {
+            // We let AppKit handle native fullscreen
+            return
+        }
+        // Give the window to AppKit first, then adjust its frame and style
+        // to minimise any visible frame changes.
+        c.toggleFullscreen(mode: mode)
+    }
+
+    /// Makes the Tab `state` describes, with its window loaded but not shown, and starts its
+    /// shells.
+    static func makeTab(from state: TerminalRestorableState, ghostty: Ghostty.App) -> TerminalController? {
         // The window creation has to go through our terminalManager so that it
         // can be found for events from libghostty. This uses the low-level
         // createWindow so that AppKit can place the window wherever it should
         // be.
         let c = TerminalController.init(
-            appDelegate.ghostty,
+            ghostty,
             withSurfaceTree: state.surfaceTree)
-        guard let window = c.window else {
-            completionHandler(nil, TerminalRestoreError.windowDidNotLoad)
-            return
-        }
+        guard let window = c.window else { return nil }
 
         // Restore our tab color and avoid unnecessary `invalidateRestorableState` calls
         if let tabColor = state.tabColor {
@@ -174,26 +217,13 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // Setup our restored state on the controller
         // Find the focused surface in surfaceTree
         if let focusedStr = state.focusedSurface {
-            var foundView: Ghostty.SurfaceView?
             for view in c.surfaceTree where view.id.uuidString == focusedStr {
-                foundView = view
+                c.focusedSurface = view
                 break
             }
-
-            if let view = foundView {
-                c.focusedSurface = view
-                restoreFocus(to: view, inWindow: window)
-            }
         }
 
-        completionHandler(window, nil)
-        guard let mode = state.effectiveFullscreenMode, mode != .native else {
-            // We let AppKit handle native fullscreen
-            return
-        }
-        // Give the window to AppKit first, then adjust its frame and style
-        // to minimise any visible frame changes.
-        c.toggleFullscreen(mode: mode)
+        return c
     }
 
     /// This restores the focus state of the surfaceview within the given window. When restoring,
