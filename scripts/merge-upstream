@@ -1,0 +1,24 @@
+#!/bin/sh
+# Merge upstream, delete every path listed in .cutlist, build, and commit.
+# Usage: scripts/merge-upstream [<ref>]   (default: upstream/main)
+# Stops on conflicts, unstaged changes, or a failed build; fix, `git add`, and re-run.
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+if ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+  git diff --quiet HEAD || { echo 'Commit or stash your changes first.' >&2; exit 1; }
+  git merge --no-ff --no-commit "${1:-upstream/main}" || status=$?
+  # No MERGE_HEAD: already up to date (0), or git refused to merge (non-zero).
+  git rev-parse -q --verify MERGE_HEAD >/dev/null || exit "${status:-0}"
+fi
+# -f: files the merge added are staged, and plain `git rm` refuses to drop staged changes.
+git rm -r -f -q --ignore-unmatch --pathspec-from-file=.cutlist
+pending=$(git diff --name-only | sort -u)
+if [ -n "$pending" ]; then
+  printf 'Resolve and `git add` these (or add them to .cutlist), then re-run:\n%s\n' "$pending" >&2
+  exit 1
+fi
+echo "Files this merge adds (A) to or removes (D) from booTTY:"
+git diff --cached --name-status --diff-filter=AD HEAD
+zig build
+zig build test
+git commit -q --no-edit
