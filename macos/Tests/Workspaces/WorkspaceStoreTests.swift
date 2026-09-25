@@ -66,6 +66,32 @@ struct WorkspaceStoreTests {
         #expect(store.shownIndex == 1)
     }
 
+    // MARK: Ending
+
+    @Test func anEndingShownWorkspaceHandsOffToTheRightElseTheLeft() {
+        let names = ["a", "b", "c"]
+        for (shown, neighbor) in [(0, 1), (1, 2), (2, 1)] {
+            let store = store(names, shown: shown)
+            #expect(store.neighborID == store.workspaces[neighbor].id)
+        }
+        #expect(store(["a"]).neighborID == nil)
+    }
+
+    @Test func rememberedTabHandsOffToTheRightElseTheLeft() {
+        let a = NSObject(), b = NSObject(), c = NSObject()
+        let tabs = [a, b, c]
+        #expect(WorkspaceStore.remembered(a, after: a, leaves: tabs) === b)
+        #expect(WorkspaceStore.remembered(b, after: b, leaves: tabs) === c)
+        #expect(WorkspaceStore.remembered(c, after: c, leaves: tabs) === b)
+        #expect(WorkspaceStore.remembered(a, after: a, leaves: [a]) == nil)
+    }
+
+    @Test func rememberedTabStaysWhenAnotherTabLeaves() {
+        let a = NSObject(), b = NSObject(), c = NSObject()
+        #expect(WorkspaceStore.remembered(a, after: b, leaves: [a, b, c]) === a)
+        #expect(WorkspaceStore.remembered(c, after: a, leaves: [a, b, c]) === c)
+    }
+
     // MARK: Switching
 
     /// A tab group of two windows, `old` with the first selected, and two ordered-out

@@ -707,15 +707,36 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return result
     }
 
-    /// The Tabs grouped with this one, in tab order, this one included. Decisions
-    /// about which Tabs sit beside this one read this, never the tab group.
+    /// The Tabs of this one's Workspace, in tab order, this one included. Decisions
+    /// about which Tabs sit beside this one read this, never the tab group. A shown
+    /// Tab's are the live tab group's.
     var groupedTabs: [NSWindow] {
         guard let window else { return [] }
+        if let workspace = workspaceStore.hiddenWorkspace(holding: self) {
+            return workspace.hiddenTabs.compactMap(\.window)
+        }
         return window.tabGroup?.windows ?? [window]
     }
 
-    /// Whether this is its Window's only Tab, so closing it closes the Window.
-    var isOnlyTabInWindow: Bool { groupedTabs.count <= 1 }
+    /// Whether this is the only Tab of its Window's only Workspace, so closing it closes
+    /// the Window (SPEC §13.2).
+    var isOnlyTabInWindow: Bool { groupedTabs.count <= 1 && workspaceStore.workspaces.count <= 1 }
+
+    /// Whether this Tab is in one of its Window's hidden Workspaces.
+    var isHidden: Bool { workspaceStore.isHidden(self) }
+
+    /// Where a sheet about this Tab goes: the Tab itself, or for a hidden Tab its Window's
+    /// shown Tab (SPEC §2.5).
+    private var sheetTab: TerminalController {
+        isHidden ? workspaceStore.shownTab ?? self : self
+    }
+
+    /// " in the hidden Workspace “api”" for a hidden Tab, else "". A confirmation names a
+    /// hidden Tab's Workspace right after its subject (SPEC §13.8).
+    private var hiddenWorkspacePhrase: String {
+        guard let name = workspaceStore.hiddenWorkspace(holding: self)?.name else { return "" }
+        return " in the hidden Workspace “\(name)”"
+    }
 
     /// This is called anytime a node in the surface tree is being removed.
     override func closeSurface(
@@ -724,7 +745,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     ) {
         // If this isn't the root then we're dealing with a split closure.
         if surfaceTree.root != node {
-            super.closeSurface(node, withConfirmation: withConfirmation)
+            // A hidden Split asks on the Window's shown Tab, naming its Workspace.
+            guard withConfirmation, isHidden, surfaceTree.contains(node) else {
+                super.closeSurface(node, withConfirmation: withConfirmation)
+                return
+            }
+
+            sheetTab.confirmClose(
+                messageText: "Close Terminal?",
+                informativeText: "The terminal\(hiddenWorkspacePhrase) still has a running process. If you close the terminal the process will be killed."
+            ) { [weak self] in
+                self?.removeSurfaceNode(node)
+            }
             return
         }
 
@@ -755,6 +787,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         cancelPendingInitialPresentation()
 
+        // Captured while the Tab is still where it was, before a switch hides it.
+        let undoState = self.undoState
+
+        // The shown Workspace's last Tab ends it. The neighbor is shown first, so the live
+        // group never empties and the Window stays (SPEC §13). If that switch can't run,
+        // the Window closes, as for a lone Tab.
+        if groupedTabs.count <= 1, !isHidden {
+            guard let neighbor = workspaceStore.neighborID, workspaceStore.show(neighbor) else {
+                closeWindowImmediately()
+                return
+            }
+        }
+
         // Undo
         if let undoManager, let undoState {
             // Register undo action to restore the tab
@@ -780,7 +825,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func closeOtherTabsImmediately() {
-        guard !isOnlyTabInWindow else { return }
+        guard groupedTabs.count > 1 else { return }
 
         // Start an undo grouping
         if let undoManager {
@@ -806,13 +851,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             undoManager.setActionName("Close Other Tabs")
 
             // We need to register an undo that refocuses this window. Otherwise, the
-            // undo operation above for each tab will steal focus.
+            // undo operation above for each tab will steal focus. A hidden Tab stays
+            // out of sight.
             undoManager.registerUndo(
                 withTarget: self,
                 expiresAfter: undoExpiration
             ) { target in
                 DispatchQueue.main.async {
-                    target.window?.makeKeyAndOrderFront(nil)
+                    if !target.isHidden { target.window?.makeKeyAndOrderFront(nil) }
                 }
 
                 // Register redo action
@@ -853,7 +899,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 expiresAfter: undoExpiration
             ) { target in
                 DispatchQueue.main.async {
-                    target.window?.makeKeyAndOrderFront(nil)
+                    if !target.isHidden { target.window?.makeKeyAndOrderFront(nil) }
                 }
 
                 undoManager.registerUndo(
@@ -1280,6 +1326,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     override func windowWillClose(_ notification: Notification) {
         super.windowWillClose(notification)
         cancelPendingInitialPresentation()
+        workspaceStore.removeHiddenTab(self)
         self.relabelTabs()
 
         // If we remove a window, we reset the cascade point to the key window so that
@@ -1381,17 +1428,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        confirmClose(
+        sheetTab.confirmClose(
             messageText: "Close Tab?",
-            informativeText: "The terminal still has a running process. If you close the tab the process will be killed."
+            informativeText: "The terminal\(hiddenWorkspacePhrase) still has a running process. If you close the tab the process will be killed."
         ) {
             self.closeTabImmediately()
         }
     }
 
     @IBAction func closeOtherTabs(_ sender: Any?) {
-        // If we only have one window then we have no other tabs to close
-        guard !isOnlyTabInWindow else { return }
+        // If the Workspace has only this Tab then there are no other tabs to close
+        guard groupedTabs.count > 1 else { return }
 
         // Check if we have to confirm close.
         guard groupedTabs.contains(where: { window in
@@ -1410,9 +1457,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        confirmClose(
+        sheetTab.confirmClose(
             messageText: "Close Other Tabs?",
-            informativeText: "At least one other tab still has a running process. If you close the tab the process will be killed."
+            informativeText: "At least one other tab\(hiddenWorkspacePhrase) still has a running process. If you close the tab the process will be killed."
         ) {
             self.closeOtherTabsImmediately()
         }
@@ -1439,9 +1486,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        confirmClose(
+        sheetTab.confirmClose(
             messageText: "Close Tabs on the Right?",
-            informativeText: "At least one tab to the right still has a running process. If you close the tab the process will be killed."
+            informativeText: "At least one tab to the right\(hiddenWorkspacePhrase) still has a running process. If you close the tab the process will be killed."
         ) {
             self.closeTabsOnTheRightImmediately()
         }
