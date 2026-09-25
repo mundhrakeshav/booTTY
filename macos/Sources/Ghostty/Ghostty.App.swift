@@ -796,6 +796,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_SET_WORKSPACE_NAME:
                 return setWorkspaceName(app, target: target, v: action.action.set_workspace_name)
 
+            case GHOSTTY_ACTION_TOGGLE_WORKSPACE_SWITCHER:
+                return toggleWorkspaceSwitcher(app, target: target)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
@@ -1493,6 +1496,43 @@ extension Ghostty {
 
                         // A hidden Split's own Workspace is renamed out of sight (SPEC §14).
                         store.rename(store.hiddenWorkspace(holding: tab)?.id ?? store.shownID, to: name)
+                        return true
+                    }
+
+                default:
+                    assertionFailure()
+                    return false
+                }
+        }
+
+        private static func toggleWorkspaceSwitcher(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("toggle workspace switcher does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface,
+                          let surfaceView = self.surfaceView(from: surface),
+                          let controller = BaseTerminalController.controller(owning: surfaceView)
+                    else { return false }
+
+                    return MainActor.assumeIsolated {
+                        guard let tab = controller.tabForWorkspaceCommand() else { return false }
+                        if tab.workspaceSwitcherIsShowing {
+                            tab.workspaceSwitcherIsShowing = false
+                            return true
+                        }
+
+                        // Opening is refused where switching is: aimed at a hidden Split,
+                        // behind a sheet, or in non-native fullscreen (SPEC §8.1, §14).
+                        guard tab.workspaceStore.allowsRequest(from: tab, orShow: .cannotSwitch) else { return false }
+                        tab.workspaceSwitcherIsShowing = true
+                        // As with the command palette, so a surface that is losing first
+                        // responder doesn't take the switcher's key equivalents.
+                        _ = tab.focusedSurface?.resignFirstResponder()
                         return true
                     }
 

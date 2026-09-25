@@ -7190,6 +7190,11 @@ pub const Keybinds = struct {
                 .{ .key = .{ .unicode = ']' }, .mods = .{ .super = true, .alt = true } },
                 .{ .next_workspace = {} },
             );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true } },
+                .{ .toggle_workspace_switcher = {} },
+            );
             {
                 // Cmd+Option+N for goto Workspace N. As with goto_tab, both the
                 // physical digit and the unicode digit are bound so layouts like
@@ -10685,6 +10690,7 @@ test "default keybinds: workspaces on macOS" {
         .{ .{ .key = .{ .unicode = '9' }, .mods = mods }, .{ .goto_workspace = 9 } },
         .{ .{ .key = .{ .physical = .digit_9 }, .mods = mods }, .{ .goto_workspace = 9 } },
         .{ .{ .key = .{ .unicode = 'w' }, .mods = mods }, .{ .close_tab = .this } },
+        .{ .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true } }, .toggle_workspace_switcher },
     };
     for (cases) |case| {
         const entry = set.get(case[0]).?.value_ptr.*;

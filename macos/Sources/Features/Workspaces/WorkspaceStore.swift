@@ -45,8 +45,15 @@ final class WorkspaceStore: ObservableObject {
     /// The Window id. It's minted with the store, so a new store means a new Window.
     let id: UUID
 
-    @Published private(set) var workspaces: [Workspace]
+    @Published private(set) var workspaces: [Workspace] {
+        // One that ends or leaves the Window drops out of recency (SPEC §8.3).
+        didSet { recentIDs.removeAll { id in !workspaces.contains { $0.id == id } } }
+    }
     @Published private(set) var shownID: Workspace.ID
+
+    /// Recency, newest first, the shown Workspace included once it has been shown by a
+    /// switch (SPEC §8.3). Per Window and in memory only. See `markShown(_:)`.
+    private var recentIDs: [Workspace.ID] = []
 
     var shownIndex: Int { workspaces.firstIndex { $0.id == shownID } ?? 0 }
 
@@ -200,6 +207,36 @@ final class WorkspaceStore: ObservableObject {
         case .previous: return (shownIndex + count - 1) % count
         case .next: return (shownIndex + 1) % count
         }
+    }
+
+    /// The Window's Workspaces most recently shown first, as the switcher lists them.
+    var recentWorkspaces: [Workspace] {
+        Self.recencyOrder(workspaces, shownID: shownID, recent: recentIDs)
+    }
+
+    /// The shown Workspace first, then the ones in `recent` (newest first), then those not
+    /// shown since they arrived in the Window, in bar order (SPEC §8.3). Ids of Workspaces
+    /// that are gone are skipped.
+    static func recencyOrder(_ workspaces: [Workspace], shownID: Workspace.ID, recent: [Workspace.ID]) -> [Workspace] {
+        let ranks = Dictionary(([shownID] + recent).enumerated().map { ($1, $0) }, uniquingKeysWith: min)
+        return workspaces.enumerated()
+            .sorted { lhs, rhs in
+                (ranks[lhs.element.id] ?? Int.max, lhs.offset) < (ranks[rhs.element.id] ?? Int.max, rhs.offset)
+            }
+            .map(\.element)
+    }
+
+    /// Makes Workspace `id` newest in recency, with the Workspace shown until now right
+    /// after it. Every switch calls this right before it sets `shownID = id`, so showing a
+    /// Workspace by any path counts (SPEC §2.3, §8.3).
+    func markShown(_ id: Workspace.ID) {
+        recentIDs = Self.recency(recentIDs, showing: id, from: shownID)
+    }
+
+    /// `recent` after Workspace `id` is shown in place of `shown`.
+    static func recency(_ recent: [Workspace.ID], showing id: Workspace.ID, from shown: Workspace.ID) -> [Workspace.ID] {
+        let front = id == shown ? [id] : [id, shown]
+        return front + recent.filter { !front.contains($0) }
     }
 
     // MARK: Commands
@@ -812,6 +849,7 @@ final class WorkspaceStore: ObservableObject {
             let outgoing = shownIndex
             workspaces[target].hiddenTabs = []
             workspaces[target].rememberedTab = nil
+            markShown(id)
             shownID = id
             workspaces.remove(at: outgoing)
 
@@ -1038,6 +1076,7 @@ final class WorkspaceStore: ObservableObject {
         workspaces[outgoing].rememberedTab = outgoingTabs.first { $0.window === oldSelected } ?? outgoingTabs.first
         workspaces[target].hiddenTabs = []
         workspaces[target].rememberedTab = nil
+        markShown(id)
         shownID = id
 
         // A Tab that failed to order out stayed in the group, so it joined the shown
@@ -1046,6 +1085,10 @@ final class WorkspaceStore: ObservableObject {
 
         reconcile()
         invalidateRestorableState()
+
+        // A switcher open in the outgoing Tab closes (SPEC §8.1).
+        for tab in outgoingTabs { tab.workspaceSwitcherIsShowing = false }
+
         didShow(incoming)
         return true
     }
@@ -1180,6 +1223,7 @@ final class WorkspaceStore: ObservableObject {
         let ended = shownID
         workspaces[target].hiddenTabs = []
         workspaces[target].rememberedTab = nil
+        markShown(id)
         shownID = id
         workspaces.removeAll { $0.id == ended }
 

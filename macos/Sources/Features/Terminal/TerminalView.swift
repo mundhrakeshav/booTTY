@@ -33,6 +33,9 @@ protocol TerminalViewModel: ObservableObject {
     /// The command palette state.
     var commandPaletteIsShowing: Bool { get set }
 
+    /// The Workspace switcher state.
+    var workspaceSwitcherIsShowing: Bool { get set }
+
     /// The update overlay should be visible.
     var updateOverlayIsVisible: Bool { get }
 }
@@ -114,6 +117,15 @@ struct TerminalView<ViewModel: TerminalViewModel>: View {
                         ghosttyConfig: ghostty.config,
                         updateViewModel: (NSApp.delegate as? AppDelegate)?.updateViewModel) { action in
                         self.delegate?.performAction(action, on: surfaceView)
+                    }
+
+                    if let tab = delegate as? TerminalController {
+                        WorkspaceSwitcherView(
+                            surfaceView: surfaceView,
+                            tab: tab,
+                            isPresented: $viewModel.workspaceSwitcherIsShowing,
+                            store: tab.workspaceStore,
+                            ghosttyConfig: ghostty.config)
                     }
                 }
 

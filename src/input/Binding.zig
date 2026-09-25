@@ -907,6 +907,13 @@ pub const Action = union(enum) {
     /// version can be found by running `ghostty +version`.
     toggle_command_palette,
 
+    /// Toggle the Workspace switcher: a searchable list of this window's
+    /// Workspaces, most recently shown first, so opening it and pressing
+    /// Return shows the previous Workspace.
+    ///
+    /// Only implemented on macOS.
+    toggle_workspace_switcher,
+
     /// Toggle the quick terminal.
     ///
     /// The quick terminal, also known as the "Quake-style" or drop-down
@@ -1528,6 +1535,7 @@ pub const Action = union(enum) {
             .toggle_secure_input,
             .toggle_mouse_reporting,
             .toggle_command_palette,
+            .toggle_workspace_switcher,
             .toggle_background_opacity,
             .show_on_screen_keyboard,
             .reset_window_size,
@@ -3629,6 +3637,12 @@ test "parse: workspace actions" {
 
     // organize_workspaces has no default, so it needs a payload.
     try testing.expectError(Error.InvalidFormat, parseSingle("a=organize_workspaces"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .toggle_workspace_switcher },
+        try parseSingle("a=toggle_workspace_switcher"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=toggle_workspace_switcher:x"));
 }
 
 test "parse: move tab to workspace actions" {

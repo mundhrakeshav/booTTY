@@ -228,6 +228,7 @@ pub const CommandPalette = extern struct {
             .move_tab_to_workspace,
             .move_tab_to_new_workspace,
             .organize_workspaces,
+            .toggle_workspace_switcher,
             => false,
 
             else => true,

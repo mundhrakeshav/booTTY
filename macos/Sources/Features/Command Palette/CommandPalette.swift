@@ -15,12 +15,20 @@ struct CommandOption: Identifiable, Hashable {
     let leadingIcon: String?
     /// Color for the leading indicator circle.
     let leadingColor: Color?
+    /// A status dot in the leading slot, such as a Workspace's color and agent status.
+    let leadingDot: StatusDot?
     /// Badge text displayed as a pill.
     let badge: String?
     /// Whether to visually emphasize this option.
     let emphasis: Bool
     /// Sort key for stable ordering when titles are equal.
     let sortKey: ObjectIdentifier?
+    /// Tabs the query may match below the title. When set, they stand in for the
+    /// subtitle and description in matching, and a Tab match shows that Tab as the
+    /// subtitle.
+    let tabs: [Tab]?
+    /// Set to have VoiceOver read the title as the label and this as the value.
+    let accessibilityValue: String?
     /// The action to perform when this option is selected.
     let action: () -> Void
 
@@ -31,9 +39,12 @@ struct CommandOption: Identifiable, Hashable {
         symbols: [String]? = nil,
         leadingIcon: String? = nil,
         leadingColor: Color? = nil,
+        leadingDot: StatusDot? = nil,
         badge: String? = nil,
         emphasis: Bool = false,
         sortKey: ObjectIdentifier? = nil,
+        tabs: [Tab]? = nil,
+        accessibilityValue: String? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
@@ -42,10 +53,40 @@ struct CommandOption: Identifiable, Hashable {
         self.symbols = symbols
         self.leadingIcon = leadingIcon
         self.leadingColor = leadingColor
+        self.leadingDot = leadingDot
         self.badge = badge
         self.emphasis = emphasis
         self.sortKey = sortKey
+        self.tabs = tabs
+        self.accessibilityValue = accessibilityValue
         self.action = action
+    }
+
+    /// A Tab an option matches on: its title, or the folder of any of its Splits.
+    struct Tab {
+        let title: String
+        /// Its Splits' folders, the focused Split's first.
+        let folders: [String]
+
+        /// "title · folder" when `query` matches the title or a folder, else nil. The
+        /// folder is the one that matched, else the focused Split's.
+        func subtitle(matching query: String) -> String? {
+            let folder: String?
+            if title.matchedIndices(for: query) != nil {
+                folder = folders.first
+            } else if let matched = folders.first(where: { $0.matchedIndices(for: query) != nil }) {
+                folder = matched
+            } else {
+                return nil
+            }
+            return folder.map { "\(title) · \($0)" } ?? title
+        }
+    }
+
+    /// The subtitle of the first Tab `query` matches, when the title doesn't match.
+    func tabSubtitle(matching query: String) -> String? {
+        guard let tabs, title.matchedIndices(for: query) == nil else { return nil }
+        return tabs.lazy.compactMap { $0.subtitle(matching: query) }.first
     }
 
     static func == (lhs: CommandOption, rhs: CommandOption) -> Bool {
@@ -61,6 +102,10 @@ struct CommandPaletteView: View {
     @Binding var isPresented: Bool
     var backgroundColor: Color = Color(nsColor: .windowBackgroundColor)
     var options: [CommandOption]
+    var placeholder = "Execute a command…"
+    /// The row selected while the query is empty. Set, typing selects the first match
+    /// and clearing the query selects this again.
+    var initialSelection: UInt?
     @State private var rawQuery = ""
     @State private var selectedIndex: UInt?
     @State private var hoveredOptionID: UUID?
@@ -97,7 +142,7 @@ struct CommandPaletteView: View {
         }
 
         VStack(alignment: .leading, spacing: 0) {
-            CommandPaletteQuery(query: $rawQuery) { event in
+            CommandPaletteQuery(query: $rawQuery, placeholder: placeholder) { event in
                 switch event {
                 case .exit:
                     isPresented = false
@@ -125,14 +170,17 @@ struct CommandPaletteView: View {
                     break
                 }
             }
+            .onAppear { selectedIndex = initialSelection }
             .onChange(of: query) { newValue in
                 // If the user types a query then we want to make sure the first
                 // value is selected. If the user clears the query and we were selecting
                 // the first, we unset any selection.
                 if !newValue.isEmpty {
-                    if selectedIndex == nil {
+                    if selectedIndex == nil || initialSelection != nil {
                         selectedIndex = 0
                     }
+                } else if initialSelection != nil {
+                    selectedIndex = initialSelection
                 } else {
                     if let selectedIndex, selectedIndex == 0 {
                         self.selectedIndex = nil
@@ -185,11 +233,13 @@ struct CommandPaletteView: View {
 /// The text field for building the query for the command palette.
 private struct CommandPaletteQuery: View {
     @Binding var query: String
+    var placeholder: String
     var onEvent: ((KeyboardEvent) -> Void)?
     @FocusState private var isTextFieldFocused: Bool
 
-    init(query: Binding<String>, onEvent: ((KeyboardEvent) -> Void)? = nil) {
+    init(query: Binding<String>, placeholder: String, onEvent: ((KeyboardEvent) -> Void)? = nil) {
         _query = query
+        self.placeholder = placeholder
         self.onEvent = onEvent
     }
 
@@ -219,7 +269,7 @@ private struct CommandPaletteQuery: View {
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
 
-            TextField("Execute a command…", text: $query)
+            TextField(placeholder, text: $query)
                 .padding()
                 .font(.system(size: 20, weight: .light))
                 .frame(height: 48)
@@ -348,8 +398,24 @@ private struct CommandRow: View {
     }
 
     var body: some View {
+        if let value = option.accessibilityValue {
+            button
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(option.title)
+                .accessibilityValue(value)
+                .accessibilityAddTraits(.isButton)
+        } else {
+            button
+        }
+    }
+
+    private var button: some View {
         Button(action: action) {
             HStack(spacing: 8) {
+                if let dot = option.leadingDot {
+                    dot
+                }
+
                 if let color = option.leadingColor {
                     Circle()
                         .fill(color)
@@ -365,7 +431,7 @@ private struct CommandRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     highlightedTitle
 
-                    if let subtitle = option.subtitle ?? option.description {
+                    if let subtitle = option.tabSubtitle(matching: query) ?? option.subtitle ?? option.description {
                         highlightedSubtitle(subtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -478,7 +544,7 @@ struct CommandOptionMatch {
     /// How closely the option's leading color matches a color name in the
     /// query, from 0 (no match) to 1 (exact).
     let colorScore: Double
-    /// Which text field matched, ranked: title (3), subtitle (2),
+    /// Which text field matched, ranked: title (3), subtitle or a Tab (2),
     /// description (1), none (0).
     let textScore: Int
 
@@ -487,6 +553,8 @@ struct CommandOptionMatch {
         let colorScore = Self.colorMatchScore(for: option.leadingColor, query: query)
         let textScore: Int = if option.title.matchedIndices(for: query) != nil {
             3
+        } else if let tabs = option.tabs {
+            tabs.contains { $0.subtitle(matching: query) != nil } ? 2 : 0
         } else if option.subtitle?.matchedIndices(for: query) != nil {
             2
         } else if option.description?.matchedIndices(for: query) != nil {
