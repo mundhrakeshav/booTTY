@@ -296,6 +296,17 @@ struct WorkspaceStoreTests {
         #expect(store.undoState(of: UUID()) == nil)
     }
 
+    @Test func undoFindsAWorkspaceWhereItMovedElseInItsLastWindow() {
+        let last = store(["a", "b"])
+        let saved = undoState(of: last, position: 1)
+        let moved = WorkspaceStore.Workspace(id: saved.id, name: "api")
+        let other = WorkspaceStore(workspaces: [moved], shownID: moved.id)
+
+        #expect(WorkspaceStore.live(saved, among: [last, other]) === other)
+        #expect(WorkspaceStore.live(saved, among: [last, store(["c"])]) === last)
+        #expect(WorkspaceStore.live(saved, among: [store(["c"])]) == nil)
+    }
+
     @Test func eachFolderOfOneOpenIsItsOwnUndoStep() {
         // AppKit opens every dropped folder in one event, which `groupsByEvent` would undo
         // as one step.

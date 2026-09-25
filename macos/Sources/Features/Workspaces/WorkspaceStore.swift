@@ -820,7 +820,7 @@ final class WorkspaceStore: ObservableObject {
     /// What undo keeps of a Workspace to find it again, or to recreate it once it has ended
     /// (SPEC §16).
     struct UndoState {
-        /// The Window id of the Window it was in.
+        /// The Window id of the Window it was in when the entry was made.
         let windowID: UUID
         let id: Workspace.ID
         let name: String
@@ -842,21 +842,43 @@ final class WorkspaceStore: ObservableObject {
             position: position)
     }
 
-    /// The store of Window `id` while that Window still shows a Tab. Nil once it has closed.
-    static func live(_ id: UUID) -> WorkspaceStore? {
-        TerminalController.all.lazy.map(\.workspaceStore).first { $0.id == id && $0.shownTab != nil }
+    /// Where an undo entry acts on Workspace `saved` (SPEC §16): the Window holding it now,
+    /// wherever it has moved, else, once it has ended, its last Window while that still shows
+    /// a Tab. Nil once that Window has closed.
+    static func live(_ saved: UndoState) -> WorkspaceStore? {
+        live(saved, among: TerminalController.all.lazy.map(\.workspaceStore).filter { $0.shownTab != nil })
+    }
+
+    // ponytail: the last Window is the one the entry was made in, so a Workspace that moved
+    // and then ended with no entry of its own (a Tab dragged out) comes back there. Track the
+    // Window each Workspace moves to if that matters.
+    static func live(_ saved: UndoState, among stores: some Collection<WorkspaceStore>) -> WorkspaceStore? {
+        stores.first { $0.workspaces.contains { $0.id == saved.id } } ?? stores.first { $0.id == saved.windowID }
     }
 
     /// Brings back an ended Workspace holding `tabs`, hidden, with its id, name, original
     /// name, color, and `remembered` Tab (else its first), at its old position, or at the
     /// end if the Window now has fewer Workspaces (SPEC §16).
     func recreate(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController? = nil) {
+        workspaces.insert(Self.workspace(saved, holding: tabs, remembering: remembered), at: min(saved.position, workspaces.count))
+        invalidateRestorableState()
+    }
+
+    /// Brings back an ended Workspace whose last Window has closed as a Window of its own,
+    /// holding `tabs`, which are ordered out and in no Workspace, by Move Workspace to New
+    /// Window's path (SPEC §16). It keeps its id, name, original name, and color, and shows
+    /// `remembered`, else its first Tab. The Tabs' window style is their old Window's. False,
+    /// with nothing changed, if the Tab couldn't come on screen.
+    static func reopen(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController? = nil) -> Bool {
+        openWindow(holding: workspace(saved, holding: tabs, remembering: remembered), sizedLike: nil)
+    }
+
+    private static func workspace(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController?) -> Workspace {
         var workspace = Workspace(id: saved.id, name: saved.name, hiddenTabs: tabs)
         workspace.rememberedTab = remembered ?? tabs.first
         workspace.originalName = saved.originalName
         workspace.color = saved.color
-        workspaces.insert(workspace, at: min(saved.position, workspaces.count))
-        invalidateRestorableState()
+        return workspace
     }
 
     /// Whether an undo or redo may switch Workspaces now (SPEC §16). Not while the shown Tab
@@ -880,13 +902,14 @@ final class WorkspaceStore: ObservableObject {
         show(workspaces[index].id, comingForward: true)
     }
 
-    /// Undo Close Tab (SPEC §16): puts `tab`, recreated and never shown, back in its Workspace
-    /// at `index`, recreating the Workspace if it ended, then shows that Workspace with `tab`
-    /// selected, coming forward. When `allowsUndoSwitch()` refuses, nothing switches: a
-    /// recreated Workspace stays hidden and a Tab going back into the shown Workspace joins
-    /// it unselected. A Tab going back into the shown Workspace leaves non-native fullscreen
-    /// first. False, with nothing changed, when there's no tab group for it to join.
-    func returnTab(_ tab: TerminalController, to saved: UndoState, at index: Int?) -> Bool {
+    /// Undo Close Tab (SPEC §16): puts `tab`, ordered out and in no Workspace, back in its
+    /// Workspace at `index`, recreating the Workspace if it ended, then shows that Workspace
+    /// with `tab` selected, coming forward. When `allowsUndoSwitch()` refuses, or without
+    /// `showing` (Redo Move Tab from another Window), nothing switches: a recreated Workspace
+    /// stays hidden and a Tab going back into the shown Workspace joins it unselected. A Tab
+    /// going back into the shown Workspace leaves non-native fullscreen first. False, with
+    /// nothing changed, when there's no tab group for it to join.
+    func returnTab(_ tab: TerminalController, to saved: UndoState, at index: Int?, showing: Bool = true) -> Bool {
         reconcile()
         guard let window = tab.window else { return false }
 
@@ -895,7 +918,7 @@ final class WorkspaceStore: ObservableObject {
             leaveNonNativeFullscreen()
             guard let group = tabGroup, !group.windows.isEmpty else { return false }
             tab.workspaceStore = self
-            let select = allowsUndoSwitch()
+            let select = showing && allowsUndoSwitch()
             if select, let selected = group.selectedWindow, selected.isMiniaturized {
                 selected.deminiaturize(nil)
             }
@@ -916,7 +939,7 @@ final class WorkspaceStore: ObservableObject {
             recreate(saved, holding: [tab])
         }
 
-        showForUndo(tab)
+        if showing { showForUndo(tab) }
         return true
     }
 
@@ -942,8 +965,20 @@ final class WorkspaceStore: ObservableObject {
                 }
 
                 guard let saved else { return }
-                undoManager.registerUndo(withTarget: tab.ghostty, expiresAfter: tab.undoExpiration) { _ in
-                    Self.live(saved.windowID)?.redoNewWorkspace(saved, withBaseConfig: baseConfig)
+                let windowStyle = tab.windowStyle
+                undoManager.registerUndo(withTarget: tab.ghostty, expiresAfter: tab.undoExpiration) { ghostty in
+                    if let store = Self.live(saved) {
+                        store.redoNewWorkspace(saved, withBaseConfig: baseConfig)
+                        return
+                    }
+
+                    // Its Window has closed, so it comes back as a Window of its own.
+                    let reopened = TerminalController(ghostty, withBaseConfig: baseConfig, windowStyle: windowStyle)
+                    guard Self.reopen(saved, holding: [reopened]) else {
+                        reopened.surfaceTree = .init() // closes the never-shown Tab and ends its shell
+                        return
+                    }
+                    reopened.workspaceStore.registerUndoForNewWorkspace(reopened, previous: saved.id, withBaseConfig: baseConfig)
                 }
             }
         }
@@ -982,9 +1017,16 @@ final class WorkspaceStore: ObservableObject {
     /// empty. A Tab going into or out of the shown Workspace leaves non-native fullscreen
     /// first (SPEC §16). `showing` (undo) then shows the Workspace with `tab` selected and
     /// focused, unless `allowsUndoSwitch()` refuses. Otherwise (redo) the view follows the move.
+    /// The Workspace may be in another Window now, or gone with its last Window (`moveAcross`).
     private func moveBack(_ tab: TerminalController, to saved: UndoState, at index: Int, showing: Bool) {
         reconcile()
         if saved.id == shownID || !isHidden(tab) { leaveNonNativeFullscreen() }
+
+        let target = Self.live(saved)
+        guard target === self else {
+            moveAcross(tab, to: saved, in: target, at: index, showing: showing)
+            return
+        }
 
         let recreated = !workspaces.contains { $0.id == saved.id }
         if recreated { recreate(saved, holding: []) }
@@ -1003,6 +1045,56 @@ final class WorkspaceStore: ObservableObject {
         if let selected = tabGroup?.selectedWindow, selected.isMiniaturized { selected.deminiaturize(nil) }
         _ = Self.performSafely(.select) { window.makeKeyAndOrderFront(nil) }
         if let surface = tab.focusedSurface { Ghostty.moveFocus(to: surface) }
+    }
+
+    /// Undo or Redo Move Tab when Workspace `saved` is in `target`, another Window, now, or
+    /// has ended there, or has ended and its last Window has closed (nil) (SPEC §11.4, §16):
+    /// `tab` leaves this Window and goes back as Undo Close Tab puts a Tab back (`showing` as
+    /// in `moveBack`), or with its Workspace as a Window of its own. Then registers the
+    /// opposite entry. Nothing moves while the Tab has a sheet up, or in non-native fullscreen
+    /// when it would go into `target`'s shown Workspace.
+    private func moveAcross(_ tab: TerminalController, to saved: UndoState, in target: WorkspaceStore?, at index: Int, showing: Bool) {
+        if let target, target.isInNonNativeFullscreen, saved.id == target.shownID { return }
+        let source = workspace(holding: tab).id
+        guard tab.window?.attachedSheet == nil,
+              let from = undoState(of: source),
+              let fromIndex = tabs(of: source).firstIndex(where: { $0 === tab }),
+              release(tab)
+        else { return }
+
+        let placed = target.map { $0.returnTab(tab, to: saved, at: index, showing: showing) }
+            ?? Self.reopen(saved, holding: [tab])
+        guard placed else {
+            // So it isn't lost.
+            _ = Self.openWindow(holding: Workspace(name: Self.newName(in: []), hiddenTabs: [tab]), sizedLike: nil)
+            return
+        }
+        registerUndoMoveTab(tab, from: from, at: fromIndex)
+    }
+
+    /// Takes `tab` out of this Window for a move to another one: afterwards it's ordered out
+    /// and in none of the Window's Workspaces. The shown Workspace's last Tab shows its
+    /// neighbor first, and a Workspace left empty ends. The Window's only Tab leaves nothing
+    /// behind. False, with nothing changed, when AppKit throws.
+    private func release(_ tab: TerminalController) -> Bool {
+        if !isHidden(tab), tabs(of: shownID).count == 1, let neighborID, !show(neighborID) { return false }
+        if isHidden(tab) {
+            removeHiddenTab(tab)
+            return true
+        }
+
+        guard let group = tabGroup, let window = tab.window else { return false }
+        isChanging = true
+        let detached = Self.detach(window, from: group, makeKey: window.isKeyWindow || window.isMainWindow)
+        isChanging = false
+        guard detached else { return false }
+
+        // Not by `reconcile()`: AppKit sometimes still lists a lone ordered-out window in its
+        // group, which would keep the Tab here.
+        knownShownTabs.removeAll { $0.value === tab }
+        invalidateRestorableState()
+        shownTab?.relabelTabs()
+        return true
     }
 
     /// Takes `tab`'s Undo and Redo Move Tab entries off the stack, once it has left the
@@ -1152,8 +1244,9 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Registers Undo Close Workspace for the closing Workspace `saved`, holding `tabs` and
-    /// remembering `remembered` (SPEC §16). Undo brings it back whole in its Window and shows
-    /// it unless `allowsUndoSwitch()` refuses; redo closes it again.
+    /// remembering `remembered` (SPEC §16). Undo brings it back whole in its last Window and
+    /// shows it unless `allowsUndoSwitch()` refuses, or, with that Window closed, as a Window
+    /// of its own; redo closes it again, wherever it is.
     private func registerUndoForCloseWorkspace(
         _ saved: UndoState,
         tabs: [TerminalController],
@@ -1167,27 +1260,18 @@ final class WorkspaceStore: ObservableObject {
 
         undoManager.setActionName("Close Workspace")
         undoManager.registerUndo(withTarget: first.ghostty, expiresAfter: expiration) { ghostty in
-            if let store = Self.live(saved.windowID) {
+            let tabs = states.map { TerminalController(ghostty, rebuilding: $0) }
+            if let store = Self.live(saved) {
                 store.reconcile()
-                let tabs = states.map { TerminalController(ghostty, rebuilding: $0) }
                 for tab in tabs { tab.workspaceStore = store }
                 store.recreate(saved, holding: tabs, remembering: tabs[rememberedIndex])
                 if store.allowsUndoSwitch() { store.show(saved.id, comingForward: true) }
             } else {
-                // Its Window has closed, so its Tabs come back as a Window of their own.
-                let tabs = states.map { state in
-                    var state = state
-                    state.workspace = nil
-                    return TerminalController(ghostty, with: state)
-                }
-                for tab in tabs.dropFirst() {
-                    if let window = tab.window { tabs[0].window?.addTabbedWindowSafely(window, ordered: .above) }
-                }
-                tabs[rememberedIndex].window?.makeKeyAndOrderFront(nil)
+                _ = Self.reopen(saved, holding: tabs, remembering: tabs[rememberedIndex])
             }
 
             undoManager.registerUndo(withTarget: ghostty, expiresAfter: expiration) { _ in
-                Self.live(saved.windowID)?.closeWorkspaceImmediately(saved.id)
+                Self.live(saved)?.closeWorkspaceImmediately(saved.id)
             }
         }
     }
@@ -1634,7 +1718,7 @@ final class WorkspaceStore: ObservableObject {
         // A switch whose old Tabs all failed to order out keeps them shown.
         guard id != shownID,
               let index = workspaces.firstIndex(where: { $0.id == id }),
-              openWindow(holding: workspaces[index], sizedLike: source)
+              Self.openWindow(holding: workspaces[index], sizedLike: source)
         else { return false }
 
         workspaces.remove(at: index)
@@ -1650,7 +1734,7 @@ final class WorkspaceStore: ObservableObject {
     func moveHiddenTabToNewWindow(_ tab: TerminalController) -> Bool {
         reconcile()
         guard isHidden(tab), !isInNonNativeFullscreen,
-              openWindow(
+              Self.openWindow(
                   holding: Workspace(name: Self.newName(in: []), hiddenTabs: [tab]),
                   sizedLike: shownTab?.window)
         else { return false }
@@ -1730,7 +1814,9 @@ final class WorkspaceStore: ObservableObject {
         let left = Workspace(name: handed[shownIndex].name)
         workspaces = [left]
         shownID = left.id
-        knownShownTabs = Self.tabs(in: group).map { Weak($0) }
+        // Only the Tabs that stayed: AppKit sometimes still lists a lone ordered-out window in
+        // its group, and this store would drop that Tab's Undo Move Tab, which follows it.
+        knownShownTabs = Self.tabs(in: group).filter { tab in !tabs.contains { $0 === tab } }.map { Weak($0) }
         dropOrganizeUndoIfTabsChanged() // its Tabs left the Window
         return handed.filter { !$0.hiddenTabs.isEmpty }
     }
@@ -1757,7 +1843,7 @@ final class WorkspaceStore: ObservableObject {
     /// or gets its own native fullscreen Space when `source` is in one. It becomes key, with
     /// the remembered Tab selected and focused. False, with nothing changed, if the
     /// remembered Tab couldn't come on screen.
-    private func openWindow(holding workspace: Workspace, sizedLike source: NSWindow?) -> Bool {
+    private static func openWindow(holding workspace: Workspace, sizedLike source: NSWindow?) -> Bool {
         guard let remembered = workspace.rememberedTab ?? workspace.hiddenTabs.first,
               let window = remembered.window
         else { return false }
@@ -1770,10 +1856,11 @@ final class WorkspaceStore: ObservableObject {
             remembered.placeAsNewWindow()
         }
 
-        // Its becoming key mustn't make this store reconcile a half-done move.
-        isChanging = true
-        let reformed = Self.reform(workspace.hiddenTabs.compactMap(\.window), around: window, frame: nil, below: nil)
-        isChanging = false
+        // Its becoming key mustn't make its store reconcile a half-done move.
+        let owner = remembered.workspaceStore
+        owner.isChanging = true
+        let reformed = reform(workspace.hiddenTabs.compactMap(\.window), around: window, frame: nil, below: nil)
+        owner.isChanging = false
         guard let reformed else { return false }
 
         var shown = workspace
