@@ -84,6 +84,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         didSet { NotificationCenter.default.post(name: TerminalWindow.tabDidChangeNotification, object: nil) }
     }
 
+    /// The target of this Tab's Undo and Redo Move Tab entries, so they alone come off the
+    /// stack when the Tab leaves its Window (SPEC §11.4).
+    let moveTabUndoTarget = NSObject()
+
     /// Turns two-finger horizontal swipes over this Tab's vertical tab bar into Workspace
     /// switches (SPEC §6.2).
     private var swipeMonitor: Any?
