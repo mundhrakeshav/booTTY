@@ -6,36 +6,48 @@ import GhosttyKit
 
 /// A classic, tabbed terminal experience.
 class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
-    override var windowNibName: NSNib.Name? {
-        let defaultValue = "Terminal"
+    override var windowNibName: NSNib.Name? { windowStyle.nibName }
 
-        guard let appDelegate = NSApp.delegate as? AppDelegate else { return defaultValue }
-        let config = appDelegate.ghostty.config
+    /// The Window's titlebar style and decorations, fixed when the Window is created. A Tab
+    /// created into an existing Window takes that Window's, not a reloaded config's, so it
+    /// always joins the Window's group, and the Window keeps (or keeps lacking) Workspaces
+    /// (SPEC §4.2).
+    struct WindowStyle: Equatable {
+        let nibName: String
 
-        // If we have no window decorations, there's no reason to do anything but
-        // the default titlebar (because there will be no titlebar).
-        if !config.windowDecorations {
-            return defaultValue
-        }
+        /// False under `window-decoration = none`. Recorded because non-native fullscreen
+        /// also removes `.titled`.
+        let isDecorated: Bool
 
-        let nib = switch config.macosTitlebarStyle {
-        case .native: "Terminal"
-        case .hidden: "TerminalHiddenTitlebar"
-        case .transparent: "TerminalTransparentTitlebar"
-        case .tabs:
-#if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                "TerminalTabsTitlebarTahoe"
-            } else {
-                "TerminalTabsTitlebarVentura"
+        init(_ config: Ghostty.Config) {
+            isDecorated = config.windowDecorations
+
+            // If we have no window decorations, there's no reason to do anything but
+            // the default titlebar (because there will be no titlebar).
+            guard isDecorated else {
+                nibName = "Terminal"
+                return
             }
-#else
-            "TerminalTabsTitlebarVentura"
-#endif
-        }
 
-        return nib
+            nibName = switch config.macosTitlebarStyle {
+            case .native: "Terminal"
+            case .hidden: "TerminalHiddenTitlebar"
+            case .transparent: "TerminalTransparentTitlebar"
+            case .tabs:
+#if compiler(>=6.2)
+                if #available(macOS 26.0, *) {
+                    "TerminalTabsTitlebarTahoe"
+                } else {
+                    "TerminalTabsTitlebarVentura"
+                }
+#else
+                "TerminalTabsTitlebarVentura"
+#endif
+            }
+        }
     }
+
+    let windowStyle: WindowStyle
 
     /// This is set to true when we care about frame changes. This is a small optimization since
     /// this controller registers a listener for ALL frame change notifications and this lets us bail
@@ -68,10 +80,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// Window makes one, holding "Workspace 1"; a Tab added to a Window adopts its store.
     lazy var workspaceStore = WorkspaceStore(tab: self)
 
+    /// `windowStyle` is the style of the Window this Tab is created into. Nil means a new
+    /// Window, styled by the current config.
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
-         parent: NSWindow? = nil
+         windowStyle: WindowStyle? = nil
     ) {
         // The window we manage is not restorable if we've specified a command
         // to execute. We do this because the restored window is meaningless at the
@@ -82,6 +96,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Setup our initial derived config based on the current app config
         self.derivedConfig = DerivedConfig(ghostty.config)
+        self.windowStyle = windowStyle ?? WindowStyle(ghostty.config)
 
         super.init(ghostty, baseConfig: base, surfaceTree: tree)
 
@@ -449,7 +464,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Create a new window and add it to the parent
-        let controller = TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        let controller = TerminalController.init(
+            ghostty, withBaseConfig: baseConfig, windowStyle: parentController.windowStyle)
         controller.isBackgroundOpaque = parentController.isBackgroundOpaque
         guard let window = controller.window else { return controller }
 
@@ -1032,10 +1048,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let tabIndex: Int?
         weak var tabGroup: NSWindowTabGroup?
         let tabColor: TerminalTabColor
+        let windowStyle: WindowStyle
     }
 
     convenience init(_ ghostty: Ghostty.App, with undoState: UndoState) {
-        self.init(ghostty, withSurfaceTree: undoState.surfaceTree)
+        self.init(ghostty, withSurfaceTree: undoState.surfaceTree, windowStyle: undoState.windowStyle)
 
         // Show the window and restore its frame
         showWindow(nil)
@@ -1089,7 +1106,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface: focusedSurface?.id,
             tabIndex: groupedTabs.firstIndex(of: window),
             tabGroup: window.tabGroup,
-            tabColor: (window as? TerminalWindow)?.tabColor ?? .none)
+            tabColor: (window as? TerminalWindow)?.tabColor ?? .none,
+            windowStyle: windowStyle)
     }
 
     // MARK: - NSWindowController
