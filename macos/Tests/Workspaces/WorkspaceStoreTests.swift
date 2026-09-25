@@ -186,6 +186,55 @@ struct WorkspaceStoreTests {
         #expect(group.selectedWindow === old[0])
     }
 
+    // MARK: Re-forming an emptied group
+
+    /// Four ordered-out windows, as a hidden Workspace's Tabs are, and the window the last
+    /// shown Tab left for, ordered in. All are transparent.
+    private func reformWindows() -> (tabs: [NSWindow], joined: NSWindow) {
+        let windows = (0..<5).map { _ in
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: true)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            window.alphaValue = 0
+            return window
+        }
+        windows[4].orderFront(nil)
+        return (Array(windows[0...3]), windows[4])
+    }
+
+    @Test func reformKeepsTheTabOrderAroundTheRememberedTab() throws {
+        let (tabs, joined) = reformWindows()
+        defer { (tabs + [joined]).forEach { $0.close() } }
+        let frame = NSRect(x: 40, y: 60, width: 300, height: 200)
+
+        let reformed = try #require(WorkspaceStore.reform(tabs, around: tabs[2], frame: frame, below: joined))
+
+        #expect(reformed.group.windows == tabs)
+        #expect(reformed.group.selectedWindow === tabs[2])
+        #expect(reformed.failed.isEmpty)
+        #expect(tabs[2].frame == frame)
+        #expect(joined.tabGroup?.windows == [joined])
+    }
+
+    @Test func reformLeavesOutATabThatFailsToJoin() throws {
+        let (tabs, joined) = reformWindows()
+        defer { (tabs + [joined]).forEach { $0.close() } }
+
+        // Fails the second add: the Tab before the Remembered Tab.
+        var adds = 0
+        let reformed = try #require(WorkspaceStore.reform(tabs, around: tabs[2], frame: nil, below: joined) { step, block in
+            if step == .add { adds += 1 }
+            return step == .add && adds == 2 ? false : WorkspaceStore.performSafely(step, block)
+        })
+
+        #expect(reformed.group.windows == [tabs[0], tabs[2], tabs[3]])
+        #expect(reformed.failed == [tabs[1]])
+    }
+
     // MARK: Swiping
 
     private func scroll(

@@ -1434,6 +1434,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Whenever we move save our last position for the next start.
         LastWindowPosition.shared.save(window)
+        workspaceStore.recordShownFrame()
     }
 
     override func windowDidResize(_ notification: Notification) {
@@ -1441,6 +1442,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Whenever we resize save our last position and size for the next start.
         LastWindowPosition.shared.save(window)
+        workspaceStore.recordShownFrame()
 
         if let window = self.window as? TerminalWindow {
             // Expand the title frame to new width.

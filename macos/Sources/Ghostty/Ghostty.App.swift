@@ -1306,8 +1306,9 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
-                    // See gotoTab for notes on this check. A lone tab is already
-                    // a window of its own, so there is nothing to move.
+                    // The shown Workspace's only Tab can't move to a new Window; Move Workspace
+                    // to New Window covers that (SPEC §11.5). A hidden Tab is ordered out, so
+                    // there's nothing here for AppKit to move.
                     guard let controller = surfaceView.window?.windowController as? TerminalController,
                           !controller.isHidden, controller.groupedTabs.count > 1 else { return false }
 
