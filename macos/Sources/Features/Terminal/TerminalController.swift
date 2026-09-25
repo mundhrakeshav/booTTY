@@ -1225,9 +1225,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let window else { return }
         let focusTarget = focusedSurface
 
-        // Back into its Workspace while its Window is open, else a Window of its own.
-        if let saved = undoState.workspace, let store = WorkspaceStore.live(saved.windowID) {
-            if store.returnTab(self, to: saved, at: undoState.tabIndex) {
+        // Back into its Workspace wherever it is now, else into its last Window; once that has
+        // closed, it comes back with its Workspace as a Window of its own (SPEC §16).
+        if let saved = undoState.workspace {
+            let placed = WorkspaceStore.live(saved).map { $0.returnTab(self, to: saved, at: undoState.tabIndex) }
+                ?? WorkspaceStore.reopen(saved, holding: [self])
+            if placed {
                 if let focusTarget, !isHidden {
                     DispatchQueue.main.async { Ghostty.moveFocus(to: focusTarget, from: nil) }
                 }
