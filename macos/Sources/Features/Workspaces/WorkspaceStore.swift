@@ -520,11 +520,6 @@ final class WorkspaceStore: ObservableObject {
 
     // MARK: Moving Tabs
 
-    /// The Workspace holding `tab`: its hidden one, else the shown one.
-    func workspaceID(holding tab: TerminalController) -> Workspace.ID {
-        hiddenWorkspace(holding: tab)?.id ?? shownID
-    }
-
     /// `move_tab_to_workspace:N` (SPEC §11.1): moves `tab` to the Nth Workspace in bar order,
     /// or the last one when N is past the end. False for N < 1, and for the Tab's own
     /// Workspace, which a Window with one Workspace always is.
@@ -538,7 +533,7 @@ final class WorkspaceStore: ObservableObject {
     /// end. A Workspace's only Tab is refused.
     func moveTabToNewWorkspace(_ tab: TerminalController) -> Bool {
         reconcile()
-        guard tabs(of: workspaceID(holding: tab)).count > 1 else { return false }
+        guard tabs(of: workspace(holding: tab).id).count > 1 else { return false }
 
         let id = addWorkspace(holding: [])
         if moveTab(tab, to: id) { return true }
@@ -557,7 +552,7 @@ final class WorkspaceStore: ObservableObject {
     /// hidden one silently (§3). Moves between two hidden Workspaces run there.
     func moveTab(_ tab: TerminalController, to id: Workspace.ID) -> Bool {
         reconcile()
-        let source = workspaceID(holding: tab)
+        let source = workspace(holding: tab).id
         guard id != source,
               workspaces.contains(where: { $0.id == id }),
               tabs(of: source).contains(where: { $0 === tab }),
@@ -592,13 +587,15 @@ final class WorkspaceStore: ObservableObject {
         guard let group = tabGroup else { return false }
 
         // The shown Workspace's only Tab: the target's Tabs join the group in front of it,
-        // so the Window is never empty, and the source Workspace ends.
+        // so the Window is never empty, and the source Workspace ends. This is a switch not
+        // made by `show`, so it cancels a swipe in progress too (SPEC §6.3).
         if tabs(of: shownID).count == 1 {
             guard let target = workspaces.firstIndex(where: { $0.id == id }) else { return false }
             isChanging = true
             let inserted = Self.insert(workspaces[target].hiddenTabs.compactMap(\.window), before: window, in: group)
             isChanging = false
             guard inserted else { return false }
+            cancelSwipe()
 
             let outgoing = shownIndex
             workspaces[target].hiddenTabs = []

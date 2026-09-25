@@ -1901,7 +1901,7 @@ extension TerminalController {
             // A Workspace's only Tab can't move (SPEC §11.1). A Window that can't hold Tabs
             // keeps the item and shows its alert (§7.3).
             let store = workspaceStore
-            return workspacesUnavailableAlert != nil || store.tabs(of: store.workspaceID(holding: self)).count > 1
+            return workspacesUnavailableAlert != nil || store.tabs(of: store.workspace(holding: self).id).count > 1
 
         case #selector(returnToDefaultSize):
             guard let window else { return false }
