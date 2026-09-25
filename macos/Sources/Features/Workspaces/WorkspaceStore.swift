@@ -551,9 +551,9 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Shows Workspace `id` after the shown Workspace's last Tab left for another Window and
-    /// emptied the group (SPEC §2.3). The shown Workspace ends. `joined` is the Tab that left;
-    /// its Window keeps key. Every Tab keeps this store, but the new group gives AppleScript
-    /// a new `window id` (§18.2).
+    /// emptied the group (SPEC §2.3). The shown Workspace ends, and a swipe in progress is
+    /// cancelled (§6.3). `joined` is the Tab that left; its Window keeps key. Every Tab keeps
+    /// this store, but the new group gives AppleScript a new `window id` (§18.2).
     private func reform(showing id: Workspace.ID, below joined: NSWindow) {
         guard let target = workspaces.firstIndex(where: { $0.id == id }),
               let remembered = (workspaces[target].rememberedTab ?? workspaces[target].hiddenTabs.first)?.window,
@@ -563,6 +563,7 @@ final class WorkspaceStore: ObservableObject {
                   frame: shownFrame,
                   below: joined.tabGroup?.selectedWindow ?? joined)
         else { return }
+        cancelSwipe()
 
         let ended = shownID
         workspaces[target].hiddenTabs = []
