@@ -85,6 +85,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuNewWorkspace: NSMenuItem?
     @IBOutlet private var menuPreviousWorkspace: NSMenuItem?
     @IBOutlet private var menuNextWorkspace: NSMenuItem?
+    @IBOutlet private var menuJumpToAgent: NSMenuItem?
     /// The Workspace menu's list of Workspaces follows this separator.
     @IBOutlet private var menuWorkspaceListSeparator: NSMenuItem?
 
@@ -1022,6 +1023,11 @@ class AppDelegate: NSObject,
         quickController.toggle()
     }
 
+    /// Jump to Agent (SPEC §15.2). App-scoped, so it runs whatever window is key.
+    @IBAction func jumpToAgent(_ sender: Any?) {
+        _ = JumpToAgent.perform()
+    }
+
     /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application
     @IBAction func toggleVisibility(_ sender: Any) {
         // If we have focus, then we hide all windows.
@@ -1249,6 +1255,7 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "new_workspace", menuItem: self.menuNewWorkspace)
         syncMenuShortcut(config, action: "previous_workspace", menuItem: self.menuPreviousWorkspace)
         syncMenuShortcut(config, action: "next_workspace", menuItem: self.menuNextWorkspace)
+        syncMenuShortcut(config, action: "jump_to_agent", menuItem: self.menuJumpToAgent)
 
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 
@@ -1359,6 +1366,10 @@ extension AppDelegate: NSMenuItemValidation {
         switch item.action {
         case #selector(setAsDefaultTerminal(_:)):
             return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
+
+        case #selector(jumpToAgent(_:)):
+            // Enabled whenever there's a Split to visit, even with no terminal window key.
+            return JumpToAgent.target() != nil
 
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):

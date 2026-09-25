@@ -365,6 +365,10 @@ pub const Action = union(Key) {
     /// on macOS.
     workspace: Workspace,
 
+    /// Focus the next split whose agent needs the user, in any window.
+    /// Only implemented on macOS.
+    jump_to_agent,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -438,6 +442,7 @@ pub const Action = union(Key) {
         move_tab_to_new_window,
         set_user_var,
         workspace,
+        jump_to_agent,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");

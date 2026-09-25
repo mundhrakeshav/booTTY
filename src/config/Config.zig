@@ -7219,6 +7219,11 @@ pub const Keybinds = struct {
             }
             try self.set.put(
                 alloc,
+                .{ .key = .{ .unicode = 'a' }, .mods = .{ .super = true, .alt = true } },
+                .{ .jump_to_agent = {} },
+            );
+            try self.set.put(
+                alloc,
                 .{ .key = .{ .unicode = 'd' }, .mods = .{ .super = true } },
                 .{ .new_split = .right },
             );
@@ -10685,6 +10690,7 @@ test "default keybinds: workspaces on macOS" {
         .{ .{ .key = .{ .unicode = '9' }, .mods = mods }, .{ .goto_workspace = 9 } },
         .{ .{ .key = .{ .physical = .digit_9 }, .mods = mods }, .{ .goto_workspace = 9 } },
         .{ .{ .key = .{ .unicode = 'w' }, .mods = mods }, .{ .close_tab = .this } },
+        .{ .{ .key = .{ .unicode = 'a' }, .mods = mods }, .jump_to_agent },
     };
     for (cases) |case| {
         const entry = set.get(case[0]).?.value_ptr.*;

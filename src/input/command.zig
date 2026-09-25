@@ -459,6 +459,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Open a new Workspace in this window."),
         }},
 
+        .jump_to_agent => comptime &.{.{
+            .action = .jump_to_agent,
+            .title = i18n.N_("Jump to Agent"),
+            .description = i18n.N_("Focus the next agent waiting for you, then the next that finished."),
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),

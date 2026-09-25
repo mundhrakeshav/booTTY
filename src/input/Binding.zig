@@ -891,6 +891,22 @@ pub const Action = union(enum) {
     /// configuration file to customize its behavior.
     toggle_quick_terminal,
 
+    /// Focus the next split whose agent needs you, in any Workspace of any
+    /// window, showing its Workspace if it's hidden. Splits whose agent is
+    /// waiting come first; only when none is waiting does this visit splits
+    /// whose agent is done. The walk starts from the most recently focused
+    /// split and wraps around. With nothing to visit, this does nothing.
+    ///
+    /// Like `toggle_quick_terminal`, this works with a *global* keybind from
+    /// other apps once booTTY has Accessibility access:
+    ///
+    /// ```ini
+    /// keybind = global:cmd+alt+a=jump_to_agent
+    /// ```
+    ///
+    /// Only implemented on macOS.
+    jump_to_agent,
+
     /// Show or hide all windows. If all windows become shown, we also ensure
     /// Ghostty becomes focused. When hiding all windows, focus is yielded
     /// to the next application as determined by the OS.
@@ -1393,6 +1409,7 @@ pub const Action = union(enum) {
             .close_all_windows,
             .quit,
             .toggle_quick_terminal,
+            .jump_to_agent,
             .toggle_visibility,
             .check_for_updates,
             .show_gtk_inspector,
@@ -3497,6 +3514,15 @@ test "parse: workspace actions" {
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:-1"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
+}
+
+test "action: jump_to_agent is app-scoped" {
+    const testing = std.testing;
+
+    // It isn't a Workspace command: it runs with no focused surface and
+    // from global keybinds, like toggle_quick_terminal.
+    try testing.expectEqual(Action.Scope.app, (Action{ .jump_to_agent = {} }).scope());
+    try testing.expectEqual(Action.Scope.surface, (Action{ .new_workspace = {} }).scope());
 }
 
 test "parse: action with a tuple" {
