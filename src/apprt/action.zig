@@ -593,6 +593,7 @@ pub const Workspace = extern struct {
         previous,
         next,
         new,
+        close,
         prompt_name,
         move,
         move_tab_to,

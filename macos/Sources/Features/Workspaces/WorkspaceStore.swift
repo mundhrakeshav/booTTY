@@ -368,6 +368,64 @@ final class WorkspaceStore: ObservableObject {
         return true
     }
 
+    /// Close Workspace (SPEC §13.1) for Workspace `id`, shown or hidden, requested from `tab`,
+    /// the target Split's Tab. On the Window's only Workspace it forwards to Close Window.
+    /// Otherwise it asks once, on the shown Tab, if any of the Workspace's Tabs would, then
+    /// closes it. Closing the shown Workspace is a request (`allowsRequest`); a hidden one
+    /// closes out of sight, in non-native fullscreen too (§3, §14).
+    func closeWorkspace(_ id: Workspace.ID, from tab: TerminalController) -> Bool {
+        reconcile()
+        guard let workspace = workspaces.first(where: { $0.id == id }) else { return false }
+        guard workspaces.count > 1 else {
+            tab.closeWindow(nil)
+            return true
+        }
+        if id == shownID {
+            guard allowsRequest(from: tab, orShow: .cannotClose) else { return false }
+        }
+
+        guard tabs(of: id).contains(where: { $0.surfaceTree.contains { $0.needsConfirmQuit } }) else {
+            return closeWorkspaceImmediately(id)
+        }
+        guard let sheetTab = shownTab else { return false }
+
+        let subject = id == shownID ? "this Workspace" : "the hidden Workspace “\(workspace.name)”"
+        sheetTab.confirmClose(
+            messageText: "Close Workspace?",
+            informativeText: "At least one tab in \(subject) still has a running process. If you close the Workspace the processes will be killed."
+        ) { [weak self] in
+            self?.closeWorkspaceImmediately(id)
+        }
+        return true
+    }
+
+    /// Closes Workspace `id` and its Tabs without asking, and registers Undo Close Workspace.
+    /// The shown one shows its neighbor first, so the live group never empties (SPEC §13);
+    /// if that switch fails, nothing closes. The only Workspace closes the Window.
+    @discardableResult
+    func closeWorkspaceImmediately(_ id: Workspace.ID) -> Bool {
+        reconcile()
+        guard workspaces.contains(where: { $0.id == id }) else { return false }
+        guard workspaces.count > 1 else {
+            shownTab?.closeWindowImmediately()
+            return true
+        }
+        if id == shownID {
+            guard let neighborID, show(neighborID) else { return false }
+        }
+
+        // Hidden now, so its Tabs and remembered Tab are the store's.
+        guard let saved = undoState(of: id),
+              let workspace = workspaces.first(where: { $0.id == id })
+        else { return false }
+        registerUndoForCloseWorkspace(saved, tabs: workspace.hiddenTabs, remembered: workspace.rememberedTab)
+
+        // An emptied tree closes its Tab with no Undo Close Tab, and the last Tab to close
+        // ends the Workspace (`removeHiddenTab`).
+        for tab in workspace.hiddenTabs { tab.surfaceTree = .init() }
+        return true
+    }
+
     /// Whether a requested command that would change the shown Workspace may run now. `tab`
     /// is the Tab of the command's target Split. Otherwise the command reports false:
     /// - aimed at a hidden Split, with nothing shown (SPEC §14);
@@ -486,10 +544,11 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Brings back an ended Workspace holding `tabs`, hidden, with its id, name, original
-    /// name, and color, at its old position, or at the end if the Window now has fewer
-    /// Workspaces (SPEC §16).
-    func recreate(_ saved: UndoState, holding tabs: [TerminalController]) {
+    /// name, color, and `remembered` Tab (else its first), at its old position, or at the
+    /// end if the Window now has fewer Workspaces (SPEC §16).
+    func recreate(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController? = nil) {
         var workspace = Workspace(id: saved.id, name: saved.name, hiddenTabs: tabs)
+        workspace.rememberedTab = remembered ?? tabs.first
         workspace.originalName = saved.originalName
         workspace.color = saved.color
         workspaces.insert(workspace, at: min(saved.position, workspaces.count))
@@ -710,6 +769,46 @@ final class WorkspaceStore: ObservableObject {
         invalidateRestorableState()
     }
 
+    /// Registers Undo Close Workspace for the closing Workspace `saved`, holding `tabs` and
+    /// remembering `remembered` (SPEC §16). Undo brings it back whole in its Window and shows
+    /// it unless `allowsUndoSwitch()` refuses; redo closes it again.
+    private func registerUndoForCloseWorkspace(
+        _ saved: UndoState,
+        tabs: [TerminalController],
+        remembered: TerminalController?
+    ) {
+        let kept = tabs.compactMap { tab in tab.undoState.map { (tab: tab, state: $0) } }
+        guard let first = kept.first?.tab, let undoManager = first.undoManager else { return }
+        let states = kept.map(\.state)
+        let rememberedIndex = kept.firstIndex { $0.tab === remembered } ?? 0
+        let expiration = first.undoExpiration
+
+        undoManager.setActionName("Close Workspace")
+        undoManager.registerUndo(withTarget: first.ghostty, expiresAfter: expiration) { ghostty in
+            if let store = Self.live(saved.windowID) {
+                store.reconcile()
+                let tabs = states.map { TerminalController(ghostty, rebuilding: $0) }
+                for tab in tabs { tab.workspaceStore = store }
+                store.recreate(saved, holding: tabs, remembering: tabs[rememberedIndex])
+                if store.allowsUndoSwitch() { store.show(saved.id, comingForward: true) }
+            } else {
+                // Its Window has closed, so its Tabs come back as a Window of their own.
+                let tabs = states.map { state in
+                    var state = state
+                    state.workspace = nil
+                    return TerminalController(ghostty, with: state)
+                }
+                for tab in tabs.dropFirst() {
+                    if let window = tab.window { tabs[0].window?.addTabbedWindowSafely(window, ordered: .above) }
+                }
+                tabs[rememberedIndex].window?.makeKeyAndOrderFront(nil)
+            }
+
+            undoManager.registerUndo(withTarget: ghostty, expiresAfter: expiration) { _ in
+                Self.live(saved.windowID)?.closeWorkspaceImmediately(saved.id)
+            }
+        }
+    }
     // MARK: Restoring
 
     /// Brings back a restored Window's Workspaces (SPEC §17.2). The shown Workspace's Tabs are

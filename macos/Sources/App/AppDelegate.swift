@@ -84,6 +84,7 @@ class AppDelegate: NSObject,
 
     @IBOutlet private var menuNewWorkspace: NSMenuItem?
     @IBOutlet private var menuRenameWorkspace: NSMenuItem?
+    @IBOutlet private var menuCloseWorkspace: NSMenuItem?
     @IBOutlet private var menuPreviousWorkspace: NSMenuItem?
     @IBOutlet private var menuNextWorkspace: NSMenuItem?
     @IBOutlet private var menuMoveWorkspaceLeft: NSMenuItem?
@@ -1261,6 +1262,7 @@ extension AppDelegate {
 
         syncMenuShortcut(config, action: "new_workspace", menuItem: self.menuNewWorkspace)
         syncMenuShortcut(config, action: "prompt_workspace_name", menuItem: self.menuRenameWorkspace)
+        syncMenuShortcut(config, action: "close_workspace", menuItem: self.menuCloseWorkspace)
         syncMenuShortcut(config, action: "previous_workspace", menuItem: self.menuPreviousWorkspace)
         syncMenuShortcut(config, action: "next_workspace", menuItem: self.menuNextWorkspace)
         syncMenuShortcut(config, action: "move_workspace:-1", menuItem: self.menuMoveWorkspaceLeft)

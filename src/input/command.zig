@@ -459,6 +459,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Open a new Workspace in this window."),
         }},
 
+        .close_workspace => comptime &.{.{
+            .action = .close_workspace,
+            .title = i18n.N_("Close Workspace"),
+            .description = i18n.N_("Close the current Workspace and all its tabs."),
+        }},
+
         .prompt_workspace_name => comptime &.{.{
             .action = .prompt_workspace_name,
             .title = i18n.N_("Rename Workspace…"),

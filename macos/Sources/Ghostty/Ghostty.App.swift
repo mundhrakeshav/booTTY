@@ -1419,6 +1419,10 @@ extension Ghostty {
                                 from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
                             return store.newWorkspace(from: tab, withBaseConfig: config)
 
+                        case GHOSTTY_ACTION_WORKSPACE_CLOSE:
+                            // Aimed at a hidden Split, it closes that Split's own Workspace (SPEC §14).
+                            return store.closeWorkspace(store.workspace(holding: tab).id, from: tab)
+
                         case GHOSTTY_ACTION_WORKSPACE_PROMPT_NAME:
                             // Aimed at a hidden Split, it's refused with nothing shown (SPEC §14).
                             guard !store.isHidden(tab) else { return false }

@@ -6,6 +6,7 @@ enum WorkspaceAlert {
     // Non-native fullscreen (SPEC §3).
     case cannotSwitch
     case cannotCreate
+    case cannotClose
     case cannotOrganize
     case cannotMoveTab
 
@@ -18,6 +19,7 @@ enum WorkspaceAlert {
         switch self {
         case .cannotSwitch: "Cannot Switch Workspace"
         case .cannotCreate: "Cannot Create New Workspace"
+        case .cannotClose: "Cannot Close Workspace"
         case .cannotOrganize: "Cannot Organize Workspaces"
         case .cannotMoveTab: "Cannot Move Tab"
         case .unavailableInQuickTerminal, .unavailableUndecorated, .unavailableHiddenTitlebar:
@@ -31,6 +33,8 @@ enum WorkspaceAlert {
             "Switching Workspaces is unsupported while in non-native fullscreen. Exit fullscreen and try again."
         case .cannotCreate:
             "New Workspaces are unsupported while in non-native fullscreen. Exit fullscreen and try again."
+        case .cannotClose:
+            "Closing the shown Workspace is unsupported while in non-native fullscreen. Exit fullscreen and try again."
         case .cannotOrganize:
             "Organizing Workspaces is unsupported while in non-native fullscreen. Exit fullscreen and try again."
         case .cannotMoveTab:
