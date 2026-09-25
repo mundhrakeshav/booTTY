@@ -624,6 +624,19 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     goto_workspace: usize,
 
+    /// Rename the current Workspace via a pop-up prompt. A blank name
+    /// restores the Workspace's original name.
+    ///
+    /// Only implemented on macOS.
+    prompt_workspace_name,
+
+    /// Set the name of the current Workspace. Names needn't be unique.
+    ///
+    /// If the name is empty, the Workspace's original name is restored.
+    ///
+    /// Only implemented on macOS.
+    set_workspace_name: []const u8,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1482,6 +1495,8 @@ pub const Action = union(enum) {
             .previous_workspace,
             .next_workspace,
             .goto_workspace,
+            .prompt_workspace_name,
+            .set_workspace_name,
             .new_split,
             .goto_split,
             .goto_window,
@@ -3496,6 +3511,24 @@ test "parse: workspace actions" {
     // goto_workspace is a 1-based index, so it needs one and it can't be negative.
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:-1"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .prompt_workspace_name },
+        try parseSingle("a=prompt_workspace_name"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=prompt_workspace_name:x"));
+
+    // set_workspace_name takes the rest of the line, colons included, and may be blank.
+    {
+        const binding = try parseSingle("a=set_workspace_name:api: web");
+        try testing.expect(binding.action == .set_workspace_name);
+        try testing.expectEqualStrings("api: web", binding.action.set_workspace_name);
+    }
+    {
+        const binding = try parseSingle("a=set_workspace_name:");
+        try testing.expectEqualStrings("", binding.action.set_workspace_name);
+    }
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=set_workspace_name"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
 }
 

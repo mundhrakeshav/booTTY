@@ -105,6 +105,9 @@ final class VerticalTabBarModel: ObservableObject {
     /// The tab being renamed inline.
     @Published private(set) var renamingTab: Tab.ID?
 
+    /// The Workspace whose name the header is editing.
+    @Published private(set) var renamingWorkspace: Workspace.ID?
+
     /// The bar takes the terminal's background and title font so it blends into
     /// the window. The owning window sets these when its appearance changes.
     @Published var backgroundColor: NSColor?
@@ -331,6 +334,23 @@ final class VerticalTabBarModel: ObservableObject {
         tab.performAction("new_workspace", on: surface)
     }
 
+    /// Double-clicking the header renames the shown Workspace in place (SPEC §5.2).
+    func beginWorkspaceRename() {
+        renamingWorkspace = workspaces.first(where: \.isShown)?.id
+    }
+
+    func commitWorkspaceRename(_ id: Workspace.ID, name: String) {
+        guard renamingWorkspace == id else { return }
+        renamingWorkspace = nil
+        workspaceTab?.workspaceStore.rename(id, to: name)
+        focusTerminal()
+    }
+
+    func cancelWorkspaceRename() {
+        renamingWorkspace = nil
+        focusTerminal()
+    }
+
     /// The expanded bar's rows of dots (SPEC §5.1): indices of `count` 14 pt dots, then
     /// "+" (22 pt) as index `count`, broken greedily into rows no wider than `width`. A row
     /// breaks before the item that doesn't fit and is never empty.
@@ -509,17 +529,31 @@ private struct VerticalTabBar: View {
         model.tabs.first(where: \.isSelected)?.id
     }
 
+    /// The shown Workspace's name (SPEC §5.2), which the collapsed bar leaves out.
+    @ViewBuilder
+    private var header: some View {
+        if !settings.isCollapsed, let workspace = model.workspaces.first(where: \.isShown) {
+            WorkspaceHeader(model: model, workspace: workspace, edge: edge)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // The toggle sits on the outer edge so it stays under the pointer
-            // when the bar collapses.
-            IconButton(
-                systemImage: edge == .leading ? "sidebar.left" : "sidebar.right",
-                size: 24,
-                help: settings.isCollapsed ? "Expand Tab Bar" : "Collapse Tab Bar"
-            ) {
-                settings.isCollapsed.toggle()
-                model.focusTerminal()
+            // when the bar collapses. The name header takes its inner side.
+            HStack(spacing: 4) {
+                if edge == .trailing { header }
+
+                IconButton(
+                    systemImage: edge == .leading ? "sidebar.left" : "sidebar.right",
+                    size: 24,
+                    help: settings.isCollapsed ? "Expand Tab Bar" : "Collapse Tab Bar"
+                ) {
+                    settings.isCollapsed.toggle()
+                    model.focusTerminal()
+                }
+
+                if edge == .leading { header }
             }
             .frame(
                 maxWidth: .infinity,
@@ -620,7 +654,14 @@ private struct VerticalTabRow: View {
 
     var body: some View {
         if model.renamingTab == tab.id && !settings.isCollapsed {
-            TabRenameField(model: model, tab: tab)
+            RenameField(
+                placeholder: "Tab Title",
+                color: tab.color,
+                font: model.tabTitleFont,
+                initialText: model.renameTitle(for: tab.id),
+                commit: { model.commitRename(tab.id, title: $0) },
+                cancel: model.cancelRename)
+                .padding(.horizontal, 8)
                 .tabRow(fill: Color.primary.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -907,36 +948,85 @@ private struct WorkspaceDot: View {
     }
 }
 
-private struct TabRenameField: View {
+/// The shown Workspace's name atop the expanded bar (SPEC §5.2, §5.8), led by a dot of
+/// its color when it has one. Double-clicking renames it in place, as with a Tab row.
+private struct WorkspaceHeader: View {
     @ObservedObject var model: VerticalTabBarModel
-    let tab: VerticalTabBarModel.Tab
+    let workspace: VerticalTabBarModel.Workspace
+    let edge: HorizontalEdge
 
-    @State private var title = ""
+    private static let font = Font.system(size: 13, weight: .semibold)
+
+    /// Nil leaves no room for a dot.
+    private var dotColor: TerminalTabColor? {
+        workspace.color.displayColor == nil ? nil : workspace.color
+    }
+
+    var body: some View {
+        if model.renamingWorkspace == workspace.id {
+            RenameField(
+                placeholder: "Workspace Name",
+                color: dotColor,
+                font: Self.font,
+                initialText: workspace.name,
+                commit: { model.commitWorkspaceRename(workspace.id, name: $0) },
+                cancel: model.cancelWorkspaceRename)
+        } else {
+            HStack(spacing: 7) {
+                if let dotColor { ColorDot(color: dotColor) }
+
+                Text(workspace.name)
+                    .font(Self.font)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            // Mirrored on a right-side bar, so the name sits against the toggle.
+            .frame(maxWidth: .infinity, alignment: edge == .leading ? .leading : .trailing)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { model.beginWorkspaceRename() }
+            .help(workspace.name)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(workspace.name)
+            .accessibilityAddTraits(.isHeader)
+        }
+    }
+}
+
+/// Edits a name in place: Return commits, Esc cancels, and clicking elsewhere commits.
+private struct RenameField: View {
+    let placeholder: String
+    /// The dot before the field; nil leaves no room for one.
+    let color: TerminalTabColor?
+    let font: Font
+    let initialText: String
+    let commit: (String) -> Void
+    let cancel: () -> Void
+
+    @State private var text = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 7) {
-            ColorDot(color: tab.color)
+            if let color { ColorDot(color: color) }
 
-            TextField("Tab Title", text: $title)
+            TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(model.tabTitleFont)
+                .font(font)
                 .focused($isFocused)
-                .onSubmit { model.commitRename(tab.id, title: title) }
-                .onExitCommand { model.cancelRename() }
+                .onSubmit { commit(text) }
+                .onExitCommand { cancel() }
         }
-        .padding(.horizontal, 8)
         .onAppear {
-            title = model.renameTitle(for: tab.id)
+            text = initialText
             DispatchQueue.main.async { isFocused = true }
         }
         .onChange(of: isFocused) { focused in
             // Clicking elsewhere commits, like the native tab title editor.
-            if !focused { model.commitRename(tab.id, title: title) }
+            if !focused { commit(text) }
         }
         // Collapsing or moving the bar removes the field without a blur, which would
         // leave keyboard focus on the window. Commit so focus returns to the terminal.
-        .onDisappear { model.commitRename(tab.id, title: title) }
+        .onDisappear { commit(text) }
     }
 }
 

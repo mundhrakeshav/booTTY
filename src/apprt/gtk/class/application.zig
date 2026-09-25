@@ -811,6 +811,7 @@ pub const Application = extern struct {
             .redo,
             .set_user_var,
             .workspace,
+            .set_workspace_name,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;

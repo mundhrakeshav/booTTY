@@ -23,6 +23,24 @@ struct WorkspaceStoreTests {
         #expect(WorkspaceStore.newName(in: workspaces) == "Workspace 2")
     }
 
+    @Test func renameNamesAnyWorkspaceAndBlankRestoresTheOriginal() {
+        let store = store(["Workspace 1", "Workspace 2"])
+        let hidden = store.workspaces[1].id
+
+        // Names needn't be unique, and a hidden Workspace renames without being shown.
+        store.rename(hidden, to: "Workspace 1")
+        #expect(store.workspaces.map(\.name) == ["Workspace 1", "Workspace 1"])
+        #expect(store.shownIndex == 0)
+
+        store.rename(hidden, to: "  ")
+        #expect(store.workspaces[1].name == "Workspace 2")
+
+        store.rename(hidden, to: "api")
+        store.rename(hidden, to: "")
+        #expect(store.workspaces[1].name == "Workspace 2")
+        #expect(store.workspaces[1].originalName == "Workspace 2")
+    }
+
     // MARK: Ordering
 
     @Test func addedWorkspaceGoesAtTheEnd() {
