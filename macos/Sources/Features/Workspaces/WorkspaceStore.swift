@@ -1515,6 +1515,94 @@ final class WorkspaceStore: ObservableObject {
         return true
     }
 
+    /// Merge All Windows (SPEC §12.1), picked in `tab`'s Window: every other Window that can
+    /// join hands over all its Workspaces, Window by Window from front to back, each Window's
+    /// in their own order. They arrive hidden at the end, with their id, name, original name,
+    /// color, Tabs and Splits, and remembered Tab, and their Tabs take this Window's store.
+    /// This Window keeps showing what it shows, and the other Windows go away. No undo.
+    ///
+    /// Reports false, with nothing merged, in non-native fullscreen, with "Cannot Merge
+    /// Windows" (§3), and when no Window can join.
+    @discardableResult
+    func mergeAllWindows(requestedBy tab: TerminalController) -> Bool {
+        reconcile()
+        guard !refusesInFullscreen(tab, showing: .cannotMergeWindows) else { return false }
+        let joining = windowsJoiningMerge
+        guard !joining.isEmpty else { return false }
+
+        for store in joining {
+            let arriving = store.handOver()
+            for tab in arriving.flatMap(\.hiddenTabs) { tab.workspaceStore = self }
+            workspaces += arriving
+        }
+        invalidateRestorableState()
+        return true
+    }
+
+    /// The other Windows a merge into this one takes, front to back: each that can hold Tabs,
+    /// unless it's in non-native fullscreen or its shown Tab has a sheet (§3, §13.7). The
+    /// Quick Terminal is never one of them.
+    var windowsJoiningMerge: [WorkspaceStore] {
+        var seen: Set<ObjectIdentifier> = [ObjectIdentifier(self)]
+        return NSApp.orderedWindows.compactMap { window in
+            // A hidden Tab's place in the order says nothing about its Window's.
+            guard let tab = window.windowController as? TerminalController,
+                  !tab.isInHiddenWorkspace,
+                  seen.insert(ObjectIdentifier(tab.workspaceStore)).inserted
+            else { return nil }
+
+            let store = tab.workspaceStore
+            store.reconcile()
+            guard let shown = store.shownTab,
+                  shown.workspacesUnavailableAlert == nil,
+                  !store.isInNonNativeFullscreen,
+                  shown.window?.attachedSheet == nil
+            else { return nil }
+            return store
+        }
+    }
+
+    /// Hands this Window's Workspaces to a merge into another Window (SPEC §12.1), in bar
+    /// order and all hidden: the shown Workspace's Tabs order out, and it remembers the
+    /// selected one. The store is left with one empty Workspace, so the Window goes away. A
+    /// Tab that failed to order out stays in it and keeps the Window open.
+    private func handOver() -> [Workspace] {
+        guard let group = tabGroup else { return [] }
+        invalidateRestorableState()
+
+        let selected = group.selectedWindow
+        isChanging = true
+        let tabs = Self.orderOut(group).compactMap { $0.windowController as? TerminalController }
+        isChanging = false
+
+        var handed = workspaces
+        handed[shownIndex].hiddenTabs = tabs
+        handed[shownIndex].rememberedTab = tabs.first { $0.window === selected } ?? tabs.first
+
+        let left = Workspace(name: handed[shownIndex].name)
+        workspaces = [left]
+        shownID = left.id
+        knownShownTabs = Self.tabs(in: group).map { Weak($0) }
+        return handed.filter { !$0.hiddenTabs.isEmpty }
+    }
+
+    /// Orders out every window of `group`, the selected one last so none is revealed, with
+    /// animation off. Returns the ones that ordered out, in their tab order; one that failed
+    /// stays in the group.
+    static func orderOut(
+        _ group: NSWindowTabGroup,
+        perform: (SwapStep, () -> Void) -> Bool = performSafely
+    ) -> [NSWindow] {
+        let windows = group.windows
+        let selected = group.selectedWindow
+        let orderedOut = withoutAnimation {
+            (windows.filter { $0 !== selected } + windows.filter { $0 === selected }).filter { window in
+                perform(.orderOut) { window.orderOut(nil) }
+            }
+        }
+        return windows.filter(orderedOut.contains)
+    }
+
     /// Opens a new Window showing `workspace`, whose Tabs are ordered out, and gives it a
     /// store of its own. The Window takes `source`'s size and is placed as Cmd+N places one,
     /// or gets its own native fullscreen Space when `source` is in one. It becomes key, with

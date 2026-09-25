@@ -297,14 +297,20 @@ class TerminalWindow: NSWindow {
         targetController.promptTabTitle()
     }
 
+    /// Merge All Windows moves whole Workspaces (SPEC §12.1). AppKit's merge skips ordered-out
+    /// Tabs, which would orphan hidden Workspaces, so it never runs. A Window that can't hold
+    /// Tabs never receives a merge.
     override func mergeAllWindows(_ sender: Any?) {
-        super.mergeAllWindows(sender)
+        guard let tab = terminalController, tab.workspacesUnavailableAlert == nil else { return }
+        tab.workspaceStore.mergeAllWindows(requestedBy: tab)
+    }
 
-        // It takes an event loop cycle to merge all the windows so we set a
-        // short timer to relabel the tabs (issue #1902)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.terminalController?.relabelTabs()
-        }
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(mergeAllWindows(_:)) else { return super.validateMenuItem(item) }
+
+        // Enabled only when another Window can join, counting Windows rather than NSWindows.
+        guard let tab = terminalController, tab.workspacesUnavailableAlert == nil else { return false }
+        return !tab.workspaceStore.windowsJoiningMerge.isEmpty
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {

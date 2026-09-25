@@ -463,6 +463,38 @@ struct WorkspaceStoreTests {
         #expect(tabs[2].isVisible)
     }
 
+    @Test func mergedAwayGroupOrdersOutTheSelectedTabLastAndKeepsTheTabOrder() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+        group.addWindow(incoming[0])
+        group.selectedWindow = old[1]
+        let tabs = group.windows
+
+        var left: [[NSWindow]] = []
+        let orderedOut = WorkspaceStore.orderOut(group) { step, block in
+            defer { left.append(group.windows) }
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(orderedOut == tabs)
+        #expect(left == [[old[1], incoming[0]], [old[1]], []])
+    }
+
+    @Test func tabThatFailsToOrderOutStaysInTheMergedAwayGroup() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // Fails the first: the unselected Tab.
+        var orderOuts = 0
+        let orderedOut = WorkspaceStore.orderOut(group) { step, block in
+            orderOuts += 1
+            return orderOuts == 1 ? false : WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(orderedOut == [old[0]])
+        #expect(group.windows == [old[1]])
+    }
+
     // MARK: Swiping
 
     private func scroll(
