@@ -572,6 +572,7 @@ class BaseTerminalController: NSWindowController,
             withTarget: self,
             expiresAfter: undoExpiration
         ) { target in
+            target.showForUndo()
             target.surfaceTree = oldTree
             if let oldView {
                 DispatchQueue.main.async {
@@ -583,6 +584,7 @@ class BaseTerminalController: NSWindowController,
                 withTarget: target,
                 expiresAfter: target.undoExpiration
             ) { target in
+                target.showForUndo()
                 target.replaceSurfaceTree(
                     newTree,
                     moveFocusTo: newView,

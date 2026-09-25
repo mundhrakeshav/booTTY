@@ -145,6 +145,47 @@ struct WorkspaceStoreTests {
         #expect(WorkspaceStore.newTabIndex(after: a, in: tabs, atEnd: true) == 3)
         #expect(WorkspaceStore.newTabIndex(after: nil as NSObject?, in: tabs, atEnd: false) == 3)
     }
+
+    // MARK: Undo
+
+    private func undoState(of store: WorkspaceStore, position: Int) -> WorkspaceStore.UndoState {
+        .init(windowID: store.id, id: UUID(), name: "api", originalName: "Workspace 2", color: .teal, position: position)
+    }
+
+    @Test func recreatedWorkspaceComesBackAtItsOldPosition() {
+        let store = store(["a", "b", "c"], shown: 2)
+        let shown = store.shownID
+        let saved = undoState(of: store, position: 1)
+
+        store.recreate(saved, holding: [])
+
+        #expect(store.workspaces.map(\.name) == ["a", "api", "b", "c"])
+        let workspace = store.workspaces[1]
+        #expect(workspace.id == saved.id)
+        #expect(workspace.originalName == "Workspace 2")
+        #expect(workspace.color == .teal)
+        #expect(store.shownID == shown)
+    }
+
+    @Test func recreatedWorkspaceGoesAtTheEndOfAWindowWithFewerWorkspaces() {
+        for (position, names) in [(2, ["a", "b", "api"]), (7, ["a", "b", "api"]), (0, ["api", "a", "b"])] {
+            let store = store(["a", "b"])
+            store.recreate(undoState(of: store, position: position), holding: [])
+            #expect(store.workspaces.map(\.name) == names)
+        }
+    }
+
+    @Test func undoStateRemembersTheWorkspacesPlace() throws {
+        let store = store(["a", "b", "c"])
+        let saved = try #require(store.undoState(of: store.workspaces[1].id))
+
+        #expect(saved.windowID == store.id)
+        #expect(saved.id == store.workspaces[1].id)
+        #expect(saved.name == "b")
+        #expect(saved.position == 1)
+        #expect(store.undoState(of: UUID()) == nil)
+    }
+
     // MARK: Switching
 
     /// A tab group of two windows, `old` with the first selected, and two ordered-out

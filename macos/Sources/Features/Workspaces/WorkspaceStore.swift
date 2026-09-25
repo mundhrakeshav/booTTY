@@ -213,26 +213,35 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// New Workspace (SPEC §9.5): "Workspace N" at the end, holding one new Tab made from
-    /// `baseConfig`, and shown. `parent` is the Tab the request came from.
+    /// `baseConfig`, and shown. `parent` is the Tab the request came from. Registers Undo
+    /// New Workspace.
     @discardableResult
     func newWorkspace(from parent: TerminalController, withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?) -> Bool {
         reconcile()
-        guard tabGroup != nil, !isInNonNativeFullscreen else { return false }
+        guard tabGroup != nil, !isInNonNativeFullscreen,
+              let tab = newTab(from: parent, withBaseConfig: baseConfig)
+        else { return false }
 
-        let tab = TerminalController(parent.ghostty, withBaseConfig: baseConfig, windowStyle: parent.windowStyle)
-        tab.isBackgroundOpaque = parent.isBackgroundOpaque
-        tab.workspaceStore = self
-
-        // Loads the window without showing it. It appears when the switch selects it and
-        // takes the group's frame then (SPEC §2.6).
-        guard tab.window != nil else { return false }
-
+        let previous = shownID
         let id = addWorkspace(holding: [tab])
-        if show(id) { return true }
+        if show(id) {
+            registerUndoForNewWorkspace(tab, previous: previous, withBaseConfig: baseConfig)
+            return true
+        }
 
         workspaces.removeAll { $0.id == id }
         tab.surfaceTree = .init() // closes the never-shown Tab and ends its shell
         return false
+    }
+
+    /// A new Tab for this Window, made from `baseConfig` with `parent`'s window style and
+    /// opacity. Its window is loaded but not shown: it appears when a switch selects it and
+    /// takes the group's frame then (SPEC §2.6).
+    private func newTab(from parent: TerminalController, withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?) -> TerminalController? {
+        let tab = TerminalController(parent.ghostty, withBaseConfig: baseConfig, windowStyle: parent.windowStyle)
+        tab.isBackgroundOpaque = parent.isBackgroundOpaque
+        tab.workspaceStore = self
+        return tab.window != nil ? tab : nil
     }
 
     /// Adds a hidden Workspace named "Workspace N", holding `tabs`, at the end of the bar,
@@ -361,6 +370,149 @@ final class WorkspaceStore: ObservableObject {
         if let frame = tabGroup?.selectedWindow?.frame { shownFrame = frame }
     }
 
+    // MARK: Undo
+
+    /// What undo keeps of a Workspace to find it again, or to recreate it once it has ended
+    /// (SPEC §16).
+    struct UndoState {
+        /// The Window id of the Window it was in.
+        let windowID: UUID
+        let id: Workspace.ID
+        let name: String
+        let originalName: String
+        let color: TerminalTabColor
+        /// Its index in the bar.
+        let position: Int
+    }
+
+    func undoState(of id: Workspace.ID) -> UndoState? {
+        guard let position = workspaces.firstIndex(where: { $0.id == id }) else { return nil }
+        let workspace = workspaces[position]
+        return UndoState(
+            windowID: self.id,
+            id: id,
+            name: workspace.name,
+            originalName: workspace.originalName,
+            color: workspace.color,
+            position: position)
+    }
+
+    /// The store of Window `id` while that Window still shows a Tab. Nil once it has closed.
+    static func live(_ id: UUID) -> WorkspaceStore? {
+        TerminalController.all.lazy.map(\.workspaceStore).first { $0.id == id && $0.shownTab != nil }
+    }
+
+    /// Brings back an ended Workspace holding `tabs`, hidden, with its id, name, original
+    /// name, and color, at its old position, or at the end if the Window now has fewer
+    /// Workspaces (SPEC §16).
+    func recreate(_ saved: UndoState, holding tabs: [TerminalController]) {
+        var workspace = Workspace(id: saved.id, name: saved.name, hiddenTabs: tabs)
+        workspace.originalName = saved.originalName
+        workspace.color = saved.color
+        workspaces.insert(workspace, at: min(saved.position, workspaces.count))
+        invalidateRestorableState()
+    }
+
+    /// Whether an undo or redo may switch Workspaces now (SPEC §16). Not while the shown Tab
+    /// has a sheet, and then the Window comes forward with its sheet; not in non-native
+    /// fullscreen. Neither shows an alert: the undo applies without switching.
+    private func allowsUndoSwitch() -> Bool {
+        if let window = shownTab?.window, window.attachedSheet != nil {
+            Self.bringForward(window)
+            return false
+        }
+        return !isInNonNativeFullscreen
+    }
+
+    /// Undo shows what it changes (SPEC §16): before an undo or redo changes `tab`, shows the
+    /// hidden Workspace holding it, with `tab` selected and the Window coming forward. When
+    /// `allowsUndoSwitch()` refuses, nothing switches.
+    func showForUndo(_ tab: TerminalController) {
+        reconcile()
+        guard hiddenIndex(of: tab) != nil, allowsUndoSwitch(), let index = hiddenIndex(of: tab) else { return }
+        workspaces[index].rememberedTab = tab
+        show(workspaces[index].id, comingForward: true)
+    }
+
+    /// Undo Close Tab (SPEC §16): puts `tab`, recreated and never shown, back in its Workspace
+    /// at `index`, recreating the Workspace if it ended, then shows that Workspace with `tab`
+    /// selected, coming forward. When `allowsUndoSwitch()` refuses, nothing switches: a
+    /// recreated Workspace stays hidden and a Tab going back into the shown Workspace joins
+    /// it unselected. False, with nothing changed, when the Tab goes back into the shown
+    /// Workspace but there's no tab group to join (non-native fullscreen).
+    func returnTab(_ tab: TerminalController, to saved: UndoState, at index: Int?) -> Bool {
+        reconcile()
+        guard let window = tab.window else { return false }
+
+        let target = workspaces.firstIndex { $0.id == saved.id }
+        if let target, workspaces[target].id == shownID {
+            guard let group = tabGroup, !group.windows.isEmpty else { return false }
+            tab.workspaceStore = self
+            let select = allowsUndoSwitch()
+            if select, let selected = group.selectedWindow, selected.isMiniaturized {
+                selected.deminiaturize(nil)
+            }
+            _ = Self.performSafely(.add) {
+                group.insertWindow(window, at: min(index ?? group.windows.count, group.windows.count))
+            }
+            if select { _ = Self.performSafely(.select) { window.makeKeyAndOrderFront(nil) } }
+            tab.relabelTabs()
+            return true
+        }
+
+        tab.workspaceStore = self
+        if let target {
+            let tabs = workspaces[target].hiddenTabs
+            workspaces[target].hiddenTabs.insert(tab, at: min(index ?? tabs.count, tabs.count))
+            invalidateRestorableState()
+        } else {
+            recreate(saved, holding: [tab])
+        }
+
+        showForUndo(tab)
+        return true
+    }
+
+    /// Registers Undo New Workspace for `tab`, the Tab New Workspace made (SPEC §16). Undo
+    /// closes it as Undo New Tab does, so the Workspace ends if that leaves it empty, and
+    /// shows `previous`, the Workspace shown before. Redo brings the Workspace back with the
+    /// same id, name, and position.
+    private func registerUndoForNewWorkspace(
+        _ tab: TerminalController,
+        previous: Workspace.ID,
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?
+    ) {
+        guard let undoManager = tab.undoManager else { return }
+        undoManager.setActionName("New Workspace")
+        undoManager.registerUndo(withTarget: tab, expiresAfter: tab.undoExpiration) { tab in
+            let store = tab.workspaceStore
+            let saved = store.undoState(of: store.workspace(holding: tab).id)
+            tab.showForUndo()
+            undoManager.disableUndoRegistration {
+                tab.closeTab(showing: previous)
+            }
+
+            guard let saved else { return }
+            undoManager.registerUndo(withTarget: tab.ghostty, expiresAfter: tab.undoExpiration) { _ in
+                Self.live(saved.windowID)?.redoNewWorkspace(saved, withBaseConfig: baseConfig)
+            }
+        }
+    }
+
+    /// Redo New Workspace: the Workspace comes back with a new Tab, its id, name, and
+    /// position, and is shown unless `allowsUndoSwitch()` refuses.
+    private func redoNewWorkspace(_ saved: UndoState, withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?) {
+        reconcile()
+        guard !workspaces.contains(where: { $0.id == saved.id }),
+              let parent = shownTab,
+              let tab = newTab(from: parent, withBaseConfig: baseConfig)
+        else { return }
+
+        let previous = shownID
+        recreate(saved, holding: [tab])
+        if allowsUndoSwitch() { show(saved.id, comingForward: true) }
+        registerUndoForNewWorkspace(tab, previous: previous, withBaseConfig: baseConfig)
+    }
     // MARK: Restoring
 
     /// Brings back a restored Window's Workspaces (SPEC §17.2). The shown Workspace's Tabs are
@@ -917,6 +1069,14 @@ extension BaseTerminalController {
     func revealForJump() -> Bool {
         guard let tab = self as? TerminalController else { return true }
         return tab.workspaceStore.reveal(tab)
+    }
+
+    /// Undo shows what it changes (SPEC §16): shows this Tab's Workspace if it's hidden,
+    /// unless the Window can't switch now. Every undo and redo that changes a Tab or Split
+    /// calls it first.
+    func showForUndo() {
+        guard let tab = self as? TerminalController else { return }
+        tab.workspaceStore.showForUndo(tab)
     }
 }
 

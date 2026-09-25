@@ -646,6 +646,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             expiresAfter: controller.undoExpiration
         ) { target in
             // Close the tab when undoing
+            target.showForUndo()
             undoManager.disableUndoRegistration {
                 target.closeTab(nil)
             }
@@ -655,6 +656,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 withTarget: target.ghostty,
                 expiresAfter: target.undoExpiration
             ) { ghostty in
+                (parent.windowController as? BaseTerminalController)?.showForUndo()
                 _ = TerminalController.newTab(
                     ghostty,
                     from: parent,
@@ -863,7 +865,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    func closeTabImmediately(registerRedo: Bool = true) {
+    func closeTabImmediately(registerRedo: Bool = true, showing neighbor: WorkspaceStore.Workspace.ID? = nil) {
         guard let window = window else { return }
         guard !isOnlyTabInWindow else {
             closeWindowImmediately()
@@ -879,7 +881,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // group never empties and the Window stays (SPEC §13). If that switch can't run,
         // the Window closes, as for a lone Tab.
         if groupedTabs.count <= 1, !isHidden {
-            guard let neighbor = workspaceStore.neighborID, workspaceStore.show(neighbor) else {
+            let store = workspaceStore
+            let next = neighbor.flatMap { id in
+                id != store.shownID && store.workspaces.contains { $0.id == id } ? id : nil
+            } ?? store.neighborID
+            guard let next, store.show(next) else {
                 closeWindowImmediately()
                 return
             }
@@ -900,6 +906,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                         withTarget: newController,
                         expiresAfter: newController.undoExpiration
                     ) { target in
+                        target.showForUndo()
                         target.closeTabImmediately()
                     }
                 }
@@ -1030,7 +1037,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // If we don't have multiple tabs, then do a normal single window close.
         guard !isOnlyTabInWindow else {
             // No tabs, just save this window's state
-            if let undoState {
+            if var undoState {
+                // Undo Close Window reopens a Window of its own.
+                undoState.workspace = nil
                 // Register undo action to restore the window
                 undoManager.setActionName("Close Window")
                 undoManager.registerUndo(
@@ -1058,10 +1067,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             .compactMap { tabWindow -> UndoState? in
                 guard let controller = tabWindow.windowController as? TerminalController,
                       var undoState = controller.undoState else { return nil }
-                // Clear the tab group reference since it is unneeded. It should be
-                // garbage collected but we want to be extra sure we don't try to
-                // restore into it because we're going to recreate it.
-                undoState.tabGroup = nil
+                // Undo reopens these Tabs as a Window of their own, recreated below.
+                undoState.workspace = nil
                 return undoState
             }
             .sorted { (lhs, rhs) in
@@ -1176,54 +1183,42 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let frame: NSRect
         let surfaceTree: SplitTree<Ghostty.SurfaceView>
         let focusedSurface: UUID?
+        /// The Tab's index in its Workspace.
         let tabIndex: Int?
-        weak var tabGroup: NSWindowTabGroup?
+        /// The Tab's Workspace, to put the Tab back in. Nil reopens it as a Window of its own.
+        var workspace: WorkspaceStore.UndoState?
         let tabColor: TerminalTabColor
         let windowStyle: WindowStyle
     }
 
     convenience init(_ ghostty: Ghostty.App, with undoState: UndoState) {
         self.init(ghostty, withSurfaceTree: undoState.surfaceTree, windowStyle: undoState.windowStyle)
+        guard let window else { return }
 
-        // Show the window and restore its frame
+        // Focus goes back to the Split that had it, else the first. It's set before the Tab
+        // goes back, so a switch that shows it focuses that Split.
+        let focusTarget = undoState.focusedSurface.flatMap { id in surfaceTree.first { $0.id == id } }
+            ?? surfaceTree.first
+        focusedSurface = focusTarget
+        if let terminalWindow = window as? TerminalWindow {
+            terminalWindow.tabColor = undoState.tabColor
+        }
+
+        // Back into its Workspace while its Window is open, else a Window of its own.
+        if let saved = undoState.workspace, let store = WorkspaceStore.live(saved.windowID) {
+            window.setFrame(undoState.frame, display: false)
+            if store.returnTab(self, to: saved, at: undoState.tabIndex) {
+                if let focusTarget, !isHidden {
+                    DispatchQueue.main.async { Ghostty.moveFocus(to: focusTarget, from: nil) }
+                }
+                return
+            }
+        }
+
         showWindow(nil)
-        if let window {
-            window.setFrame(undoState.frame, display: true)
-            if let terminalWindow = window as? TerminalWindow {
-                terminalWindow.tabColor = undoState.tabColor
-            }
-
-            // If we have a tab group and index, restore the tab to its original
-            // position. Any Tab left in the old group answers for all of them.
-            if let tabIndex = undoState.tabIndex,
-               let neighbor = undoState.tabGroup?.windows.first?.windowController as? TerminalController {
-                let tabs = neighbor.groupedTabs
-                if tabIndex < tabs.count {
-                    // Find the window that is currently at that index
-                    let currentWindow = tabs[tabIndex]
-                    currentWindow.addTabbedWindowSafely(window, ordered: .below)
-                } else {
-                    tabs.last?.addTabbedWindowSafely(window, ordered: .above)
-                }
-
-                // Make it the key window
-                window.makeKeyAndOrderFront(nil)
-            }
-
-            // Restore focus to the previously focused surface
-            if let focusedUUID = undoState.focusedSurface,
-               let focusTarget = surfaceTree.first(where: { $0.id == focusedUUID }) {
-                DispatchQueue.main.async {
-                    Ghostty.moveFocus(to: focusTarget, from: nil)
-                }
-            } else if let focusedSurface = surfaceTree.first {
-                // No prior focused surface or we can't find it, let's focus
-                // the first.
-                self.focusedSurface = focusedSurface
-                DispatchQueue.main.async {
-                    Ghostty.moveFocus(to: focusedSurface, from: nil)
-                }
-            }
+        window.setFrame(undoState.frame, display: true)
+        if let focusTarget {
+            DispatchQueue.main.async { Ghostty.moveFocus(to: focusTarget, from: nil) }
         }
     }
 
@@ -1236,7 +1231,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             surfaceTree: surfaceTree,
             focusedSurface: focusedSurface?.id,
             tabIndex: groupedTabs.firstIndex(of: window),
-            tabGroup: window.tabGroup,
+            workspace: workspaceStore.undoState(of: workspaceStore.workspace(holding: self).id),
             tabColor: (window as? TerminalWindow)?.tabColor ?? .none,
             windowStyle: windowStyle)
     }
@@ -1505,13 +1500,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func closeTab(_ sender: Any?) {
+        closeTab(showing: nil)
+    }
+
+    /// Close Tab, asking first when a Split would. `neighbor` is the Workspace shown if this
+    /// ends the shown Workspace; nil, or one that has ended, means its neighbor.
+    func closeTab(showing neighbor: WorkspaceStore.Workspace.ID?) {
         guard !isOnlyTabInWindow else {
-            closeWindow(sender)
+            closeWindow(nil)
             return
         }
 
         guard surfaceTree.contains(where: { $0.needsConfirmQuit }) else {
-            closeTabImmediately()
+            closeTabImmediately(showing: neighbor)
             return
         }
 
@@ -1519,7 +1520,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             messageText: "Close Tab?",
             informativeText: "The terminal\(hiddenWorkspacePhrase) still has a running process. If you close the tab the process will be killed."
         ) {
-            self.closeTabImmediately()
+            self.closeTabImmediately(showing: neighbor)
         }
     }
 
