@@ -114,9 +114,10 @@ final class ScriptTab: NSObject {
             .map(ScriptTerminal.init)
     }
 
-    /// Handler for `select tab <tab>`.
+    /// Handler for `select tab <tab>`. A Jump: a Tab in a hidden Workspace is revealed first,
+    /// and the command reports false when that Workspace can't be shown now (SPEC §2.4).
     @objc(handleSelectTabCommand:)
-    func handleSelectTab(_ command: NSScriptCommand) -> Any? {
+    func handleSelectTab(_ command: NSScriptCommand) -> NSNumber? {
         guard NSApp.validateScript(command: command) else { return nil }
 
         guard let tabContainerWindow = parentWindow else {
@@ -125,8 +126,9 @@ final class ScriptTab: NSObject {
             return nil
         }
 
+        guard controller?.revealForJump() ?? false else { return NSNumber(value: false) }
         tabContainerWindow.makeKeyAndOrderFront(nil)
-        return nil
+        return NSNumber(value: true)
     }
 
     /// Handler for `close tab <tab>`.

@@ -321,10 +321,11 @@ class BaseTerminalController: NSWindowController,
         return newView
     }
 
-    /// Move focus to a surface view.
-    func focusSurface(_ view: Ghostty.SurfaceView) {
+    /// Move focus to a surface view: a Jump (AppleScript `focus`, "Focus Terminal"). False when
+    /// the surface isn't ours or its hidden Workspace can't be shown now.
+    func focusSurface(_ view: Ghostty.SurfaceView) -> Bool {
         // Check if target surface is in our tree
-        guard surfaceTree.contains(view) else { return }
+        guard surfaceTree.contains(view), revealForJump() else { return false }
 
         // Move focus to the target surface and activate the window/app
         DispatchQueue.main.async {
@@ -334,6 +335,7 @@ class BaseTerminalController: NSWindowController,
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
+        return true
     }
 
     /// Called when the surfaceTree variable changed.
@@ -798,7 +800,7 @@ class BaseTerminalController: NSWindowController,
 
     @objc private func ghosttyDidPresentTerminal(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
-        guard surfaceTree.contains(target) else { return }
+        guard surfaceTree.contains(target), revealForJump() else { return }
 
         // Bring the window to front and focus the surface.
         window?.makeKeyAndOrderFront(nil)

@@ -92,12 +92,21 @@ final class WorkspaceStore: ObservableObject {
 
     /// The hidden Workspace holding `tab`, or nil if `tab` is shown or not this Window's.
     func hiddenWorkspace(holding tab: TerminalController) -> Workspace? {
-        workspaces.first { $0.hiddenTabs.contains { $0 === tab } }
+        hiddenIndex(of: tab).map { workspaces[$0] }
     }
 
     /// True if `tab` is in one of this Window's hidden Workspaces.
     func isHidden(_ tab: TerminalController) -> Bool {
-        hiddenWorkspace(holding: tab) != nil
+        hiddenIndex(of: tab) != nil
+    }
+
+    /// The Workspace holding `tab`, one of this Window's Tabs: a hidden one, else the shown one.
+    func workspace(holding tab: TerminalController) -> Workspace {
+        workspaces[hiddenIndex(of: tab) ?? shownIndex]
+    }
+
+    private func hiddenIndex(of tab: TerminalController) -> Int? {
+        workspaces.firstIndex { $0.hiddenTabs.contains { $0 === tab } }
     }
 
     /// A Window is in non-native fullscreen while any of its Tabs is (SPEC §3).
@@ -213,9 +222,7 @@ final class WorkspaceStore: ObservableObject {
         guard !isHidden(tab) else { return false }
 
         if let window = shownTab?.window, window.attachedSheet != nil {
-            if window.isMiniaturized { window.deminiaturize(nil) }
-            window.makeKeyAndOrderFront(nil)
-            if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+            Self.bringForward(window)
             return false
         }
 
@@ -228,12 +235,43 @@ final class WorkspaceStore: ObservableObject {
         return true
     }
 
+    /// A Jump into `tab` (SPEC §2.4): shows its hidden Workspace with `tab` selected and the
+    /// Window coming forward, so the caller's usual focus can run. A shown Tab needs nothing.
+    /// Otherwise the jump reports false with nothing switched and never brings `tab` front:
+    /// - while the shown Tab has a sheet, the Window and its sheet come forward (§13.7);
+    /// - in non-native fullscreen, the fullscreen Tab comes forward with "Cannot Switch
+    ///   Workspace" (§3).
+    func reveal(_ tab: TerminalController) -> Bool {
+        reconcile()
+        guard let target = hiddenIndex(of: tab) else { return true }
+
+        if let window = shownTab?.window, window.attachedSheet != nil {
+            Self.bringForward(window)
+            return false
+        }
+
+        if let fullscreen = tabs(of: shownID).first(where: { $0.isInNonNativeFullscreen })?.window {
+            Self.bringForward(fullscreen)
+            WorkspaceAlert.cannotSwitch.show(on: fullscreen)
+            return false
+        }
+
+        workspaces[target].rememberedTab = tab
+        return show(workspaces[target].id, comingForward: true)
+    }
+
+    private static func bringForward(_ window: NSWindow) {
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+    }
+
     /// Drops `tab`, which closed or left, from its hidden Workspace; does nothing if it isn't
     /// in one. The remembered Tab passes on per `remembered(_:after:leaves:)`, and a Workspace
     /// left without Tabs ends quietly while the Window keeps showing what it shows (SPEC §1.4,
     /// §13.5).
     func removeHiddenTab(_ tab: TerminalController) {
-        guard let index = workspaces.firstIndex(where: { $0.hiddenTabs.contains { $0 === tab } }) else { return }
+        guard let index = hiddenIndex(of: tab) else { return }
         var workspace = workspaces[index]
         workspace.rememberedTab = Self.remembered(workspace.rememberedTab, after: tab, leaves: workspace.hiddenTabs)
         workspace.hiddenTabs.removeAll { $0 === tab }
@@ -282,8 +320,12 @@ final class WorkspaceStore: ObservableObject {
     /// The one switch path (SPEC §2.3): shows Workspace `id`. Returns false, with the old
     /// Workspace still shown, when AppKit throws while adding or selecting the incoming Tabs,
     /// or when the Window can't switch now. Showing the shown Workspace changes nothing.
+    ///
+    /// `comingForward` is for a switch after which the Window comes forward (a jump, an undo,
+    /// a folder opened into it): a minimized Window is deminiaturized first, and the incoming
+    /// Tab is made key. Otherwise a background or minimized Window stays as it is.
     @discardableResult
-    func show(_ id: Workspace.ID) -> Bool {
+    func show(_ id: Workspace.ID, comingForward: Bool = false) -> Bool {
         reconcile()
         guard id != shownID else { return true }
 
@@ -296,12 +338,15 @@ final class WorkspaceStore: ObservableObject {
               let incoming = (workspaces[target].rememberedTab ?? workspaces[target].hiddenTabs.first)?.window
         else { return false }
 
+        // A minimized Window is never key or main.
+        if comingForward, oldSelected.isMiniaturized { oldSelected.deminiaturize(nil) }
+
         isChanging = true
         let orderedOut = Self.swap(
             in: group,
             adding: workspaces[target].hiddenTabs.compactMap(\.window),
             selecting: incoming,
-            makeKey: oldSelected.isKeyWindow || oldSelected.isMainWindow)
+            makeKey: comingForward || oldSelected.isKeyWindow || oldSelected.isMainWindow)
         isChanging = false
         guard let orderedOut else { return false }
 
@@ -502,5 +547,32 @@ final class WorkspaceStore: ObservableObject {
             window.invalidateRestorableState()
         }
         NSApp.invalidateRestorableState()
+    }
+}
+
+@MainActor
+extension BaseTerminalController {
+    /// True for a Tab in one of its Window's hidden Workspaces: ordered out, yet still in
+    /// `NSApp.windows` and `NSApp.orderedWindows` (SPEC §2.5).
+    var isInHiddenWorkspace: Bool {
+        guard let tab = self as? TerminalController else { return false }
+        return tab.workspaceStore.isHidden(tab)
+    }
+
+    /// Runs before every Jump's usual focus (SPEC §2.4): shows this Tab's Workspace if it's
+    /// hidden. False means the jump stops here and reports false; see `WorkspaceStore.reveal`.
+    func revealForJump() -> Bool {
+        guard let tab = self as? TerminalController else { return true }
+        return tab.workspaceStore.reveal(tab)
+    }
+}
+
+@MainActor
+extension TerminalController {
+    /// The Tab that stands for this one on screen: itself, or, while it's hidden, its
+    /// Window's shown Tab (SPEC §2.5). Use it wherever a Tab is picked to order front or
+    /// to parent new Tabs, so a hidden Tab never surfaces as a stray window.
+    var onScreenTab: TerminalController? {
+        isInHiddenWorkspace ? workspaceStore.shownTab : self
     }
 }

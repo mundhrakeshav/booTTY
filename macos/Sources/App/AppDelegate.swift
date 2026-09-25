@@ -1111,9 +1111,16 @@ class AppDelegate: NSObject,
             self.hiddenWindows = visibleWindows
         }
 
-        func restore() {
-            hiddenWindows.forEach { $0.value?.orderFrontRegardless() }
-            keyWindow?.value?.makeKey()
+        @MainActor func restore() {
+            hiddenWindows.forEach { Self.onScreen($0.value)?.orderFrontRegardless() }
+            Self.onScreen(keyWindow?.value)?.makeKey()
+        }
+
+        /// A captured Tab that a switch hid meanwhile gives way to its Window's shown Tab, so it
+        /// never surfaces as a stray window (SPEC §2.5).
+        @MainActor private static func onScreen(_ window: NSWindow?) -> NSWindow? {
+            guard let tab = window?.windowController as? TerminalController else { return window }
+            return tab.onScreenTab?.window
         }
     }
 }

@@ -1824,7 +1824,8 @@ extension Ghostty {
         func handleUserNotification(notification: UNNotification, focus: Bool) {
             let id = notification.request.identifier
             guard self.notificationIdentifiers.remove(id) != nil else { return }
-            if focus {
+            // A Jump: a hidden Split's Workspace is shown first (SPEC §2.4).
+            if focus, BaseTerminalController.controller(owning: self)?.revealForJump() ?? true {
                 self.window?.makeKeyAndOrderFront(self)
                 Ghostty.moveFocus(to: self)
             }
