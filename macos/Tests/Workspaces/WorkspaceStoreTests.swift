@@ -328,6 +328,40 @@ struct WorkspaceStoreTests {
         #expect(group.selectedWindow === old[0])
     }
 
+    // MARK: Arranging
+
+    @Test func regroupPutsTheWindowsInOrderAroundTheSelection() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // The selected window stays selected, and the other old one moves in front of it.
+        #expect(WorkspaceStore.regroup(group, holding: [old[1], incoming[0], old[0]], selecting: old[0], makeKey: false))
+        #expect(group.windows == [old[1], incoming[0], old[0]])
+        #expect(group.selectedWindow === old[0])
+
+        // An ordered-out window joins and is selected, and every window not held orders out.
+        #expect(WorkspaceStore.regroup(group, holding: [old[1], incoming[1]], selecting: incoming[1], makeKey: false))
+        #expect(group.windows == [old[1], incoming[1]])
+        #expect(group.selectedWindow === incoming[1])
+    }
+
+    @Test func regroupKeepsAWindowThatFailsToLeaveAndLeavesOutOneThatFailsToJoin() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // old[1] fails to order out, and incoming[0], the first to join, fails to.
+        var adds = 0
+        let regrouped = WorkspaceStore.regroup(group, holding: [incoming[0], old[0], incoming[1]], selecting: old[0], makeKey: false) { step, block in
+            if step == .add { adds += 1 }
+            if step == .orderOut || (step == .add && adds == 1) { return false }
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(regrouped)
+        #expect(group.windows == [old[0], incoming[1], old[1]])
+        #expect(group.selectedWindow === old[0])
+    }
+
     // MARK: Re-forming an emptied group
 
     /// Four ordered-out windows, as a hidden Workspace's Tabs are, and the window the last
