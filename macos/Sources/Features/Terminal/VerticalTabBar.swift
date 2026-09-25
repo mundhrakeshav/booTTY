@@ -94,6 +94,10 @@ final class VerticalTabBarModel: ObservableObject {
         let name: String
         let color: TerminalTabColor
         let isShown: Bool
+        /// A hidden Workspace's agent status roll-up, and its date. None for the shown
+        /// Workspace: its Tabs show theirs right above (SPEC §5.6).
+        let status: Ghostty.AgentStatus?
+        let statusDate: Date
     }
 
     @Published private(set) var tabs: [Tab] = []
@@ -213,8 +217,12 @@ final class VerticalTabBarModel: ObservableObject {
         let store = workspaceTab?.workspaceStore
         if store !== observedStore { observe(store: store) }
         let workspaces = store.map { store in
-            store.workspaces.map {
-                Workspace(id: $0.id, name: $0.name, color: $0.color, isShown: $0.id == store.shownID)
+            store.workspaces.map { workspace -> Workspace in
+                let isShown = workspace.id == store.shownID
+                let rollUp = isShown ? (nil, .distantPast) : store.agentStatus(of: workspace.id)
+                return Workspace(
+                    id: workspace.id, name: workspace.name, color: workspace.color, isShown: isShown,
+                    status: rollUp.status, statusDate: rollUp.since)
             }
         } ?? []
         if workspaces != self.workspaces { self.workspaces = workspaces }
@@ -884,11 +892,23 @@ private struct WorkspaceDot: View {
     var body: some View {
         let long: CGFloat = workspace.isShown ? 12 : 6
         let fill = workspace.color.displayColor.map { Color(nsColor: $0) } ?? .primary
-        let opacity = workspace.isShown ? 1 : hovered == workspace.id ? 0.8 : 0.35
 
+        // The capsule fades to nothing as it shrinks, and the hidden dot's StatusDot
+        // shows in its place, so a switch still morphs the mark.
         Capsule()
-            .fill(fill.opacity(opacity))
+            .fill(fill.opacity(workspace.isShown ? 1 : 0))
             .frame(width: collapsed ? 6 : long, height: collapsed ? long : 6)
+            .overlay {
+                if !workspace.isShown {
+                    StatusDot(
+                        color: workspace.color,
+                        status: workspace.status,
+                        since: workspace.statusDate,
+                        dotSize: 6,
+                        echoScale: 1.5,
+                        dimming: hovered == workspace.id ? 0.8 : 0.35)
+                }
+            }
             .frame(width: collapsed ? 32 : 14, height: collapsed ? 14 : 22)
             .contentShape(Rectangle())
             .onTapGesture { model.showWorkspace(workspace.id) }
@@ -902,7 +922,10 @@ private struct WorkspaceDot: View {
             .help(collapsed ? workspace.name : "")
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(workspace.name)
-            .accessibilityValue("Workspace \(index + 1) of \(model.workspaces.count)")
+            .accessibilityValue(
+                ["Workspace \(index + 1) of \(model.workspaces.count)", workspace.status?.accessibilityDescription]
+                    .compactMap { $0 }
+                    .joined(separator: ", "))
             .accessibilityAddTraits(workspace.isShown ? [.isButton, .isSelected] : .isButton)
     }
 }
@@ -1016,15 +1039,22 @@ struct StatusDot: View {
     /// How far the ping and pulse rings grow; tight spots keep them off their neighbors.
     var echoScale: CGFloat = 2.1
 
+    /// For hidden Workspace dots: the color fill at this opacity, and gray without a color
+    /// or a status. Nil keeps the color at full strength and leaves an empty slot.
+    var dimming: Double?
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let tint = status.map { Color(nsColor: $0.color) }
+        let color = self.color.displayColor.map { Color(nsColor: $0) }
+        let fill = dimming.map { dimming in color.map { $0.opacity(dimming) } ?? tint ?? .primary.opacity(dimming) }
+            ?? color ?? tint ?? .clear
 
         // One container for every state so status changes animate in place.
         ZStack {
             Circle()
-                .fill(color.displayColor.map { Color(nsColor: $0) } ?? tint ?? .clear)
+                .fill(fill)
                 .frame(width: status == nil ? dotSize : 5, height: status == nil ? dotSize : 5)
 
             if let tint {
@@ -1039,11 +1069,13 @@ struct StatusDot: View {
                 }
 
                 // Rows are rebuilt when switching tabs, so only a finish that just
-                // arrived pings.
+                // arrived pings. A new date is a new ring, so a Workspace whose Tabs
+                // finish one after another pings for each.
                 if status == .done && !reduceMotion && Date().timeIntervalSince(since) < 0.5 {
                     Circle()
                         .strokeBorder(tint, lineWidth: 1)
                         .frame(width: 9, height: 9)
+                        .id(since)
                         .transition(.asymmetric(
                             insertion: .modifier(
                                 active: StatusPing(progress: 0, scale: echoScale),

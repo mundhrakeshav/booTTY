@@ -92,6 +92,31 @@ struct WorkspaceStoreTests {
         #expect(WorkspaceStore.remembered(c, after: a, leaves: [a, b, c]) === c)
     }
 
+    // MARK: Agent status
+
+    @Test func agentStatusIsTheMostUrgentTabs() {
+        let t = Date(timeIntervalSinceReferenceDate: 0)
+        #expect(WorkspaceStore.agentStatus(of: []).status == nil)
+        #expect(WorkspaceStore.agentStatus(of: [(nil, t)]).status == nil)
+        #expect(WorkspaceStore.agentStatus(of: [(nil, t), (.done, t)]).status == .done)
+        #expect(WorkspaceStore.agentStatus(of: [(.done, t), (.waiting, t), (nil, t)]).status == .waiting)
+    }
+
+    @Test func agentStatusDateIsTheNewestAmongTheWinners() {
+        let t = (0..<4).map { Date(timeIntervalSinceReferenceDate: Double($0)) }
+
+        // No status has no date, however recently a Tab's status cleared.
+        #expect(WorkspaceStore.agentStatus(of: [(nil, t[3])]).since == .distantPast)
+
+        // A second finish moves the date, so an already-green dot pings again.
+        #expect(WorkspaceStore.agentStatus(of: [(.done, t[1]), (.done, t[2]), (nil, t[3])]).since == t[2])
+
+        // A finish behind a waiting agent keeps the waiting date.
+        let behindWaiting = WorkspaceStore.agentStatus(of: [(.waiting, t[0]), (.done, t[3])])
+        #expect(behindWaiting.status == .waiting)
+        #expect(behindWaiting.since == t[0])
+    }
+
     // MARK: Switching
 
     /// A tab group of two windows, `old` with the first selected, and two ordered-out
