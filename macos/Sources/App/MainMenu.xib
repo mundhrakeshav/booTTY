@@ -44,6 +44,8 @@
                 <outlet property="menuNextSplit" destination="bD7-ei-wKU" id="LeT-xw-eh4"/>
                 <outlet property="menuNextWorkspace" destination="Wk4-Nx-Itm" id="Wk4-Ol-Nxw"/>
                 <outlet property="menuOpenConfig" destination="BOF-NM-1cW" id="Nze-Go-glw"/>
+                <outlet property="menuOrganizeByFolder" destination="W26-Of-Itm" id="W26-Ol-Ofo"/>
+                <outlet property="menuOrganizeByRepo" destination="W26-Or-Itm" id="W26-Ol-Ore"/>
                 <outlet property="menuPaste" destination="i27-pK-umN" id="ICc-X2-gV3"/>
                 <outlet property="menuPasteSelection" destination="akq-ov-Jjh" id="GS8-aQ-hVw"/>
                 <outlet property="menuPreviousSplit" destination="Lic-px-1wg" id="Rto-CG-yRe"/>
@@ -433,6 +435,19 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="nextWorkspace:" target="-1" id="Wk4-Nx-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="W26-Sp-Org"/>
+                            <menuItem title="Organize by Repo" id="W26-Or-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="organizeWorkspacesByRepo:" target="-1" id="W26-Or-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Organize by Folder" id="W26-Of-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="organizeWorkspacesByFolder:" target="-1" id="W26-Of-Act"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="Wk4-Ls-Sep"/>

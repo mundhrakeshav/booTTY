@@ -1396,6 +1396,11 @@ extension Ghostty {
                                 from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
                             return store.newWorkspace(from: tab, withBaseConfig: config)
 
+                        case GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO,
+                             GHOSTTY_ACTION_WORKSPACE_ORGANIZE_FOLDER:
+                            guard store.allowsRequest(from: tab, orShow: .cannotOrganize) else { return false }
+                            return store.organize(by: v.op == GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO ? .repo : .folder)
+
                         default:
                             return false
                         }

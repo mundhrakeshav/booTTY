@@ -5391,6 +5391,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .previous_workspace,
         .next_workspace,
         .goto_workspace,
+        .organize_workspaces,
         => |v, tag| return try self.rt_app.performAction(
             .{ .surface = self },
             .workspace,
@@ -5398,6 +5399,13 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .new_workspace => .{ .op = .new, .n = 0 },
                 .previous_workspace => .{ .op = .previous, .n = 0 },
                 .next_workspace => .{ .op = .next, .n = 0 },
+                .organize_workspaces => .{
+                    .op = switch (v) {
+                        .repo => .organize_repo,
+                        .folder => .organize_folder,
+                    },
+                    .n = 0,
+                },
                 .goto_workspace => .{
                     .op = .goto,
                     .n = std.math.cast(isize, v) orelse std.math.maxInt(isize),

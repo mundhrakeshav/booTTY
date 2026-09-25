@@ -199,6 +199,66 @@ final class WorkspaceStore: ObservableObject {
         return workspace.id
     }
 
+    /// Organize (SPEC §10): regroups every Tab of the Window, hidden ones included, into new,
+    /// uncolored Workspaces that replace the old ones, one per repo or folder of each Tab's
+    /// focused Split. The Workspace holding the shown Tab is shown, and that Tab stays
+    /// selected with its focused Split. Returns false with nothing changed when there's no
+    /// group or the Window is in non-native fullscreen; requests check `allowsRequest` first.
+    @discardableResult
+    func organize(by mode: OrganizeMode) -> Bool {
+        reconcile()
+        guard let group = tabGroup, !isInNonNativeFullscreen, let selected = shownTab else { return false }
+
+        let groups = Self.organizeGroups(
+            workspaces.flatMap { tabs(of: $0.id) },
+            key: { Self.organizeKey(of: $0.focusedSurface?.pwd, by: mode) },
+            remembering: [selected] + workspaces.compactMap(\.rememberedTab))
+        guard let shown = groups.firstIndex(where: { $0.tabs.contains { $0 === selected } }) else { return false }
+
+        // The shown group's Tabs become the live group, in order, around the selected Tab,
+        // which never leaves it. The rest order out: they're unselected, so nothing flashes.
+        let incoming = groups[shown].tabs.compactMap(\.window)
+        isChanging = true
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        for window in group.windows where !incoming.contains(window) {
+            _ = Self.performSafely(.orderOut) { window.orderOut(nil) }
+        }
+        var position = 0
+        for window in incoming {
+            if let index = group.windows.firstIndex(of: window) {
+                position = index + 1
+            } else if Self.performSafely(.add, { group.insertWindow(window, at: position) }) {
+                position += 1
+            }
+        }
+        NSAnimationContext.endGrouping()
+        isChanging = false
+
+        // A Tab that failed to order out stayed in the group, so it's shown. One that failed
+        // to join stays hidden, in a Workspace of its own beside the shown one.
+        let grouped = Self.tabs(in: group)
+        let shownWorkspace = Workspace(name: groups[shown].name)
+        var organized: [Workspace] = []
+        for (index, planned) in groups.enumerated() {
+            if index == shown { organized.append(shownWorkspace) }
+            let hidden = planned.tabs.filter { tab in !grouped.contains { $0 === tab } }
+            guard !hidden.isEmpty else { continue }
+            var workspace = Workspace(name: planned.name, hiddenTabs: hidden)
+            if hidden.contains(where: { $0 === planned.rememberedTab }) { workspace.rememberedTab = planned.rememberedTab }
+            organized.append(workspace)
+        }
+
+        workspaces = organized
+        shownID = shownWorkspace.id
+        reconcile()
+        invalidateRestorableState()
+
+        selected.relabelTabs()
+        if let surface = selected.focusedSurface { Ghostty.moveFocus(to: surface) }
+        return true
+    }
+
     /// Whether a requested command that would change the shown Workspace may run now. `tab`
     /// is the Tab of the command's target Split. Otherwise the command reports false:
     /// - aimed at a hidden Split, with nothing shown (SPEC §14);
