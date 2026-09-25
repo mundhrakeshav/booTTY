@@ -422,7 +422,7 @@ pub fn hasCodepoint(self: DeferredFace, cp: u32, p: ?Presentation) bool {
 
 /// The wasm-compatible API.
 pub const Wasm = struct {
-    const wasm = @import("../os/wasm.zig");
+    const wasm = struct {}; // booTTY: cut
     const alloc = wasm.alloc;
 
     export fn deferred_face_new(ptr: [*]const u8, len: usize, presentation: u16) ?*DeferredFace {

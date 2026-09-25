@@ -596,7 +596,7 @@ pub const Mailbox = struct {
 
 // Wasm API.
 pub const Wasm = if (!builtin.target.isWasm()) struct {} else struct {
-    const wasm = @import("os/wasm.zig");
+    const wasm = struct {}; // booTTY: cut
     const alloc = wasm.alloc;
 
     // export fn app_new(config: *Config) ?*App {

@@ -32,8 +32,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     if (target.result.abi.isAndroid()) {
-        const android_ndk = @import("android_ndk");
-        try android_ndk.addPaths(b, lib);
+        @panic("Android was cut from booTTY");
     }
 
     var flags: std.ArrayList([]const u8) = .empty;

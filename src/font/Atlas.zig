@@ -409,7 +409,7 @@ pub fn dump(self: Atlas, writer: *std.Io.Writer) std.Io.Writer.Error!void {
 pub const Wasm = struct {
     // If you're copying this file (Atlas.zig) out to a separate project,
     // just replace this with the allocator you want to use.
-    const wasm = @import("../os/wasm.zig");
+    const wasm = struct {}; // booTTY: cut
     const alloc = wasm.alloc;
     const js = @import("zig-js");
 

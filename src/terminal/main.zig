@@ -88,7 +88,7 @@ pub const options = @import("terminal_options");
 pub const compression_enabled = @import("mem.zig").canReclaim(.strict);
 
 /// This is set to true when we're building the C library.
-pub const c_api = if (options.c_abi) @import("c/main.zig") else void;
+pub const c_api = if (options.c_abi) struct {} else void; // booTTY: cut
 
 test {
     @import("std").testing.refAllDecls(@This());

@@ -75,12 +75,6 @@ pub fn init(b: *std.Build, cfg: *const Config) !SharedDeps {
         .build_config_path = b.path("src/build/uucode_config.zig"),
     }).module("uucode");
 
-    // Re-export the uucode module so that Zig programs that embed libgtostty-vt
-    // can use it. This is necessary to use libraries like libvaxis in
-    // the embedding program that need uucode as well (libvaxis provides
-    // -Dexternal_uucode for this).
-    try b.modules.put(b.allocator, b.dupe("uucode"), uucode_mod);
-
     var result: SharedDeps = .{
         .config = cfg,
         .help_strings = try .init(b, cfg),
@@ -382,17 +376,7 @@ pub fn add(
 
     // Wasm we do manually since it is such a different build.
     if (step.rootModuleTarget().cpu.arch == .wasm32) {
-        if (b.lazyDependency("zig_js", .{
-            .target = target,
-            .optimize = optimize,
-        })) |js_dep| {
-            step.root_module.addImport(
-                "zig-js",
-                js_dep.module("zig-js"),
-            );
-        }
-
-        return static_libs;
+        @panic("WASM was cut from booTTY");
     }
 
     // On Linux, we need to add a couple common library paths that aren't

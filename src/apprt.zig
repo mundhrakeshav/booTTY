@@ -16,7 +16,7 @@ pub const action = @import("apprt/action.zig");
 pub const ipc = @import("apprt/ipc.zig");
 pub const gtk = struct {}; // booTTY: cut
 pub const none = @import("apprt/none.zig");
-pub const browser = @import("apprt/browser.zig");
+pub const browser = struct {}; // booTTY: cut
 pub const embedded = @import("apprt/embedded.zig");
 pub const surface = @import("apprt/surface.zig");
 

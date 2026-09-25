@@ -50,7 +50,7 @@ pub const WorkingDirectory = Config.WorkingDirectory;
 
 // Alternate APIs
 pub const CApi = @import("config/CApi.zig");
-pub const Wasm = if (!builtin.target.cpu.arch.isWasm()) struct {} else @import("config/Wasm.zig");
+pub const Wasm = if (!builtin.target.cpu.arch.isWasm()) struct {} else struct {}; // booTTY: cut
 
 test {
     @import("std").testing.refAllDecls(@This());

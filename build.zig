@@ -7,9 +7,6 @@ const translate_c = @import("translate_c");
 /// App version from build.zig.zon.
 const app_zon_version = @import("build.zig.zon").version;
 
-/// Libghostty version. We use a separate version from the app.
-const lib_version = "0.1.0-dev";
-
 /// Minimum required zig version.
 const minimum_zig_version = @import("build.zig.zon").minimum_zig_version;
 
@@ -39,7 +36,6 @@ pub fn build(b: *std.Build) !void {
     const config = try buildpkg.Config.init(
         b,
         file_version orelse app_zon_version,
-        lib_version,
     );
     const test_filters = b.option(
         [][]const u8,
@@ -50,30 +46,10 @@ pub fn build(b: *std.Build) !void {
     // Ghostty dependencies used by many artifacts.
     const deps = try buildpkg.SharedDeps.init(b, &config);
 
-    // The modules exported for Zig consumers of libghostty. If you're
-    // writing a Zig program that uses libghostty, read this file.
-    const mod = try buildpkg.GhosttyZig.init(
-        b,
-        &config,
-        &deps,
-    );
-
     // All our steps which we'll hook up later. The steps are shown
     // up here just so that they are more self-documenting.
     const run_step = b.step("run", "Run the app");
     const test_step = b.step("test", "Run tests");
-    const test_lib_vt_step = b.step(
-        "test-lib-vt",
-        "Run libghostty-vt tests",
-    );
-    const test_lib_vt_build_step = b.step(
-        "test-lib-vt-build",
-        "Build libghostty-vt tests without running them (compile check)",
-    );
-    const test_lib_vt_schema_step = b.step(
-        "test-lib-vt-schema",
-        "Validate the libghostty-vt ABI type manifest",
-    );
 
     // Ghostty resources like terminfo, shell integration, themes, etc.
     const resources = try buildpkg.GhosttyResources.init(b, &config, &deps);
@@ -95,95 +71,13 @@ pub fn build(b: *std.Build) !void {
         bench.install();
     }
 
-    // libghostty-vt
-    const native_freestanding = config.target.result.os.tag == .freestanding and
-        !config.target.result.cpu.arch.isWasm();
-    const libghostty_vt_shared: ?buildpkg.GhosttyLibVt = shared: {
-        if (config.target.result.cpu.arch.isWasm()) {
-            break :shared try buildpkg.GhosttyLibVt.initWasm(
-                b,
-                &mod,
-            );
-        }
-        if (native_freestanding) break :shared null;
-
-        break :shared try buildpkg.GhosttyLibVt.initShared(
-            b,
-            &mod,
-        );
-    };
-    if (libghostty_vt_shared) |shared| {
-        shared.install(b.getInstallStep());
-
-        const type_schema_test = b.addSystemCommand(&.{"python3"});
-        type_schema_test.addFileArg(b.path("src/terminal/c/types-schema-verify.py"));
-        type_schema_test.addFileArg(b.path("src/terminal/c/types.schema.json"));
-        type_schema_test.addFileArg(shared.output);
-        test_lib_vt_schema_step.dependOn(&type_schema_test.step);
-    } else {
-        try test_lib_vt_schema_step.addError(
-            "cannot execute the ABI manifest for a native freestanding target",
-            .{},
-        );
-    }
-
-    // libghostty-vt static lib
-    const libghostty_vt_static = try buildpkg.GhosttyLibVt.initStatic(
-        b,
-        &mod,
-    );
-    if (config.is_dep) {
-        // If we're a dependency, we need to install everything as-is
-        // so that dep.artifact("ghostty-vt-static") works.
-        libghostty_vt_static.install(b.getInstallStep());
-    } else {
-        // If we're not a dependency, we rename the static lib to
-        // be idiomatic. On Windows, we use a distinct name to avoid
-        // colliding with the DLL import library (ghostty-vt.lib).
-        const static_lib_name = if (config.target.result.os.tag == .windows)
-            "ghostty-vt-static.lib"
-        else
-            "libghostty-vt.a";
-        b.getInstallStep().dependOn(&b.addInstallLibFile(
-            libghostty_vt_static.output,
-            static_lib_name,
-        ).step);
-
-        if (native_freestanding) {
-            b.getInstallStep().dependOn(&b.addInstallDirectory(.{
-                .source_dir = b.path("include/ghostty"),
-                .install_dir = .header,
-                .install_subdir = "ghostty",
-                .include_extensions = &.{".h"},
-            }).step);
-        }
-    }
-
-    // libghostty-vt xcframework (Apple only, universal binary).
-    // Only when building on macOS (not cross-compiling) since
-    // xcodebuild is required.
-    if (config.emit_lib_vt and
-        config.emit_xcframework and
-        builtin.os.tag.isDarwin() and
-        config.target.result.os.tag.isDarwin())
-    {
-        const apple_libs = try buildpkg.GhosttyLibVt.initStaticAppleUniversal(
-            b,
-            &config,
-            &deps,
-            &mod,
-        );
-        const xcframework = buildpkg.GhosttyLibVt.xcframework(&apple_libs, b);
-        b.getInstallStep().dependOn(xcframework.step);
-    }
-
     // Helpgen
     if (config.emit_helpgen) deps.help_strings.install();
 
     // Runtime "none" is libghostty, anything else is an executable.
     if (config.app_runtime != .none) {
         @panic("GTK was cut from booTTY");
-    } else if (!config.emit_lib_vt) {
+    } else {
         // The macOS Ghostty Library
         //
         // This is NOT libghostty (even though its named that for historical
@@ -209,7 +103,7 @@ pub fn build(b: *std.Build) !void {
     // macOS only artifacts. These will error if they're initialized for
     // other targets. In lib-vt mode emit_xcframework controls the lib-vt
     // xcframework above, not this one.
-    if (!config.emit_lib_vt and config.target.result.os.tag.isDarwin() and
+    if (config.target.result.os.tag.isDarwin() and
         (config.emit_xcframework or config.emit_macos_app))
     {
         // Ghostty xcframework
@@ -247,8 +141,7 @@ pub fn build(b: *std.Build) !void {
 
         // On macOS we can run the macOS app. For "run" we always force
         // a native-only build so that we can run as quickly as possible.
-        if (!config.emit_lib_vt and
-            config.target.result.os.tag.isDarwin() and
+        if (config.target.result.os.tag.isDarwin() and
             (config.emit_xcframework or config.emit_macos_app))
         {
             const xcframework_native = try buildpkg.GhosttyXCFramework.init(
@@ -276,27 +169,8 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    // Zig module tests
-    {
-        const mod_vt_test = b.addTest(.{
-            .root_module = mod.vt,
-            .filters = test_filters,
-        });
-        const mod_vt_test_run = b.addRunArtifact(mod_vt_test);
-        test_lib_vt_step.dependOn(&mod_vt_test_run.step);
-        test_lib_vt_build_step.dependOn(&mod_vt_test.step);
-
-        const mod_vt_c_test = b.addTest(.{
-            .root_module = mod.vt_c,
-            .filters = test_filters,
-        });
-        const mod_vt_c_test_run = b.addRunArtifact(mod_vt_c_test);
-        test_lib_vt_step.dependOn(&mod_vt_c_test_run.step);
-        test_lib_vt_build_step.dependOn(&mod_vt_c_test.step);
-    }
-
     // Tests (skip when building libghostty-vt)
-    if (!config.emit_lib_vt) {
+    {
         // Full unit tests
         const test_exe = b.addTest(.{
             .name = "ghostty-test",
