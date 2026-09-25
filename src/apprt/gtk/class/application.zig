@@ -812,6 +812,7 @@ pub const Application = extern struct {
             .set_user_var,
             .workspace,
             .set_workspace_name,
+            .toggle_workspace_switcher,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;

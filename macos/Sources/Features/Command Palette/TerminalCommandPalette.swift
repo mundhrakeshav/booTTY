@@ -64,6 +64,9 @@ struct TerminalCommandPaletteView: View {
                 // Has to be on queue because onChange happens on a user-interactive
                 // thread and Xcode is mad about this call on that.
                 DispatchQueue.main.async {
+                    // The Workspace switcher that replaced the palette keeps the keyboard.
+                    let controller = surfaceView.window?.windowController as? BaseTerminalController
+                    guard controller?.paletteOrSwitcherIsShowing != true else { return }
                     surfaceView.window?.makeFirstResponder(surfaceView)
                 }
             }
@@ -188,7 +191,7 @@ struct TerminalCommandPaletteView: View {
 }
 
 /// This is done to ensure that the given view is in the responder chain.
-private struct ResponderChainInjector: NSViewRepresentable {
+struct ResponderChainInjector: NSViewRepresentable {
     let responder: NSResponder
 
     func makeNSView(context: Context) -> NSView {

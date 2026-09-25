@@ -70,6 +70,7 @@
                 <outlet property="menuSplitLeft" destination="Ppv-GP-lQU" id="Xd5-Cd-Jut"/>
                 <outlet property="menuSplitRight" destination="VUR-Ld-nLx" id="RxO-Zw-ovb"/>
                 <outlet property="menuSplitUp" destination="Ggp-7N-GbX" id="YJF-uq-S4Y"/>
+                <outlet property="menuSwitchWorkspace" destination="W23-Sw-Itm" id="W23-Ol-Swk"/>
                 <outlet property="menuTerminalInspector" destination="QwP-M5-fvh" id="wJi-Dh-S9f"/>
                 <outlet property="menuToggleFullScreen" destination="8kY-Pi-KaY" id="yQg-6V-OO6"/>
                 <outlet property="menuToggleVisibility" destination="DOX-wA-ilh" id="iBj-Bc-2bq"/>
@@ -417,6 +418,13 @@
                     <modifierMask key="keyEquivalentModifierMask"/>
                     <menu key="submenu" title="Workspace" id="Wk4-Mn-Sub">
                         <items>
+                            <menuItem title="Switch Workspace…" id="W23-Sw-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="toggleWorkspaceSwitcher:" target="-1" id="W23-Sw-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="W23-Sp-Swt"/>
                             <menuItem title="New Workspace" id="Wk4-Nw-Itm">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

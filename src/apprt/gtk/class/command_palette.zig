@@ -222,6 +222,7 @@ pub const CommandPalette = extern struct {
             .goto_workspace,
             .prompt_workspace_name,
             .set_workspace_name,
+            .toggle_workspace_switcher,
             => false,
 
             else => true,

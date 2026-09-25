@@ -370,6 +370,10 @@ pub const Action = union(Key) {
     /// macOS.
     set_workspace_name: SetTitle,
 
+    /// Toggle the Workspace switcher in the target's window. Only
+    /// implemented on macOS.
+    toggle_workspace_switcher,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -444,6 +448,7 @@ pub const Action = union(Key) {
         set_user_var,
         workspace,
         set_workspace_name,
+        toggle_workspace_switcher,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");

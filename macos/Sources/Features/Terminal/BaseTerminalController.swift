@@ -53,8 +53,22 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    /// This can be set to show/hide the command palette.
-    @Published var commandPaletteIsShowing: Bool = false
+    /// This can be set to show/hide the command palette. It and the Workspace switcher
+    /// exclude each other: opening either one closes the other.
+    @Published var commandPaletteIsShowing: Bool = false {
+        didSet { if commandPaletteIsShowing { workspaceSwitcherIsShowing = false } }
+    }
+
+    /// This can be set to show/hide the Workspace switcher (SPEC §8).
+    @Published var workspaceSwitcherIsShowing: Bool = false {
+        didSet { if workspaceSwitcherIsShowing { commandPaletteIsShowing = false } }
+    }
+
+    /// The command palette or the Workspace switcher is showing, and takes the keyboard
+    /// and clicks from the terminal.
+    var paletteOrSwitcherIsShowing: Bool {
+        commandPaletteIsShowing || workspaceSwitcherIsShowing
+    }
 
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
@@ -1455,6 +1469,11 @@ class BaseTerminalController: NSWindowController,
 
     // Workspace menu items run their keybind action on the focused Split, so they get the
     // same checks and alerts as the keys (SPEC §7.3, §4.2).
+
+    @IBAction func toggleWorkspaceSwitcher(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("toggle_workspace_switcher", on: focusedSurface)
+    }
 
     @IBAction func newWorkspace(_ sender: Any?) {
         guard let focusedSurface else { return }

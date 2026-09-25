@@ -41,6 +41,41 @@ struct WorkspaceStoreTests {
         #expect(store.workspaces[1].originalName == "Workspace 2")
     }
 
+    // MARK: Recency
+
+    @Test func recencyPutsTheShownFirstThenTheMostRecentlyShown() {
+        let store = store(["api", "web", "db", "logs"])
+        let (api, web, db, logs) = (store.workspaces[0].id, store.workspaces[1].id, store.workspaces[2].id, store.workspaces[3].id)
+
+        // Show web, then db, then api, each switch from the one shown before.
+        var recent = WorkspaceStore.recency([], showing: web, from: api)
+        recent = WorkspaceStore.recency(recent, showing: db, from: web)
+        recent = WorkspaceStore.recency(recent, showing: api, from: db)
+        #expect(WorkspaceStore.recencyOrder(store.workspaces, shownID: api, recent: recent).map(\.id) == [api, db, web, logs])
+
+        // Cmd+P then Return flips back and forth between the last two.
+        recent = WorkspaceStore.recency(recent, showing: db, from: api)
+        #expect(WorkspaceStore.recencyOrder(store.workspaces, shownID: db, recent: recent).map(\.id) == [db, api, web, logs])
+    }
+
+    @Test func workspacesNeverShownFollowInBarOrder() {
+        // The shown one is first even before any switch, as after a relaunch or Organize.
+        let store = store(["a", "b", "c", "d"], shown: 2)
+        let ids = store.workspaces.map(\.id)
+        #expect(store.recentWorkspaces.map(\.id) == [ids[2], ids[0], ids[1], ids[3]])
+
+        let recent = WorkspaceStore.recency([], showing: ids[3], from: ids[2])
+        #expect(WorkspaceStore.recencyOrder(store.workspaces, shownID: ids[3], recent: recent).map(\.id) == [ids[3], ids[2], ids[0], ids[1]])
+    }
+
+    @Test func workspaceThatEndedDropsOutOfRecency() {
+        let store = store(["a", "b", "c"])
+        let ids = store.workspaces.map(\.id)
+        let recent = [ids[2], UUID(), ids[1]]
+        let remaining = store.workspaces.filter { $0.id != ids[1] }
+        #expect(WorkspaceStore.recencyOrder(remaining, shownID: ids[0], recent: recent).map(\.id) == [ids[0], ids[2]])
+    }
+
     // MARK: Ordering
 
     @Test func addedWorkspaceGoesAtTheEnd() {
