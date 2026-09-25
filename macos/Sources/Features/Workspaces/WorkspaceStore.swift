@@ -1300,8 +1300,9 @@ final class WorkspaceStore: ObservableObject {
 
     /// `move_tab_to_new_window` aimed at a hidden Split (SPEC §11.5, §14): the Tab opens by
     /// Move Workspace to New Window's path, as a Window holding one Workspace, "Workspace 1".
-    /// Its Workspace ends quietly if it was the last Tab. Refused silently (false) for a
-    /// shown Tab and in non-native fullscreen.
+    /// Its Workspace ends quietly if it was the last Tab, and its Undo Move Tab comes off the
+    /// stack, since it left the Window alone (§11.4). Refused silently (false) for a shown
+    /// Tab and in non-native fullscreen.
     func moveHiddenTabToNewWindow(_ tab: TerminalController) -> Bool {
         reconcile()
         guard isHidden(tab), !isInNonNativeFullscreen,
@@ -1310,6 +1311,7 @@ final class WorkspaceStore: ObservableObject {
                   sizedLike: shownTab?.window)
         else { return false }
 
+        Self.dropUndoMoveTab(of: tab)
         removeHiddenTab(tab)
         return true
     }
