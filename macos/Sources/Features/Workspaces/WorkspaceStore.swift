@@ -78,6 +78,13 @@ final class WorkspaceStore: ObservableObject {
     /// Bumped by each claimed swipe and each cancel. A swipe from before stops tracking.
     private var swipeGeneration = 0
 
+    /// Undo and Redo Organize's target, so both come off the undo stack together.
+    private let organizeUndoTarget = NSObject()
+
+    /// The Window's Tabs when Undo or Redo Organize was last registered. Once they differ,
+    /// both entries come off the stack (SPEC §10.6).
+    private var organizeUndoTabs: Set<ObjectIdentifier>?
+
     init(id: UUID = UUID(), workspaces: [Workspace], shownID: Workspace.ID) {
         precondition(workspaces.contains { $0.id == shownID })
         self.id = id
@@ -310,61 +317,32 @@ final class WorkspaceStore: ObservableObject {
     /// Organize (SPEC §10): regroups every Tab of the Window, hidden ones included, into new,
     /// uncolored Workspaces that replace the old ones, one per repo or folder of each Tab's
     /// focused Split. The Workspace holding the shown Tab is shown, and that Tab stays
-    /// selected with its focused Split. Returns false with nothing changed when there's no
-    /// group or the Window is in non-native fullscreen; requests check `allowsRequest` first.
+    /// selected with its focused Split. Registers Undo Organize (§10.6). Returns false with
+    /// nothing changed when there's no group or the Window is in non-native fullscreen;
+    /// requests check `allowsRequest` first.
     @discardableResult
     func organize(by mode: OrganizeMode) -> Bool {
         reconcile()
-        guard let group = tabGroup, !isInNonNativeFullscreen, let selected = shownTab else { return false }
+        guard tabGroup != nil, !isInNonNativeFullscreen, let selected = shownTab else { return false }
 
+        let before = arrangement
         let groups = Self.organizeGroups(
             workspaces.flatMap { tabs(of: $0.id) },
             key: { Self.organizeKey(of: $0.focusedSurface?.pwd, by: mode) },
             remembering: [selected] + workspaces.compactMap(\.rememberedTab))
         guard let shown = groups.firstIndex(where: { $0.tabs.contains { $0 === selected } }) else { return false }
 
-        // The shown group's Tabs become the live group, in order, around the selected Tab,
-        // which never leaves it. The rest order out: they're unselected, so nothing flashes.
-        // This rebuilds the Workspaces without `show`, so it cancels a swipe too (SPEC §6.3).
-        let incoming = groups[shown].tabs.compactMap(\.window)
-        isChanging = true
-        Self.withoutAnimation {
-            for window in group.windows where !incoming.contains(window) {
-                _ = Self.performSafely(.orderOut) { window.orderOut(nil) }
-            }
-            var position = 0
-            for window in incoming {
-                if let index = group.windows.firstIndex(of: window) {
-                    position = index + 1
-                } else if Self.performSafely(.add, { group.insertWindow(window, at: position) }) {
-                    position += 1
-                }
-            }
+        var organized = groups.map { group in
+            var workspace = Workspace(name: group.name, hiddenTabs: group.tabs)
+            workspace.rememberedTab = group.rememberedTab
+            return workspace
         }
-        isChanging = false
-        cancelSwipe()
-
-        // A Tab that failed to order out stayed in the group, so it's shown. One that failed
-        // to join stays hidden, in a Workspace of its own beside the shown one.
-        let grouped = Self.tabs(in: group)
-        let shownWorkspace = Workspace(name: groups[shown].name)
-        var organized: [Workspace] = []
-        for (index, planned) in groups.enumerated() {
-            if index == shown { organized.append(shownWorkspace) }
-            let hidden = planned.tabs.filter { tab in !grouped.contains { $0 === tab } }
-            guard !hidden.isEmpty else { continue }
-            var workspace = Workspace(name: planned.name, hiddenTabs: hidden)
-            if hidden.contains(where: { $0 === planned.rememberedTab }) { workspace.rememberedTab = planned.rememberedTab }
-            organized.append(workspace)
+        organized[shown].rememberedTab = selected
+        guard arrange(Arrangement(workspaces: organized, shownID: organized[shown].id), comingForward: false) else {
+            return false
         }
 
-        workspaces = organized
-        shownID = shownWorkspace.id
-        reconcile()
-        invalidateRestorableState()
-
-        selected.relabelTabs()
-        if let surface = selected.focusedSurface { Ghostty.moveFocus(to: surface) }
+        registerUndoOrganize(restoring: before, from: selected)
         return true
     }
 
@@ -451,6 +429,129 @@ final class WorkspaceStore: ObservableObject {
     /// call this whenever their frame changes.
     func recordShownFrame() {
         if let frame = tabGroup?.selectedWindow?.frame { shownFrame = frame }
+    }
+
+    // MARK: Arranging
+
+    /// A Window's whole arrangement, as Organize makes it and Undo and Redo Organize bring it
+    /// back (SPEC §10.6): its Workspaces in bar order, each listing all its Tabs in order in
+    /// `hiddenTabs` and remembering the Tab it selects, the shown one included.
+    private struct Arrangement {
+        var workspaces: [Workspace]
+        var shownID: Workspace.ID
+    }
+
+    /// The Window's arrangement now. The shown Workspace remembers the shown Tab.
+    private var arrangement: Arrangement {
+        var workspaces = workspaces
+        workspaces[shownIndex].hiddenTabs = tabs(of: shownID)
+        workspaces[shownIndex].rememberedTab = shownTab
+        return Arrangement(workspaces: workspaces, shownID: shownID)
+    }
+
+    /// Every Tab of the Window, shown or hidden, by identity.
+    private var tabIDs: Set<ObjectIdentifier> {
+        Set(workspaces.flatMap { tabs(of: $0.id) }.map(ObjectIdentifier.init))
+    }
+
+    /// Makes `arrangement`, which holds exactly the Window's Tabs, the Window's. Its shown
+    /// Workspace's Tabs become the live group, in order, around its remembered Tab, which is
+    /// selected; the rest order out. This doesn't go through `show`, so it cancels a swipe
+    /// itself (SPEC §6.3) and counts as no show toward recency: the shown Workspace is newest
+    /// and the rest follow bar order (§8.3). `comingForward` is `show(_:comingForward:)`'s.
+    /// Returns false with nothing changed when there's no group, the Window is in non-native
+    /// fullscreen, or AppKit threw while adding or selecting the remembered Tab.
+    private func arrange(_ arrangement: Arrangement, comingForward: Bool) -> Bool {
+        reconcile()
+        guard let group = tabGroup,
+              let oldSelected = group.selectedWindow,
+              !isInNonNativeFullscreen,
+              let shown = arrangement.workspaces.first(where: { $0.id == arrangement.shownID }),
+              let selected = (shown.rememberedTab ?? shown.hiddenTabs.first)?.window
+        else { return false }
+
+        // A minimized Window is never key or main.
+        if comingForward, oldSelected.isMiniaturized { oldSelected.deminiaturize(nil) }
+
+        isChanging = true
+        let regrouped = Self.regroup(
+            group,
+            holding: shown.hiddenTabs.compactMap(\.window),
+            selecting: selected,
+            makeKey: comingForward || oldSelected.isKeyWindow || oldSelected.isMainWindow)
+        isChanging = false
+        guard regrouped else { return false }
+        cancelSwipe()
+
+        // A Tab that failed to order out stayed in the group, so it's shown. One that failed
+        // to join stays hidden, in a Workspace of its own beside the shown one.
+        let grouped = Self.tabs(in: group)
+        var arranged: [Workspace] = []
+        for var workspace in arrangement.workspaces {
+            let hidden = workspace.hiddenTabs.filter { tab in !grouped.contains { $0 === tab } }
+            if workspace.id == arrangement.shownID {
+                workspace.hiddenTabs = []
+                workspace.rememberedTab = nil
+                arranged.append(workspace)
+                if !hidden.isEmpty { arranged.append(Workspace(name: workspace.name, hiddenTabs: hidden)) }
+            } else if !hidden.isEmpty {
+                if !hidden.contains(where: { $0 === workspace.rememberedTab }) { workspace.rememberedTab = hidden.first }
+                workspace.hiddenTabs = hidden
+                arranged.append(workspace)
+            }
+        }
+
+        workspaces = arranged
+        shownID = arrangement.shownID
+        reconcile()
+        invalidateRestorableState()
+        didShow(selected)
+        return true
+    }
+
+    /// Registers Undo Organize, which brings back `arrangement`, the one Organize replaced
+    /// (SPEC §10.6). Undoing registers Redo Organize, which brings back the arrangement the
+    /// undo replaced, and so on. Both come off the stack once a Tab enters or leaves the
+    /// Window (`dropOrganizeUndoIfTabsChanged`).
+    private func registerUndoOrganize(restoring arrangement: Arrangement, from tab: TerminalController) {
+        guard let undoManager = tab.undoManager else { return }
+        organizeUndoTabs = tabIDs
+        undoManager.setActionName("Organize")
+        undoManager.registerUndo(withTarget: organizeUndoTarget, expiresAfter: tab.undoExpiration) { [weak self] _ in
+            self?.restoreArrangement(arrangement)
+        }
+    }
+
+    /// Undo or Redo Organize: brings back `arrangement`, then registers the opposite entry.
+    /// With a sheet on the shown Tab, the Workspace holding that Tab is shown instead, with
+    /// the Tab still selected, and the Window comes forward with its sheet (SPEC §16).
+    private func restoreArrangement(_ arrangement: Arrangement) {
+        reconcile()
+        guard let tab = shownTab,
+              Set(arrangement.workspaces.flatMap(\.hiddenTabs).map(ObjectIdentifier.init)) == tabIDs
+        else { return }
+
+        let replaced = self.arrangement
+        var arrangement = arrangement
+        if !allowsUndoSwitch(),
+           let holding = arrangement.workspaces.firstIndex(where: { $0.hiddenTabs.contains { $0 === tab } }) {
+            arrangement.shownID = arrangement.workspaces[holding].id
+            arrangement.workspaces[holding].rememberedTab = tab
+        }
+
+        // SPEC §16 leaves non-native fullscreen first. Until that exists, `arrange` refuses
+        // there and the entry is spent.
+        guard arrange(arrangement, comingForward: true) else { return }
+        registerUndoOrganize(restoring: replaced, from: tab)
+    }
+
+    /// Takes Undo and Redo Organize off the stack once a Tab has entered or left the Window
+    /// since they were registered (SPEC §10.6). Every change to the Window's Tabs ends in
+    /// `reconcile()` or `invalidateRestorableState()`, and both call this.
+    private func dropOrganizeUndoIfTabsChanged() {
+        guard let tabs = organizeUndoTabs, tabs != tabIDs else { return }
+        organizeUndoTabs = nil
+        (NSApp.delegate as? AppDelegate)?.undoManager.removeAllActions(withTarget: organizeUndoTarget)
     }
 
     // MARK: Undo
@@ -867,10 +968,10 @@ final class WorkspaceStore: ObservableObject {
     enum SwapStep { case add, select, orderOut }
 
     /// Adds `incoming`, still ordered out, to `group`, selects `target`, then orders the
-    /// group's old windows out, with animation off. Adding and selecting are all or nothing:
-    /// if either fails, the added windows are ordered out again, the old selection comes
-    /// back, and this returns nil. Otherwise it returns the old windows that ordered out; one
-    /// that failed stays in the group.
+    /// group's other old windows out, with animation off. Adding and selecting are all or
+    /// nothing: if either fails, the added windows are ordered out again, the old selection
+    /// comes back, and this returns nil. Otherwise it returns the old windows that ordered
+    /// out; one that failed stays in the group.
     ///
     /// `makeKey` selects by making `target` key, for a key or main Window. Otherwise it
     /// selects within the group, so a background Window doesn't take key from the Window the
@@ -910,8 +1011,39 @@ final class WorkspaceStore: ObservableObject {
             return nil
         }
 
-        // Everything old is unselected now, so ordering it out reveals nothing.
-        return old.filter { window in perform(.orderOut) { window.orderOut(nil) } }
+        // Everything else old is unselected now, so ordering it out reveals nothing.
+        return old.filter { window in window !== target && perform(.orderOut) { window.orderOut(nil) } }
+    }
+
+    /// Makes `group` hold `windows` in their order, with `target`, one of them, selected
+    /// (SPEC §10.6). `target` joins if it's out and is selected, all or nothing, as in `swap`,
+    /// which orders every other window out; then the rest of `windows` join around it, with
+    /// animation off. False, with nothing changed, if `target` couldn't join or be selected.
+    /// A window that fails to order out stays in the group, and one that fails to join stays
+    /// out.
+    static func regroup(
+        _ group: NSWindowTabGroup,
+        holding windows: [NSWindow],
+        selecting target: NSWindow,
+        makeKey: Bool,
+        perform: (SwapStep, () -> Void) -> Bool = performSafely
+    ) -> Bool {
+        let adding = group.windows.contains(target) ? [] : [target]
+        guard swap(in: group, adding: adding, selecting: target, makeKey: makeKey, perform: perform) != nil else {
+            return false
+        }
+
+        withoutAnimation {
+            var position = 0
+            for window in windows {
+                if let index = group.windows.firstIndex(of: window) {
+                    position = index + 1
+                } else if perform(.add, { group.insertWindow(window, at: position) }) {
+                    position += 1
+                }
+            }
+        }
+        return true
     }
 
     /// The AppKit steps of re-forming an emptied group, each run through `perform`, with
@@ -1261,6 +1393,7 @@ final class WorkspaceStore: ObservableObject {
         }
 
         if changed { invalidateRestorableState() }
+        dropOrganizeUndoIfTabsChanged() // a Tab Cmd+T added or one that closed changes nothing above
     }
 
     /// The group holding the shown Workspace's Tabs: the bound one while it holds any of this
@@ -1310,6 +1443,7 @@ final class WorkspaceStore: ObservableObject {
             window.invalidateRestorableState()
         }
         NSApp.invalidateRestorableState()
+        dropOrganizeUndoIfTabsChanged()
     }
 }
 
