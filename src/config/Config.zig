@@ -7173,6 +7173,50 @@ pub const Keybinds = struct {
                 .{ .key = .{ .unicode = ']' }, .mods = .{ .super = true, .shift = true } },
                 .{ .next_tab = {} },
             );
+
+            // Workspaces. ⌘⌥W stays close_tab (above).
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 't' }, .mods = .{ .super = true, .alt = true } },
+                .{ .new_workspace = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = '[' }, .mods = .{ .super = true, .alt = true } },
+                .{ .previous_workspace = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = ']' }, .mods = .{ .super = true, .alt = true } },
+                .{ .next_workspace = {} },
+            );
+            {
+                // Cmd+Option+N for goto Workspace N. As with goto_tab, both the
+                // physical digit and the unicode digit are bound so layouts like
+                // AZERTY work, and unicode goes last so the trigger API returns it.
+                const mods: inputpkg.Mods = .{ .super = true, .alt = true };
+                const start: u21 = '1';
+                const end: u21 = '9';
+                comptime var i: u21 = start;
+                inline while (i <= end) : (i += 1) {
+                    try self.set.put(
+                        alloc,
+                        .{
+                            .key = .{ .physical = @field(
+                                inputpkg.Key,
+                                std.fmt.comptimePrint("digit_{u}", .{i}),
+                            ) },
+                            .mods = mods,
+                        },
+                        .{ .goto_workspace = (i - start) + 1 },
+                    );
+                    try self.set.put(
+                        alloc,
+                        .{ .key = .{ .unicode = i }, .mods = mods },
+                        .{ .goto_workspace = (i - start) + 1 },
+                    );
+                }
+            }
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'd' }, .mods = .{ .super = true } },
@@ -10619,6 +10663,39 @@ test "parse e: command and args" {
     try testing.expectEqualStrings(cmd.direct[0], "echo");
     try testing.expectEqualStrings(cmd.direct[1], "foo");
     try testing.expectEqualStrings(cmd.direct[2], "bar baz");
+}
+
+test "default keybinds: workspaces on macOS" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    const set = cfg.keybind.set;
+
+    const Trigger = inputpkg.Binding.Trigger;
+    const Action = inputpkg.Binding.Action;
+    const mods: inputpkg.Mods = .{ .super = true, .alt = true };
+    const cases = [_]struct { Trigger, Action }{
+        .{ .{ .key = .{ .unicode = 't' }, .mods = mods }, .new_workspace },
+        .{ .{ .key = .{ .unicode = '[' }, .mods = mods }, .previous_workspace },
+        .{ .{ .key = .{ .unicode = ']' }, .mods = mods }, .next_workspace },
+        .{ .{ .key = .{ .unicode = '1' }, .mods = mods }, .{ .goto_workspace = 1 } },
+        .{ .{ .key = .{ .physical = .digit_1 }, .mods = mods }, .{ .goto_workspace = 1 } },
+        .{ .{ .key = .{ .unicode = '9' }, .mods = mods }, .{ .goto_workspace = 9 } },
+        .{ .{ .key = .{ .physical = .digit_9 }, .mods = mods }, .{ .goto_workspace = 9 } },
+        .{ .{ .key = .{ .unicode = 'w' }, .mods = mods }, .{ .close_tab = .this } },
+    };
+    for (cases) |case| {
+        const entry = set.get(case[0]).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        try testing.expect(entry.leaf.action.equal(case[1]));
+    }
+
+    // Menus show the unicode trigger, not the physical one.
+    try testing.expect(set.getTrigger(.{ .goto_workspace = 1 }).?.equal(
+        .{ .key = .{ .unicode = '1' }, .mods = mods },
+    ));
 }
 
 test "clone default" {

@@ -64,6 +64,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// Draws the most urgent agent status of this tab's surfaces on the tab.
     private var agentStatusCancellable: AnyCancellable?
 
+    /// The store of the Window this Tab belongs to, shown or hidden. A Tab that starts a
+    /// Window makes one, holding "Workspace 1"; a Tab added to a Window adopts its store.
+    lazy var workspaceStore = WorkspaceStore(tab: self)
+
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
          withSurfaceTree tree: SplitTree<Ghostty.SurfaceView>? = nil,
@@ -484,6 +488,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 tabCreated = parent.addTabbedWindowSafely(window, ordered: .above)
             }
             if tabCreated {
+                // Cmd+T joins the shown Workspace.
+                controller.workspaceStore = parentController.workspaceStore
+
                 // We set the selectedWindow early here because we want the next window
                 // to become first responder as quickly as possible. Usually this is
                 // set while `-[NSWindowController showWindow:]` is called, but we're
@@ -1284,6 +1291,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         super.windowDidBecomeKey(notification)
         self.relabelTabs()
         self.fixTabBar()
+        workspaceStore.reconcile()
     }
 
     override func windowDidMove(_ notification: Notification) {

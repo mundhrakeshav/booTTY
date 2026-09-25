@@ -5387,6 +5387,25 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        inline .new_workspace,
+        .previous_workspace,
+        .next_workspace,
+        .goto_workspace,
+        => |v, tag| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .workspace,
+            switch (tag) {
+                .new_workspace => .{ .op = .new, .n = 0 },
+                .previous_workspace => .{ .op = .previous, .n = 0 },
+                .next_workspace => .{ .op = .next, .n = 0 },
+                .goto_workspace => .{
+                    .op = .goto,
+                    .n = std.math.cast(isize, v) orelse std.math.maxInt(isize),
+                },
+                else => comptime unreachable,
+            },
+        ),
+
         .new_split => |direction| return try self.rt_app.performAction(
             .{ .surface = self },
             .new_split,

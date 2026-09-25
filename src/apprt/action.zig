@@ -361,6 +361,10 @@ pub const Action = union(Key) {
     /// OSC 1337 SetUserVar. The value is already base64 decoded.
     set_user_var: SetUserVar,
 
+    /// A Workspace command aimed at the surface's window. Only implemented
+    /// on macOS.
+    workspace: Workspace,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -433,6 +437,7 @@ pub const Action = union(Key) {
         copy_title_to_clipboard,
         move_tab_to_new_window,
         set_user_var,
+        workspace,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -566,6 +571,26 @@ pub const ResizeSplit = extern struct {
 
 pub const MoveTab = extern struct {
     amount: isize,
+};
+
+/// A Workspace command. `n` is the 1-based index for `goto`, unused otherwise.
+///
+/// Sync with: ghostty_action_workspace_s
+pub const Workspace = extern struct {
+    op: Op,
+    n: isize,
+
+    /// Sync with: ghostty_action_workspace_op_e
+    pub const Op = enum(c_int) {
+        goto,
+        previous,
+        next,
+        new,
+
+        test "ghostty.h Workspace.Op" {
+            try lib.checkGhosttyHEnum(Op, "GHOSTTY_ACTION_WORKSPACE_");
+        }
+    };
 };
 
 /// The tab to jump to. This is non-exhaustive so that integer values represent

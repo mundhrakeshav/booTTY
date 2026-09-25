@@ -597,6 +597,33 @@ pub const Action = union(enum) {
     /// found by running `ghostty +version`.
     toggle_tab_overview,
 
+    /// Open a new Workspace in this window and show it. It is named
+    /// "Workspace N", with the lowest N that no Workspace in the window
+    /// shows as its name, goes at the end of the window's Workspaces, and
+    /// holds one new tab.
+    ///
+    /// Only implemented on macOS.
+    new_workspace,
+
+    /// Show the previous Workspace in this window, wrapping around.
+    ///
+    /// Only implemented on macOS.
+    previous_workspace,
+
+    /// Show the next Workspace in this window, wrapping around.
+    ///
+    /// Only implemented on macOS.
+    next_workspace,
+
+    /// Show the Workspace with the specific index in this window, starting
+    /// from 1.
+    ///
+    /// If the number is higher than the number of Workspaces, this shows
+    /// the last Workspace.
+    ///
+    /// Only implemented on macOS.
+    goto_workspace: usize,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1451,6 +1478,10 @@ pub const Action = union(enum) {
             .move_tab,
             .move_tab_to_new_window,
             .toggle_tab_overview,
+            .new_workspace,
+            .previous_workspace,
+            .next_workspace,
+            .goto_workspace,
             .new_split,
             .goto_split,
             .goto_window,
@@ -3440,6 +3471,32 @@ test "parse: action with float" {
         try testing.expect(binding.action == .scroll_page_fractional);
         try testing.expectEqual(@as(f32, 0.5), binding.action.scroll_page_fractional);
     }
+}
+
+test "parse: workspace actions" {
+    const testing = std.testing;
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .new_workspace },
+        try parseSingle("a=new_workspace"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .previous_workspace },
+        try parseSingle("a=previous_workspace"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .next_workspace },
+        try parseSingle("a=next_workspace"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .goto_workspace = 3 } },
+        try parseSingle("a=goto_workspace:3"),
+    );
+
+    // goto_workspace is a 1-based index, so it needs one and it can't be negative.
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:-1"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
 }
 
 test "parse: action with a tuple" {
