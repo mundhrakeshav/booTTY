@@ -513,6 +513,30 @@ final class WorkspaceStore: ObservableObject {
         if allowsUndoSwitch() { show(saved.id, comingForward: true) }
         registerUndoForNewWorkspace(tab, previous: previous, withBaseConfig: baseConfig)
     }
+
+    // MARK: Closing the Window
+
+    /// The names of the hidden Workspaces holding a Tab for which `asks` holds, in bar order.
+    /// Close Window and Quit name them (SPEC §13.2, §13.3).
+    func hiddenNames(where asks: (TerminalController) -> Bool) -> [String] {
+        workspaces.filter { $0.id != shownID && $0.hiddenTabs.contains(where: asks) }.map(\.name)
+    }
+
+    /// How Close Window and Quit name hidden Workspaces (SPEC §13.8): "the hidden Workspace
+    /// “api”", or "the hidden Workspaces" and at most three names in bar order, joined as a list
+    /// that ends with "and N more" past three. Nil for none.
+    static func hiddenWorkspacesPhrase(naming names: [String]) -> String? {
+        guard !names.isEmpty else { return nil }
+        var items = names.prefix(3).map { "“\($0)”" }
+        if names.count > 3 { items.append("\(names.count - 3) more") }
+        let list = switch items.count {
+        case 1: items[0]
+        case 2: "\(items[0]) and \(items[1])"
+        default: items.dropLast().joined(separator: ", ") + ", and " + items[items.count - 1]
+        }
+        return (names.count == 1 ? "the hidden Workspace " : "the hidden Workspaces ") + list
+    }
+
     // MARK: Restoring
 
     /// Brings back a restored Window's Workspaces (SPEC §17.2). The shown Workspace's Tabs are
@@ -536,12 +560,19 @@ final class WorkspaceStore: ObservableObject {
             if let i = entry.rememberedTabIndex, tabs.indices.contains(i), let tab = tabs[i] {
                 workspace.rememberedTab = tab
             }
-            for tab in workspace.hiddenTabs { tab.workspaceStore = self }
             restored.append(workspace)
         }
 
+        bringBack(restored, shown: saved.workspaces[saved.shownIndex].id)
+    }
+
+    /// Brings back a Window's Workspaces in bar order, `id` shown, around the shown Tabs already
+    /// in its group: on relaunch and by Undo Close Window (SPEC §16, §17.2). The hidden ones'
+    /// Tabs are ordered out and adopt this store.
+    func bringBack(_ restored: [Workspace], shown id: Workspace.ID) {
+        for tab in restored.flatMap(\.hiddenTabs) { tab.workspaceStore = self }
         workspaces = restored
-        shownID = saved.workspaces[saved.shownIndex].id
+        shownID = id
         invalidateRestorableState()
     }
     // MARK: Hidden Tabs
