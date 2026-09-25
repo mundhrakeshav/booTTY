@@ -1325,11 +1325,20 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
+                    guard let controller = surfaceView.window?.windowController as? TerminalController
+                    else { return false }
+
+                    // A hidden Tab is ordered out, so AppKit can't move it; it opens by Move
+                    // Workspace to New Window's path (SPEC §11.5, §14).
+                    if controller.isHidden {
+                        return MainActor.assumeIsolated {
+                            controller.workspaceStore.moveHiddenTabToNewWindow(controller)
+                        }
+                    }
+
                     // The shown Workspace's only Tab can't move to a new Window; Move Workspace
-                    // to New Window covers that (SPEC §11.5). A hidden Tab is ordered out, so
-                    // there's nothing here for AppKit to move.
-                    guard let controller = surfaceView.window?.windowController as? TerminalController,
-                          !controller.isHidden, controller.groupedTabs.count > 1 else { return false }
+                    // to New Window covers that (SPEC §11.5).
+                    guard controller.groupedTabs.count > 1 else { return false }
 
                     surfaceView.window?.moveTabToNewWindow(nil)
 
@@ -1437,6 +1446,10 @@ extension Ghostty {
                             let count = store.workspaces.count
                             return store.moveWorkspace(id, to: from + min(max(v.n, -count), count))
 
+                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TO_NEW_WINDOW:
+                            // A hidden Split moves its own Workspace (SPEC §14).
+                            return store.moveToNewWindow(store.workspace(holding: tab).id, requestedBy: tab)
+
                         case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO:
                             return store.moveTab(tab, toWorkspaceAt: v.n)
 
@@ -1447,7 +1460,6 @@ extension Ghostty {
                              GHOSTTY_ACTION_WORKSPACE_ORGANIZE_FOLDER:
                             guard store.allowsRequest(from: tab, orShow: .cannotOrganize) else { return false }
                             return store.organize(by: v.op == GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO ? .repo : .folder)
-
                         default:
                             return false
                         }

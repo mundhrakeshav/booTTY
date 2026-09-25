@@ -5394,6 +5394,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .close_workspace,
         .prompt_workspace_name,
         .move_workspace,
+        .move_workspace_to_new_window,
         .move_tab_to_workspace,
         .move_tab_to_new_workspace,
         .organize_workspaces,
@@ -5418,6 +5419,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                 .close_workspace => .{ .op = .close, .n = 0 },
                 .prompt_workspace_name => .{ .op = .prompt_name, .n = 0 },
                 .move_workspace => .{ .op = .move, .n = v },
+                .move_workspace_to_new_window => .{ .op = .move_to_new_window, .n = 0 },
                 .move_tab_to_workspace => .{
                     .op = .move_tab_to,
                     .n = std.math.cast(isize, v) orelse std.math.maxInt(isize),

@@ -318,6 +318,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    /// Places this Tab's window as Cmd+N places a new Window: at the configured
+    /// `window-position-x` and `window-position-y`, else at the next cascade point.
+    func placeAsNewWindow() {
+        guard let window = window as? TerminalWindow else { return }
+        let hasFixedPos = window.setInitialWindowPosition(
+            x: derivedConfig.windowPositionX,
+            y: derivedConfig.windowPositionY)
+        Self.applyCascade(to: window, hasFixedPos: hasFixedPos)
+    }
+
     // The preferred parent terminal controller. It's never a hidden Tab: a hidden `lastMain`,
     // left behind by a switch made while booTTY was inactive, stands for its Window's shown
     // Tab (SPEC §2.5). A hidden Tab is never main.
@@ -1878,6 +1888,11 @@ extension TerminalController {
             // If our window is already the default size or we don't have a
             // default size, then disable.
             return defaultSize?.isChanged(for: window) ?? false
+
+        case #selector(moveWorkspaceToNewWindow):
+            // Disabled for the Window's only Workspace (SPEC §7.3). A Window that can't hold
+            // Workspaces keeps it enabled, so it shows "Workspaces Unavailable".
+            return workspacesUnavailableAlert != nil || workspaceStore.workspaces.count > 1
 
         default:
             return super.validateMenuItem(item)

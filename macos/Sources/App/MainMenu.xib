@@ -42,6 +42,7 @@
                 <outlet property="menuMoveTabToWorkspace" destination="W13-Mt-Itm" id="W13-Ol-Mtw"/>
                 <outlet property="menuMoveWorkspaceLeft" destination="W12-Ml-Itm" id="W12-Ol-Mwl"/>
                 <outlet property="menuMoveWorkspaceRight" destination="W12-Mr-Itm" id="W12-Ol-Mwr"/>
+                <outlet property="menuMoveWorkspaceToNewWindow" destination="W17-Mw-Itm" id="W17-Ol-Mww"/>
                 <outlet property="menuNewTab" destination="uTG-Vz-hJU" id="eMg-R3-SeS"/>
                 <outlet property="menuNewWindow" destination="Was-JA-tGl" id="lK7-3I-CPG"/>
                 <outlet property="menuNewWorkspace" destination="Wk4-Nw-Itm" id="Wk4-Ol-Nwk"/>
@@ -464,6 +465,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="moveWorkspaceRight:" target="-1" id="W12-Mr-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Move Workspace to New Window" id="W17-Mw-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="moveWorkspaceToNewWindow:" target="-1" id="W17-Mw-Act"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Move Tab to Workspace" id="W13-Mt-Itm">

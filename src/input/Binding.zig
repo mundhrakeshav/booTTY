@@ -653,6 +653,13 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     move_workspace: isize,
 
+    /// Move the current Workspace to a new window of its own, with its
+    /// name, color, tabs, and splits. The window it leaves shows its
+    /// neighbor. Does nothing when it is the window's only Workspace.
+    ///
+    /// Only implemented on macOS.
+    move_workspace_to_new_window,
+
     /// Move the current tab to the Workspace with the specific index in
     /// this window, starting from 1. It goes at the end of that Workspace's
     /// tabs, and the window keeps showing the Workspace it shows.
@@ -685,7 +692,6 @@ pub const Action = union(enum) {
     ///
     /// Only implemented on macOS.
     organize_workspaces: OrganizeWorkspaces,
-
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1553,6 +1559,7 @@ pub const Action = union(enum) {
             .prompt_workspace_name,
             .set_workspace_name,
             .move_workspace,
+            .move_workspace_to_new_window,
             .move_tab_to_workspace,
             .move_tab_to_new_workspace,
             .organize_workspaces,
@@ -3604,6 +3611,12 @@ test "parse: workspace actions" {
     try testing.expectError(Error.InvalidFormat, parseSingle("a=set_workspace_name"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=move_workspace"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .move_workspace_to_new_window },
+        try parseSingle("a=move_workspace_to_new_window"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_workspace_to_new_window:1"));
 
     try testing.expectEqual(
         Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .organize_workspaces = .repo } },

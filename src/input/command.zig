@@ -484,6 +484,12 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
+        .move_workspace_to_new_window => comptime &.{.{
+            .action = .move_workspace_to_new_window,
+            .title = i18n.N_("Move Workspace to New Window"),
+            .description = i18n.N_("Move the current Workspace to a new window."),
+        }},
+
         .move_tab_to_new_workspace => comptime &.{.{
             .action = .move_tab_to_new_workspace,
             .title = i18n.N_("Move Tab to New Workspace"),
@@ -502,7 +508,6 @@ fn actionCommands(action: Action.Key) []const Command {
                 .description = i18n.N_("Regroup this window's tabs into one Workspace per folder."),
             },
         },
-
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),

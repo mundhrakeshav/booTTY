@@ -224,6 +224,7 @@ pub const CommandPalette = extern struct {
             .prompt_workspace_name,
             .set_workspace_name,
             .move_workspace,
+            .move_workspace_to_new_window,
             .move_tab_to_workspace,
             .move_tab_to_new_workspace,
             .organize_workspaces,

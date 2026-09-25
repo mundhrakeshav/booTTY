@@ -9,6 +9,7 @@ enum WorkspaceAlert {
     case cannotClose
     case cannotOrganize
     case cannotMoveTab
+    case cannotMoveWorkspace
 
     // Windows that can't hold Tabs (SPEC §4.2).
     case unavailableInQuickTerminal
@@ -22,6 +23,7 @@ enum WorkspaceAlert {
         case .cannotClose: "Cannot Close Workspace"
         case .cannotOrganize: "Cannot Organize Workspaces"
         case .cannotMoveTab: "Cannot Move Tab"
+        case .cannotMoveWorkspace: "Cannot Move Workspace"
         case .unavailableInQuickTerminal, .unavailableUndecorated, .unavailableHiddenTitlebar:
             "Workspaces Unavailable"
         }
@@ -39,6 +41,8 @@ enum WorkspaceAlert {
             "Organizing Workspaces is unsupported while in non-native fullscreen. Exit fullscreen and try again."
         case .cannotMoveTab:
             "Moving tabs between Workspaces is unsupported while in non-native fullscreen. Exit fullscreen and try again."
+        case .cannotMoveWorkspace:
+            "Moving Workspaces to a new window is unsupported while in non-native fullscreen. Exit fullscreen and try again."
         case .unavailableInQuickTerminal:
             "Workspaces aren't supported in the Quick Terminal."
         case .unavailableUndecorated:
