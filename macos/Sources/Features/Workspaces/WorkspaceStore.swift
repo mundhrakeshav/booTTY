@@ -568,6 +568,7 @@ final class WorkspaceStore: ObservableObject {
         // A minimized Window is never key or main.
         if comingForward, oldSelected.isMiniaturized { oldSelected.deminiaturize(nil) }
 
+        let outgoing = Self.tabs(in: group)
         isChanging = true
         let regrouped = Self.regroup(
             group,
@@ -578,9 +579,13 @@ final class WorkspaceStore: ObservableObject {
         guard regrouped else { return false }
         cancelSwipe()
 
+        let grouped = Self.tabs(in: group)
+
+        // A switcher open in an outgoing Tab closes (SPEC §8.1).
+        for tab in outgoing where !grouped.contains(where: { $0 === tab }) { tab.workspaceSwitcherIsShowing = false }
+
         // A Tab that failed to order out stayed in the group, so it's shown. One that failed
         // to join stays hidden, in a Workspace of its own beside the shown one.
-        let grouped = Self.tabs(in: group)
         var arranged: [Workspace] = []
         for var workspace in arrangement.workspaces {
             let hidden = workspace.hiddenTabs.filter { tab in !grouped.contains { $0 === tab } }
