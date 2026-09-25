@@ -26,6 +26,7 @@ def main [
         -project $project
         -scheme $scheme
         -configuration $configuration
+        -arch (^uname -m) # booTTY: native default
         $"SYMROOT=($build_dir)"
         ...$skip_testing
         $action)

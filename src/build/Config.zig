@@ -149,7 +149,7 @@ pub fn init(b: *std.Build, appVersion: []const u8) !Config {
         XCFrameworkTarget,
         "xcframework-target",
         "The target for the xcframework.",
-    ) orelse .universal;
+    ) orelse .native; // booTTY: native default
 
     //---------------------------------------------------------------
     // Comptime Interfaces
