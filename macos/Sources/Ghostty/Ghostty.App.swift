@@ -965,7 +965,10 @@ extension Ghostty {
                 guard let surface = target.target.surface else { return }
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let appState = self.appState(fromView: surfaceView) else { return }
-                guard appState.config.windowDecorations else {
+
+                // A terminal Window keeps the decorations it was created with (SPEC §4.2).
+                let controller = BaseTerminalController.controller(owning: surfaceView) as? TerminalController
+                guard controller?.windowStyle.isDecorated ?? appState.config.windowDecorations else {
                     let alert = NSAlert()
                     alert.messageText = "Tabs are disabled"
                     alert.informativeText = "Enable window decorations to use tabs"
@@ -1359,28 +1362,38 @@ extension Ghostty {
                 case GHOSTTY_TARGET_SURFACE:
                     guard let surface = target.target.surface,
                           let surfaceView = self.surfaceView(from: surface),
-                          let controller = BaseTerminalController.controller(owning: surfaceView) as? TerminalController
+                          let controller = BaseTerminalController.controller(owning: surfaceView)
                     else { return false }
 
                     // Actions arrive on the main thread.
                     return MainActor.assumeIsolated {
-                        let store = controller.workspaceStore
+                        guard let tab = controller.tabForWorkspaceCommand() else { return false }
+                        let store = tab.workspaceStore
+
                         switch v.op {
-                        case GHOSTTY_ACTION_WORKSPACE_GOTO:
-                            return store.show(.number(v.n))
+                        case GHOSTTY_ACTION_WORKSPACE_GOTO,
+                             GHOSTTY_ACTION_WORKSPACE_PREVIOUS,
+                             GHOSTTY_ACTION_WORKSPACE_NEXT:
+                            let target: WorkspaceStore.Target = switch v.op {
+                            case GHOSTTY_ACTION_WORKSPACE_GOTO: .number(v.n)
+                            case GHOSTTY_ACTION_WORKSPACE_PREVIOUS: .previous
+                            default: .next
+                            }
 
-                        case GHOSTTY_ACTION_WORKSPACE_PREVIOUS:
-                            return store.show(.previous)
-
-                        case GHOSTTY_ACTION_WORKSPACE_NEXT:
-                            return store.show(.next)
+                            // With nothing to switch to, false and no alert (SPEC §7.1).
+                            guard store.index(of: target) != nil,
+                                  store.allowsRequest(from: tab, orShow: .cannotSwitch)
+                            else { return false }
+                            return store.show(target)
 
                         case GHOSTTY_ACTION_WORKSPACE_NEW:
+                            guard store.allowsRequest(from: tab, orShow: .cannotCreate) else { return false }
+
                             // A new Workspace's first Tab counts as a new window, so it follows
                             // window-inherit-working-directory from the Tab just left (SPEC §1.5).
                             let config = SurfaceConfiguration(
                                 from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
-                            return store.newWorkspace(from: controller, withBaseConfig: config)
+                            return store.newWorkspace(from: tab, withBaseConfig: config)
 
                         default:
                             return false

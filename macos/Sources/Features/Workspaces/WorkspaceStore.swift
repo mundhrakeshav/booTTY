@@ -99,6 +99,13 @@ final class WorkspaceStore: ObservableObject {
         shownTabs.contains { $0.isInNonNativeFullscreen }
     }
 
+    /// The Tab the Window shows: the Tab in non-native fullscreen, else the live group's
+    /// selected Tab. Sheets about the Window's hidden Tabs go on it.
+    var shownTab: TerminalController? {
+        tabs(of: shownID).first { $0.isInNonNativeFullscreen }
+            ?? tabGroup?.selectedWindow?.windowController as? TerminalController
+    }
+
     private var shownTabs: [TerminalController] {
         let grouped = tabGroup.map(Self.tabs(in:)) ?? []
         return grouped + knownShownTabs.compactMap(\.value).filter { tab in
@@ -143,7 +150,7 @@ final class WorkspaceStore: ObservableObject {
         reconcile()
         guard tabGroup != nil, !isInNonNativeFullscreen else { return false }
 
-        let tab = TerminalController(parent.ghostty, withBaseConfig: baseConfig)
+        let tab = TerminalController(parent.ghostty, withBaseConfig: baseConfig, windowStyle: parent.windowStyle)
         tab.isBackgroundOpaque = parent.isBackgroundOpaque
         tab.workspaceStore = self
 
@@ -167,6 +174,35 @@ final class WorkspaceStore: ObservableObject {
         return workspace.id
     }
 
+    /// Whether a requested command that would change the shown Workspace may run now. `tab`
+    /// is the Tab of the command's target Split. Otherwise the command reports false:
+    /// - aimed at a hidden Split, with nothing shown (SPEC §14);
+    /// - while the shown Tab has a sheet, bringing the Window and its sheet forward (§13.7);
+    /// - in non-native fullscreen, showing `alert` on `tab` when that's the windowed group's
+    ///   selected Tab, else on the fullscreen Tab (§3).
+    ///
+    /// The neighbor shown because the shown Workspace ended, and undo, aren't requests and
+    /// don't come through here.
+    func allowsRequest(from tab: TerminalController, orShow alert: WorkspaceAlert) -> Bool {
+        reconcile()
+        guard !isHidden(tab) else { return false }
+
+        if let window = shownTab?.window, window.attachedSheet != nil {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+            if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+            return false
+        }
+
+        if let fullscreen = tabs(of: shownID).first(where: { $0.isInNonNativeFullscreen }) {
+            let isWindowedSelection = tab.window != nil && tab.window === tabGroup?.selectedWindow
+            alert.show(on: isWindowedSelection ? tab.window : fullscreen.window)
+            return false
+        }
+
+        return true
+    }
+
     // MARK: Switching
 
     /// The one switch path (SPEC §2.3): shows Workspace `id`. Returns false, with the old
@@ -178,7 +214,7 @@ final class WorkspaceStore: ObservableObject {
         guard id != shownID else { return true }
 
         // Non-native fullscreen takes the fullscreen Tab out of the group, so there's no
-        // group to swap. Ticket 03's refusal alerts come before this.
+        // group to swap. Requests show their alert in `allowsRequest` before this.
         guard let target = workspaces.firstIndex(where: { $0.id == id }),
               let group = tabGroup,
               let oldSelected = group.selectedWindow,
