@@ -1051,10 +1051,11 @@ final class WorkspaceStore: ObservableObject {
     /// has ended there, or has ended and its last Window has closed (nil) (SPEC §11.4, §16):
     /// `tab` leaves this Window and goes back as Undo Close Tab puts a Tab back (`showing` as
     /// in `moveBack`), or with its Workspace as a Window of its own. Then registers the
-    /// opposite entry. Nothing moves while the Tab has a sheet up, or in non-native fullscreen
-    /// when it would go into `target`'s shown Workspace.
+    /// opposite entry. Nothing moves while the Tab has a sheet up. A Tab going into `target`'s
+    /// shown Workspace makes that Window leave non-native fullscreen first, as `moveBack` did
+    /// here for a Tab leaving this Window's shown Workspace (SPEC §16).
     private func moveAcross(_ tab: TerminalController, to saved: UndoState, in target: WorkspaceStore?, at index: Int, showing: Bool) {
-        if let target, target.isInNonNativeFullscreen, saved.id == target.shownID { return }
+        if let target, saved.id == target.shownID { target.leaveNonNativeFullscreen() }
         let source = workspace(holding: tab).id
         guard tab.window?.attachedSheet == nil,
               let from = undoState(of: source),
