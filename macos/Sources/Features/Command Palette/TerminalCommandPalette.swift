@@ -141,13 +141,15 @@ struct TerminalCommandPaletteView: View {
             }
     }
 
-    /// Commands for jumping to other terminal surfaces.
+    /// Commands for jumping to other terminal surfaces, hidden Workspaces' included. Picking
+    /// one reveals its Split (SPEC §7.4).
     private var jumpOptions: [CommandOption] {
         TerminalController.all.flatMap { controller -> [CommandOption] in
             guard let window = controller.window else { return [] }
 
             let color = (window as? TerminalWindow)?.tabColor
             let displayColor = color != TerminalTabColor.none ? color : nil
+            let workspaceName = controller.workspaceStore.workspace(holding: controller).name
 
             return controller.surfaceTree.map { surface in
                 let terminalTitle = surface.title.isEmpty ? window.title : surface.title
@@ -160,10 +162,11 @@ struct TerminalCommandPaletteView: View {
                     displayTitle = "Untitled"
                 }
                 let pwd = surface.pwd?.abbreviatedPath
-                let subtitle: String? = if let pwd, !displayTitle.contains(pwd) {
-                    pwd
+                // "api · ~/code/app", or "api" alone when there's no folder to show.
+                let subtitle = if let pwd, !displayTitle.contains(pwd) {
+                    "\(workspaceName) · \(pwd)"
                 } else {
-                    nil
+                    workspaceName
                 }
 
                 return CommandOption(

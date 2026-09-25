@@ -254,11 +254,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    // The preferred parent terminal controller.
+    // The preferred parent terminal controller. It's never a hidden Tab: a hidden `lastMain`,
+    // left behind by a switch made while booTTY was inactive, stands for its Window's shown
+    // Tab (SPEC §2.5). A hidden Tab is never main.
     static var preferredParent: TerminalController? {
         all.first {
             $0.window?.isMainWindow ?? false
-        } ?? lastMain ?? all.last
+        } ?? lastMain?.onScreenTab ?? all.last { !$0.isInHiddenWorkspace }
     }
 
     // The last controller to be main. We use this when paired with "preferredParent"

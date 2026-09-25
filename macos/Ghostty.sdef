@@ -196,6 +196,7 @@
 
     <command name="focus" code="GhstFcus" description="Focus a terminal, bringing its window to the front.">
       <direct-parameter type="specifier" description="The terminal to focus."/>
+      <result type="boolean" description="True when the terminal was focused; false when its hidden Workspace can't be shown now."/>
     </command>
 
     <command name="close" code="GhstClos" description="Close a terminal.">
@@ -208,6 +209,7 @@
 
     <command name="select tab" code="GhstSlTb" description="Select a tab in its window.">
       <direct-parameter type="specifier" description="The tab to select."/>
+      <result type="boolean" description="True when the tab was selected; false when its hidden Workspace can't be shown now."/>
     </command>
 
     <command name="close tab" code="GhstClTb" description="Close a tab.">
