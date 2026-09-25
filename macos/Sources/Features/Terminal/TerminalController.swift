@@ -684,6 +684,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return result
     }
 
+    /// The Tabs grouped with this one, in tab order, this one included. Decisions
+    /// about which Tabs sit beside this one read this, never the tab group.
+    var groupedTabs: [NSWindow] {
+        guard let window else { return [] }
+        return window.tabGroup?.windows ?? [window]
+    }
+
+    /// Whether this is its Window's only Tab, so closing it closes the Window.
+    var isOnlyTabInWindow: Bool { groupedTabs.count <= 1 }
+
     /// This is called anytime a node in the surface tree is being removed.
     override func closeSurface(
         _ node: SplitTree<Ghostty.SurfaceView>.Node,
@@ -695,8 +705,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        // More than 1 window means we have tabs and we're closing a tab
-        if window?.tabGroup?.windows.count ?? 0 > 1 {
+        // Closing one of several Tabs closes just that Tab.
+        if !isOnlyTabInWindow {
             if withConfirmation {
                 closeTab(nil)
             } else {
@@ -715,8 +725,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     func closeTabImmediately(registerRedo: Bool = true) {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup,
-                tabGroup.windows.count > 1 else {
+        guard !isOnlyTabInWindow else {
             closeWindowImmediately()
             return
         }
@@ -748,9 +757,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func closeOtherTabsImmediately() {
-        guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
-        guard tabGroup.windows.count > 1 else { return }
+        guard !isOnlyTabInWindow else { return }
 
         // Start an undo grouping
         if let undoManager {
@@ -761,7 +768,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Iterate through all tabs except the current one.
-        for window in tabGroup.windows where window != self.window {
+        for window in groupedTabs where window != self.window {
             // We ignore any non-terminal tabs. They don't currently exist and we can't
             // properly undo them anyways so I'd rather ignore them and get a bug report
             // later if and when we introduce non-terminal tabs.
@@ -798,10 +805,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     private func closeTabsOnTheRightImmediately() {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
-        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+        let tabs = groupedTabs
+        guard let currentIndex = tabs.firstIndex(of: window) else { return }
 
-        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        let tabsToClose = tabs.enumerated().filter { $0.offset > currentIndex }
         guard !tabsToClose.isEmpty else { return }
 
         undoManager?.beginUndoGrouping()
@@ -845,8 +852,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         registerUndoForCloseWindow()
 
-        if let tabGroup = window.tabGroup, tabGroup.windows.count > 1 {
-            tabGroup.windows.forEach { window in
+        if !isOnlyTabInWindow {
+            groupedTabs.forEach { window in
                 // Clear out the surfacetree to ensure there is no undo state.
                 // This prevents unnecessary undos registered since AppKit may
                 // process them on later ticks so we can't just disable undo registration.
@@ -865,12 +872,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// Registers undo for closing window(s), handling both single windows and tab groups.
     private func registerUndoForCloseWindow() {
         guard let undoManager, undoManager.isUndoRegistrationEnabled else { return }
-        guard let window else { return }
 
-        // If we don't have a tab group or we don't have multiple tabs, then
-        // do a normal single window close.
-        guard let tabGroup = window.tabGroup,
-              tabGroup.windows.count > 1 else {
+        // If we don't have multiple tabs, then do a normal single window close.
+        guard !isOnlyTabInWindow else {
             // No tabs, just save this window's state
             if let undoState {
                 // Register undo action to restore the window
@@ -895,7 +899,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Multiple windows in tab group - collect all undo states in sorted order
         // by tab ordering. Also track which window was key.
-        let undoStates = tabGroup.windows
+        let tabs = groupedTabs
+        let undoStates = tabs
             .compactMap { tabWindow -> UndoState? in
                 guard let controller = tabWindow.windowController as? TerminalController,
                       var undoState = controller.undoState else { return nil }
@@ -918,7 +923,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // but we only need this for this style of undo so we don't want to add it to
         // UndoState.
         let keyWindowIndex: Int?
-        if let keyWindow = tabGroup.windows.first(where: { $0.isKeyWindow }),
+        if let keyWindow = tabs.first(where: { $0.isKeyWindow }),
             let keyController = keyWindow.windowController as? TerminalController,
             let keyUndoState = keyController.undoState {
             keyWindowIndex = undoStates.firstIndex {
@@ -1033,15 +1038,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 terminalWindow.tabColor = undoState.tabColor
             }
 
-            // If we have a tab group and index, restore the tab to its original position
-            if let tabGroup = undoState.tabGroup,
-               let tabIndex = undoState.tabIndex {
-                if tabIndex < tabGroup.windows.count {
+            // If we have a tab group and index, restore the tab to its original
+            // position. Any Tab left in the old group answers for all of them.
+            if let tabIndex = undoState.tabIndex,
+               let neighbor = undoState.tabGroup?.windows.first?.windowController as? TerminalController {
+                let tabs = neighbor.groupedTabs
+                if tabIndex < tabs.count {
                     // Find the window that is currently at that index
-                    let currentWindow = tabGroup.windows[tabIndex]
+                    let currentWindow = tabs[tabIndex]
                     currentWindow.addTabbedWindowSafely(window, ordered: .below)
                 } else {
-                    tabGroup.windows.last?.addTabbedWindowSafely(window, ordered: .above)
+                    tabs.last?.addTabbedWindowSafely(window, ordered: .above)
                 }
 
                 // Make it the key window
@@ -1073,7 +1080,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             frame: window.frame,
             surfaceTree: surfaceTree,
             focusedSurface: focusedSurface?.id,
-            tabIndex: window.tabGroup?.windows.firstIndex(of: window),
+            tabIndex: groupedTabs.firstIndex(of: window),
             tabGroup: window.tabGroup,
             tabColor: (window as? TerminalWindow)?.tabColor ?? .none)
     }
@@ -1338,8 +1345,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func closeTab(_ sender: Any?) {
-        guard let window = window else { return }
-        guard window.tabGroup?.windows.count ?? 0 > 1 else {
+        guard !isOnlyTabInWindow else {
             closeWindow(sender)
             return
         }
@@ -1358,14 +1364,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     @IBAction func closeOtherTabs(_ sender: Any?) {
-        guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
-
         // If we only have one window then we have no other tabs to close
-        guard tabGroup.windows.count > 1 else { return }
+        guard !isOnlyTabInWindow else { return }
 
         // Check if we have to confirm close.
-        guard tabGroup.windows.contains(where: { window in
+        guard groupedTabs.contains(where: { window in
             // Ignore ourself
             if window == self.window { return false }
 
@@ -1391,10 +1394,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     @IBAction func closeTabsOnTheRight(_ sender: Any?) {
         guard let window = window else { return }
-        guard let tabGroup = window.tabGroup else { return }
-        guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return }
+        let tabs = groupedTabs
+        guard let currentIndex = tabs.firstIndex(of: window) else { return }
 
-        let tabsToClose = tabGroup.windows.enumerated().filter { $0.offset > currentIndex }
+        let tabsToClose = tabs.enumerated().filter { $0.offset > currentIndex }
         guard !tabsToClose.isEmpty else { return }
 
         let needsConfirm = tabsToClose.contains { (_, candidate) in
@@ -1426,11 +1429,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @IBAction override func closeWindow(_ sender: Any?) {
         guard let window = window else { return }
 
-        // We need to check all the windows in our tab group for confirmation
-        // if we're closing the window. If we don't have a tabgroup for any
-        // reason we check ourselves.
-        let windows: [NSWindow] = window.tabGroup?.windows ?? [window]
-        let confirmControllers = windows
+        // We need to check all the Tabs grouped with this one for confirmation
+        // since closing the window closes all of them.
+        let confirmControllers = groupedTabs
             .compactMap({ $0.windowController as? TerminalController })
             .filter({ $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })
         guard
@@ -1544,7 +1545,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let windowController = window.windowController else { return }
         guard let tabGroup = windowController.window?.tabGroup else { return }
         guard let selectedWindow = tabGroup.selectedWindow else { return }
-        let tabbedWindows = tabGroup.windows
+        let tabbedWindows = groupedTabs
         guard tabbedWindows.count > 0 else { return }
         guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
 
@@ -1606,7 +1607,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         guard let windowController = window.windowController else { return }
         guard let tabGroup = windowController.window?.tabGroup else { return }
-        let tabbedWindows = tabGroup.windows
+        let tabbedWindows = groupedTabs
 
         // This will be the index we want to actual go to
         let finalIndex: Int
@@ -1727,9 +1728,10 @@ extension TerminalController {
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(closeTabsOnTheRight):
-            guard let window, let tabGroup = window.tabGroup else { return false }
-            guard let currentIndex = tabGroup.windows.firstIndex(of: window) else { return false }
-            return tabGroup.windows.indices.contains { $0 > currentIndex }
+            guard let window else { return false }
+            let tabs = groupedTabs
+            guard let currentIndex = tabs.firstIndex(of: window) else { return false }
+            return tabs.indices.contains { $0 > currentIndex }
 
         case #selector(returnToDefaultSize):
             guard let window else { return false }
