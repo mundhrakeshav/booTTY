@@ -82,6 +82,12 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuMoveSplitDividerLeft: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerRight: NSMenuItem?
 
+    @IBOutlet private var menuNewWorkspace: NSMenuItem?
+    @IBOutlet private var menuPreviousWorkspace: NSMenuItem?
+    @IBOutlet private var menuNextWorkspace: NSMenuItem?
+    /// The Workspace menu's list of Workspaces follows this separator.
+    @IBOutlet private var menuWorkspaceListSeparator: NSMenuItem?
+
     /// The dock menu
     private var dockMenu: NSMenu = NSMenu()
 
@@ -1233,6 +1239,10 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
         syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
 
+        syncMenuShortcut(config, action: "new_workspace", menuItem: self.menuNewWorkspace)
+        syncMenuShortcut(config, action: "previous_workspace", menuItem: self.menuPreviousWorkspace)
+        syncMenuShortcut(config, action: "next_workspace", menuItem: self.menuNextWorkspace)
+
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 
         // This menu item is NOT synced with the configuration because it disables macOS
@@ -1251,6 +1261,26 @@ extension AppDelegate {
 
     @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
         menuShortcutManager.performGhosttyBindingMenuKeyEquivalent(with: event)
+    }
+}
+
+// MARK: Workspace menu
+
+extension AppDelegate: NSMenuDelegate {
+    /// Refills the Workspace menu's list from the key Window as the menu opens (SPEC §7.3).
+    /// Windows that can't hold Tabs, the Quick Terminal among them, list nothing.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let separator = menuWorkspaceListSeparator, separator.menu === menu else { return }
+
+        let start = menu.index(of: separator) + 1
+        while menu.numberOfItems > start { menu.removeItem(at: start) }
+
+        let tab = NSApp.keyWindow?.windowController as? TerminalController
+        let rows = tab.flatMap {
+            $0.workspacesUnavailableAlert == nil ? $0.workspaceStore.menuItems(config: ghostty.config) : nil
+        } ?? []
+        rows.forEach(menu.addItem)
+        separator.isHidden = rows.isEmpty
     }
 }
 
