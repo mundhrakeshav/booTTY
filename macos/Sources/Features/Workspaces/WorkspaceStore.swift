@@ -59,6 +59,10 @@ final class WorkspaceStore: ObservableObject {
     /// non-native fullscreen, which has left the group but is still shown (SPEC §3).
     private var knownShownTabs: [Weak<TerminalController>] = []
 
+    /// The shown Tabs' frame as last seen. A re-formed group takes it, since by the time the
+    /// store notices its group emptied, the Tab that left has taken another Window's frame.
+    private var shownFrame: NSRect?
+
     /// Set while the store changes the group itself, so the Window's own callbacks (the
     /// incoming Tab becoming key) don't reconcile a half-done switch.
     private var isChanging = false
@@ -244,6 +248,12 @@ final class WorkspaceStore: ObservableObject {
         invalidateRestorableState()
     }
 
+    /// Remembers the shown Tabs' frame, which a re-formed group takes (SPEC §2.3). The Tabs
+    /// call this whenever their frame changes.
+    func recordShownFrame() {
+        if let frame = tabGroup?.selectedWindow?.frame { shownFrame = frame }
+    }
+
     // MARK: Switching
 
     /// The one switch path (SPEC §2.3): shows Workspace `id`. Returns false, with the old
@@ -356,6 +366,75 @@ final class WorkspaceStore: ObservableObject {
         return old.filter { window in perform(.orderOut) { window.orderOut(nil) } }
     }
 
+    /// The AppKit steps of re-forming an emptied group, each run through `perform`, with
+    /// animation off: `remembered` takes `frame` and comes on screen just below `joined`
+    /// without taking key, then the rest of `windows`, still ordered out, join its group in
+    /// their order. Returns that group and the windows that failed to join, or nil if
+    /// `remembered` couldn't come on screen.
+    static func reform(
+        _ windows: [NSWindow],
+        around remembered: NSWindow,
+        frame: NSRect?,
+        below joined: NSWindow,
+        perform: (SwapStep, () -> Void) -> Bool = performSafely
+    ) -> (group: NSWindowTabGroup, failed: [NSWindow])? {
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        defer { NSAnimationContext.endGrouping() }
+
+        if let frame { remembered.setFrame(frame, display: false) }
+
+        // Under "Prefer tabs: Always", AppKit would tab it into the key Window instead.
+        let tabbingMode = remembered.tabbingMode
+        remembered.tabbingMode = .disallowed
+        let ordered = perform(.select) { remembered.order(.below, relativeTo: joined.windowNumber) }
+        remembered.tabbingMode = tabbingMode
+        guard ordered, let group = remembered.tabGroup else { return nil }
+
+        var placed = 0
+        var failed: [NSWindow] = []
+        for window in windows {
+            if window === remembered || perform(.add, { group.insertWindow(window, at: placed) }) {
+                placed += 1
+            } else {
+                failed.append(window)
+            }
+        }
+        return (group, failed)
+    }
+
+    /// Shows Workspace `id` after the shown Workspace's last Tab left for another Window and
+    /// emptied the group (SPEC §2.3). The shown Workspace ends. `joined` is the Tab that left;
+    /// its Window keeps key. Every Tab keeps this store, but the new group gives AppleScript
+    /// a new `window id` (§18.2).
+    private func reform(showing id: Workspace.ID, below joined: NSWindow) {
+        guard let target = workspaces.firstIndex(where: { $0.id == id }),
+              let remembered = (workspaces[target].rememberedTab ?? workspaces[target].hiddenTabs.first)?.window,
+              let reformed = Self.reform(
+                  workspaces[target].hiddenTabs.compactMap(\.window),
+                  around: remembered,
+                  frame: shownFrame,
+                  below: joined.tabGroup?.selectedWindow ?? joined)
+        else { return }
+
+        let ended = shownID
+        workspaces[target].hiddenTabs = []
+        workspaces[target].rememberedTab = nil
+        shownID = id
+        workspaces.removeAll { $0.id == ended }
+
+        // A Tab that failed to join stays hidden in a Workspace of its own, so it isn't lost.
+        let failed = reformed.failed.compactMap { $0.windowController as? TerminalController }
+        if !failed.isEmpty { _ = addWorkspace(holding: failed) }
+
+        bind(reformed.group)
+        knownShownTabs = Self.tabs(in: reformed.group).map { Weak($0) }
+
+        let tab = remembered.windowController as? TerminalController
+        if let surface = tab?.focusedSurface { Ghostty.moveFocus(to: surface) }
+        tab?.relabelTabs()
+    }
+
     /// Runs one AppKit step under an Objective-C exception catcher and logs what threw.
     nonisolated static func performSafely(_ step: SwapStep, _ block: () -> Void) -> Bool {
         var error: NSError?
@@ -377,6 +456,9 @@ final class WorkspaceStore: ObservableObject {
     /// and gets a new store. Entering or leaving non-native fullscreen is neither: the
     /// fullscreen Tab stays shown and keeps its store, whichever group it lands in.
     ///
+    /// When the shown Workspace's last Tab left for another Window, the Workspace ends and
+    /// the Window re-forms around its neighbor (SPEC §11.5); with no neighbor it's gone.
+    ///
     /// Commands call this before touching the group, and so do KVO on the group and the
     /// Window becoming key.
     func reconcile() {
@@ -386,6 +468,7 @@ final class WorkspaceStore: ObservableObject {
 
         let group = currentGroup()
         if let group, group !== tabGroup { bind(group) }
+        recordShownFrame()
 
         let grouped = group.map(Self.tabs(in:)) ?? []
         var changed = false
@@ -395,14 +478,22 @@ final class WorkspaceStore: ObservableObject {
         }
 
         var shown = grouped
+        var joined: NSWindow? // a Tab that left for another Window
         for tab in knownShownTabs.compactMap(\.value) where !grouped.contains(where: { $0 === tab }) {
-            // Hidden by a switch, adopted by another Window already, or closed.
-            guard tab.workspaceStore === self, !isHidden(tab), let window = tab.window else { continue }
+            // Hidden by a switch.
+            guard !isHidden(tab), let window = tab.window else { continue }
+
+            // Adopted by another Window already.
+            guard tab.workspaceStore === self else {
+                joined = window
+                continue
+            }
+
             if tab.isInNonNativeFullscreen {
                 shown.append(tab)
                 continue
             }
-            guard window.isVisible else { continue }
+            guard window.isVisible else { continue } // closed
 
             changed = true
             let others = (window.tabGroup.map(Self.tabs(in:)) ?? []).filter { $0 !== tab }
@@ -410,6 +501,7 @@ final class WorkspaceStore: ObservableObject {
             if let other = others.first {
                 owner = others.first { $0.workspaceStore.tabGroup === window.tabGroup }?.workspaceStore
                     ?? other.workspaceStore
+                joined = window
             } else {
                 owner = WorkspaceStore(tab: tab)
             }
@@ -419,6 +511,12 @@ final class WorkspaceStore: ObservableObject {
         }
 
         knownShownTabs = shown.map { Weak($0) }
+
+        if shown.isEmpty, let joined, let neighbor = neighborID {
+            reform(showing: neighbor, below: joined)
+            changed = true
+        }
+
         if changed { invalidateRestorableState() }
     }
 
