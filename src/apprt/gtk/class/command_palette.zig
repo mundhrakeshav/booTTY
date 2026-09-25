@@ -216,6 +216,10 @@ pub const CommandPalette = extern struct {
             .undo,
             .reset_window_size,
             .toggle_window_float_on_top,
+            .new_workspace,
+            .previous_workspace,
+            .next_workspace,
+            .goto_workspace,
             => false,
 
             else => true,

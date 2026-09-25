@@ -453,6 +453,12 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Toggle the tab overview."),
         }},
 
+        .new_workspace => comptime &.{.{
+            .action = .new_workspace,
+            .title = i18n.N_("New Workspace"),
+            .description = i18n.N_("Open a new Workspace in this window."),
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),
@@ -728,6 +734,7 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .goto_workspace,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,
@@ -745,6 +752,8 @@ fn actionCommands(action: Action.Key) []const Command {
         .previous_tab,
         .next_tab,
         .last_tab,
+        .previous_workspace,
+        .next_workspace,
         => comptime &.{},
 
         // No commands for obvious reasons

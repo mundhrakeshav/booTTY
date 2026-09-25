@@ -783,6 +783,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_SET_USER_VAR:
                 setUserVar(app, target: target, v: action.action.set_user_var)
 
+            case GHOSTTY_ACTION_WORKSPACE:
+                return workspace(app, target: target, v: action.action.workspace)
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
@@ -1342,6 +1345,52 @@ extension Ghostty {
                 }
 
                 return true
+        }
+
+        private static func workspace(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            v: ghostty_action_workspace_s) -> Bool {
+                switch target.tag {
+                case GHOSTTY_TARGET_APP:
+                    Ghostty.logger.warning("workspace does nothing with an app target")
+                    return false
+
+                case GHOSTTY_TARGET_SURFACE:
+                    guard let surface = target.target.surface,
+                          let surfaceView = self.surfaceView(from: surface),
+                          let controller = BaseTerminalController.controller(owning: surfaceView) as? TerminalController
+                    else { return false }
+
+                    // Actions arrive on the main thread.
+                    return MainActor.assumeIsolated {
+                        let store = controller.workspaceStore
+                        switch v.op {
+                        case GHOSTTY_ACTION_WORKSPACE_GOTO:
+                            return store.show(.number(v.n))
+
+                        case GHOSTTY_ACTION_WORKSPACE_PREVIOUS:
+                            return store.show(.previous)
+
+                        case GHOSTTY_ACTION_WORKSPACE_NEXT:
+                            return store.show(.next)
+
+                        case GHOSTTY_ACTION_WORKSPACE_NEW:
+                            // A new Workspace's first Tab counts as a new window, so it follows
+                            // window-inherit-working-directory from the Tab just left (SPEC §1.5).
+                            let config = SurfaceConfiguration(
+                                from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
+                            return store.newWorkspace(from: controller, withBaseConfig: config)
+
+                        default:
+                            return false
+                        }
+                    }
+
+                default:
+                    assertionFailure()
+                    return false
+                }
         }
 
         private static func gotoSplit(

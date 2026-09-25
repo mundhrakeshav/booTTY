@@ -810,6 +810,7 @@ pub const Application = extern struct {
             .undo,
             .redo,
             .set_user_var,
+            .workspace,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;

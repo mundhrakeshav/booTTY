@@ -650,6 +650,20 @@ typedef struct {
   ssize_t amount;
 } ghostty_action_move_tab_s;
 
+// apprt.action.Workspace.Op
+typedef enum {
+  GHOSTTY_ACTION_WORKSPACE_GOTO,  // n: 1-based index
+  GHOSTTY_ACTION_WORKSPACE_PREVIOUS,
+  GHOSTTY_ACTION_WORKSPACE_NEXT,
+  GHOSTTY_ACTION_WORKSPACE_NEW,
+} ghostty_action_workspace_op_e;
+
+// apprt.action.Workspace
+typedef struct {
+  ghostty_action_workspace_op_e op;
+  ssize_t n;
+} ghostty_action_workspace_s;
+
 // apprt.action.GotoTab
 typedef enum {
   GHOSTTY_GOTO_TAB_PREVIOUS = -1,
@@ -1017,6 +1031,7 @@ typedef enum {
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
   GHOSTTY_ACTION_SET_USER_VAR,
+  GHOSTTY_ACTION_WORKSPACE,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -1061,6 +1076,7 @@ typedef union {
   ghostty_action_readonly_e readonly;
   ghostty_action_open_config_e open_config;
   ghostty_action_set_user_var_s set_user_var;
+  ghostty_action_workspace_s workspace;
 } ghostty_action_u;
 
 typedef struct {

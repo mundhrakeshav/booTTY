@@ -76,6 +76,12 @@ class BaseTerminalController: NSWindowController,
     /// Fullscreen state management.
     private(set) var fullscreenStyle: FullscreenStyle?
 
+    /// Non-native fullscreen strips `.titled`, which takes the window out of its tab group.
+    var isInNonNativeFullscreen: Bool {
+        guard let fullscreenStyle else { return false }
+        return fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs
+    }
+
     /// Event monitor (see individual events for why)
     private var eventMonitor: Any?
 
