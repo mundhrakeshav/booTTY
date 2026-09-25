@@ -100,6 +100,12 @@ final class VerticalTabBarModel: ObservableObject {
         let statusDate: Date
     }
 
+    /// The bar as it looks with a Workspace shown: its name header and its Tabs (SPEC §6.3).
+    struct Page: Equatable {
+        let workspace: Workspace
+        let tabs: [Tab]
+    }
+
     @Published private(set) var tabs: [Tab] = []
 
     /// The Window's Workspaces in bar order. Empty when the Window can't hold them
@@ -111,6 +117,14 @@ final class VerticalTabBarModel: ObservableObject {
 
     /// The Workspace whose name the header is editing.
     @Published private(set) var renamingWorkspace: Workspace.ID?
+
+    /// The swipe's progress from the shown Workspace (`WorkspaceStore.SwipeProgress`), and
+    /// the page it brings in beside the shown one: nil at rest and past an end.
+    @Published private(set) var swipeAmount: CGFloat = 0
+    @Published private(set) var neighborPage: Page?
+
+    /// Follows `WorkspaceStore.swipeCancels`, so the dots morph back on a cancel.
+    @Published private(set) var swipeCancels = 0
 
     /// The bar takes the terminal's background and title font so it blends into
     /// the window. The owning window sets these when its appearance changes.
@@ -200,19 +214,7 @@ final class VerticalTabBarModel: ObservableObject {
         tabWindows = Dictionary(
             windows.map { (ObjectIdentifier($0), Weak($0)) },
             uniquingKeysWith: { first, _ in first })
-        let tabs = windows.enumerated().map { index, tabWindow in
-            let terminalWindow = tabWindow as? TerminalWindow
-            return Tab(
-                id: ObjectIdentifier(tabWindow),
-                title: tabWindow.title,
-                color: terminalWindow?.tabColor ?? .none,
-                status: terminalWindow?.agentStatus,
-                statusDate: terminalWindow?.agentStatusDate ?? .distantPast,
-                shortcut: index < 9
-                    ? config?.keyboardShortcut(for: "goto_tab:\(index + 1)")?.description
-                    : nil,
-                isSelected: tabWindow === selected)
-        }
+        let tabs = Self.tabs(windows, selected: selected, config: config)
         if tabs != self.tabs { self.tabs = tabs }
 
         // Every Tab's bar follows the Window's store, so a switch also redraws the bar of
@@ -229,6 +231,41 @@ final class VerticalTabBarModel: ObservableObject {
             }
         } ?? []
         if workspaces != self.workspaces { self.workspaces = workspaces }
+
+        // The neighbor is hidden, so its page draws its held Tabs, with the one it
+        // remembers selected.
+        let progress = store?.swipeProgress ?? WorkspaceStore.SwipeProgress()
+        var neighborPage: Page?
+        if let neighbor = store?.workspaces.first(where: { $0.id == progress.neighbor }),
+           let workspace = workspaces.first(where: { $0.id == neighbor.id }) {
+            neighborPage = Page(
+                workspace: workspace,
+                tabs: Self.tabs(
+                    neighbor.hiddenTabs.compactMap(\.window),
+                    selected: neighbor.rememberedTab?.window,
+                    config: config))
+        }
+        if progress.amount != swipeAmount { swipeAmount = progress.amount }
+        if neighborPage != self.neighborPage { self.neighborPage = neighborPage }
+        let cancels = store?.swipeCancels ?? 0
+        if cancels != swipeCancels { swipeCancels = cancels }
+    }
+
+    /// The bar's rows for `windows`, the Tabs of one Workspace in order.
+    private static func tabs(_ windows: [NSWindow], selected: NSWindow?, config: Ghostty.Config?) -> [Tab] {
+        windows.enumerated().map { index, tabWindow in
+            let terminalWindow = tabWindow as? TerminalWindow
+            return Tab(
+                id: ObjectIdentifier(tabWindow),
+                title: tabWindow.title,
+                color: terminalWindow?.tabColor ?? .none,
+                status: terminalWindow?.agentStatus,
+                statusDate: terminalWindow?.agentStatusDate ?? .distantPast,
+                shortcut: index < 9
+                    ? config?.keyboardShortcut(for: "goto_tab:\(index + 1)")?.description
+                    : nil,
+                isSelected: tabWindow === selected)
+        }
     }
 
     private func observe(_ tabGroup: NSWindowTabGroup?) {
@@ -445,6 +482,47 @@ final class VerticalTabBarModel: ObservableObject {
         return rows
     }
 
+    /// Where a page sits mid-swipe (SPEC §6.3, §6.4): an x offset in bar widths, and an
+    /// opacity. The shown page moves by the swipe's amount, stretching past an end, and the
+    /// neighbor's comes in beside it. Under Reduce Motion the pages stay in place and
+    /// crossfade, and nothing changes past an end.
+    static func pagePlacement(
+        amount: CGFloat,
+        isNeighbor: Bool,
+        hasNeighbor: Bool,
+        reduceMotion: Bool
+    ) -> (offset: CGFloat, opacity: Double) {
+        let t = Double(min(abs(amount), 1))
+        if reduceMotion {
+            guard hasNeighbor else { return (0, 1) }
+            return (0, isNeighbor ? t : 1 - t)
+        }
+        guard isNeighbor else { return (amount, 1) }
+        return (amount < 0 ? amount + 1 : amount - 1, 1)
+    }
+
+    /// How much of the capsule Workspace `id`'s mark holds (SPEC §6.5). Mid-swipe the shown
+    /// mark hands the neighbor's the swipe's share. A rubber band, and Reduce Motion, leave
+    /// it whole on the shown mark until the switch.
+    static func capsuleShare(
+        of id: Workspace.ID,
+        shown: Workspace.ID?,
+        neighbor: Workspace.ID?,
+        amount: CGFloat,
+        reduceMotion: Bool
+    ) -> CGFloat {
+        let t = neighbor == nil || reduceMotion ? 0 : min(abs(amount), 1)
+        if id == shown { return 1 - t }
+        return id == neighbor ? t : 0
+    }
+
+    /// A mark holding `share` of the capsule (SPEC §6.5): its long side, from the 6 pt dot
+    /// to the 12 pt capsule, and its status ring's opacity, which fades as it becomes the
+    /// capsule.
+    static func mark(share: CGFloat) -> (length: CGFloat, ringOpacity: Double) {
+        (6 + 6 * share, Double(1 - share))
+    }
+
     // MARK: Renaming
 
     /// Starts renaming `target` inline. Fails if the bar can't show an editor for it.
@@ -632,17 +710,56 @@ private struct VerticalTabBar: View {
     @GestureState private var dragOffset: CGFloat?
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedTab: VerticalTabBarModel.Tab.ID? {
         model.tabs.first(where: \.isSelected)?.id
     }
 
-    /// The shown Workspace's name (SPEC §5.2), which the collapsed bar leaves out.
+    /// The shown Workspace's name (SPEC §5.2), which the collapsed bar leaves out. Mid-swipe
+    /// the neighbor's name comes in beside it, as part of its page.
     @ViewBuilder
     private var header: some View {
         if !settings.isCollapsed, let workspace = model.workspaces.first(where: \.isShown) {
-            WorkspaceHeader(model: model, workspace: workspace, edge: edge)
+            ZStack {
+                swipePage(WorkspaceHeader(model: model, workspace: workspace, edge: edge), isNeighbor: false)
+                if let neighbor = model.neighborPage {
+                    swipePage(
+                        WorkspaceHeader(model: model, workspace: neighbor.workspace, edge: edge),
+                        isNeighbor: true)
+                }
+            }
+            .clipped()
         }
+    }
+
+    /// The Tab rows down to "New Tab": the lower part of a page.
+    private func tabList(_ tabs: [VerticalTabBarModel.Tab]) -> some View {
+        VStack(spacing: 2) {
+            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                VerticalTabRow(model: model, settings: settings, tab: tab, index: index)
+                    .id(tab.id)
+            }
+
+            NewTabRow(model: model, collapsed: settings.isCollapsed)
+        }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 8)
+    }
+
+    /// Places part of a page mid-swipe (SPEC §6.3, §6.4). The neighbor's page is only
+    /// drawn: it takes no clicks and VoiceOver skips it.
+    private func swipePage(_ page: some View, isNeighbor: Bool) -> some View {
+        let placement = VerticalTabBarModel.pagePlacement(
+            amount: model.swipeAmount,
+            isNeighbor: isNeighbor,
+            hasNeighbor: model.neighborPage != nil,
+            reduceMotion: reduceMotion)
+        return page
+            .offset(x: placement.offset * width)
+            .opacity(placement.opacity)
+            .allowsHitTesting(!isNeighbor)
+            .accessibilityHidden(isNeighbor)
     }
 
     var body: some View {
@@ -671,21 +788,19 @@ private struct VerticalTabBar: View {
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 2) {
-                        ForEach(Array(model.tabs.enumerated()), id: \.element.id) { index, tab in
-                            VerticalTabRow(model: model, settings: settings, tab: tab, index: index)
-                                .id(tab.id)
-                        }
-
-                        NewTabRow(model: model, collapsed: settings.isCollapsed)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 8)
+                    swipePage(tabList(model.tabs), isNeighbor: false)
                 }
                 .onChange(of: selectedTab) { id in
                     if let id { proxy.scrollTo(id) }
                 }
             }
+            // The neighbor's page comes in from its top, however far the list is scrolled.
+            .overlay(alignment: .top) {
+                if let neighbor = model.neighborPage {
+                    swipePage(tabList(neighbor.tabs).fixedSize(horizontal: false, vertical: true), isNeighbor: true)
+                }
+            }
+            .clipped()
 
             // Pinned below the list, which scrolls to make room.
             if !model.workspaces.isEmpty {
@@ -980,15 +1095,24 @@ private struct WorkspaceDots: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Workspaces")
-        // Every switch morphs the capsule from the old mark to the new (SPEC §6.5).
+        // Every switch morphs the capsule from the old mark to the new (SPEC §6.5), and so
+        // does a cancelled swipe, from wherever the marks stand back to the shown mark.
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.workspaces.first(where: \.isShown)?.id)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.swipeCancels)
     }
 
     private func dot(_ index: Int) -> some View {
-        WorkspaceDot(
+        let workspace = model.workspaces[index]
+        return WorkspaceDot(
             model: model,
-            workspace: model.workspaces[index],
+            workspace: workspace,
             index: index,
+            share: VerticalTabBarModel.capsuleShare(
+                of: workspace.id,
+                shown: model.workspaces.first(where: \.isShown)?.id,
+                neighbor: model.neighborPage?.workspace.id,
+                amount: model.swipeAmount,
+                reduceMotion: reduceMotion),
             settings: settings,
             hovered: $hovered)
     }
@@ -1038,11 +1162,13 @@ private struct WorkspaceDots: View {
 }
 
 /// One Workspace's mark: a 6 pt dot, or the 12×6 capsule (upright when collapsed) for
-/// the shown Workspace. One shape for both, so a switch morphs it in place.
+/// the shown Workspace. One shape for both, so a switch or a swipe morphs it in place.
 private struct WorkspaceDot: View {
     @ObservedObject var model: VerticalTabBarModel
     let workspace: VerticalTabBarModel.Workspace
     let index: Int
+    /// How much of the capsule this mark holds (`VerticalTabBarModel.capsuleShare`).
+    let share: CGFloat
     @ObservedObject var settings: TabBarSettings
     @Binding var hovered: VerticalTabBarModel.Workspace.ID?
 
@@ -1051,24 +1177,23 @@ private struct WorkspaceDot: View {
     @State private var isDropTarget = false
 
     var body: some View {
-        let long: CGFloat = workspace.isShown ? 12 : 6
+        let mark = VerticalTabBarModel.mark(share: share)
         let fill = workspace.color.displayColor.map { Color(nsColor: $0) } ?? .primary
 
-        // The capsule fades to nothing as it shrinks, and the hidden dot's StatusDot
-        // shows in its place, so a switch still morphs the mark.
+        // The capsule fades to nothing as it shrinks, and the dimmed StatusDot with its
+        // ring shows in its place, so the mark morphs by its share.
         Capsule()
-            .fill(fill.opacity(workspace.isShown ? 1 : 0))
-            .frame(width: collapsed ? 6 : long, height: collapsed ? long : 6)
+            .fill(fill.opacity(share))
+            .frame(width: collapsed ? 6 : mark.length, height: collapsed ? mark.length : 6)
             .overlay {
-                if !workspace.isShown {
-                    StatusDot(
-                        color: workspace.color,
-                        status: workspace.status,
-                        since: workspace.statusDate,
-                        dotSize: 6,
-                        echoScale: 1.5,
-                        dimming: hovered == workspace.id ? 0.8 : 0.35)
-                }
+                StatusDot(
+                    color: workspace.color,
+                    status: workspace.status,
+                    since: workspace.statusDate,
+                    dotSize: 6,
+                    echoScale: 1.5,
+                    dimming: hovered == workspace.id ? 0.8 : 0.35)
+                    .opacity(mark.ringOpacity)
             }
             .frame(width: collapsed ? 32 : 14, height: collapsed ? 14 : 22)
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous)

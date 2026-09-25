@@ -609,6 +609,49 @@ struct WorkspaceStoreTests {
         #expect(momentum(store) == [.drop, .drop, .drop])
     }
 
+    @Test func swipeProgressFollowsTheFingersAndRestsWhenAppKitSettles() {
+        let store = store(["a", "b", "c"], shown: 1)
+        let ids = store.workspaces.map(\.id)
+        let swipe = store.claimSwipe()
+
+        #expect(store.stepSwipe(swipe, amount: -0.3, phase: .changed))
+        #expect(store.swipeProgress == .init(amount: -0.3, neighbor: ids[2]))
+        #expect(store.stepSwipe(swipe, amount: 0.2, phase: .changed))
+        #expect(store.swipeProgress == .init(amount: 0.2, neighbor: ids[0]))
+        // Too short to finish: AppKit springs it back, then says it's complete.
+        #expect(store.stepSwipe(swipe, amount: 0.05, phase: .cancelled))
+        #expect(store.stepSwipe(swipe, amount: 0.01, phase: [], isComplete: true))
+        #expect(store.swipeProgress == .init())
+        #expect(store.swipeCancels == 0)
+    }
+
+    @Test func rubberBandHasNoNeighbor() {
+        let store = store(["a"])
+        let swipe = store.claimSwipe()
+        #expect(store.stepSwipe(swipe, amount: -0.08, phase: .changed))
+        #expect(store.swipeProgress == .init(amount: -0.08, neighbor: nil))
+    }
+
+    @Test func newSwipeStartsFromRest() {
+        let store = store(["a", "b"])
+        let older = store.claimSwipe()
+        _ = store.stepSwipe(older, amount: -0.6, phase: .changed)
+        _ = store.claimSwipe()
+        #expect(store.swipeProgress == .init())
+    }
+
+    @Test func cancelledSwipeRestsAtOnceAndSaysSo() {
+        let store = store(["a", "b"])
+        let claimed = store.claimSwipe()
+        #expect(store.stepSwipe(claimed, amount: -0.4, phase: .changed))
+
+        // Its target ends mid-swipe.
+        let swipe = WorkspaceStore.Swipe(generation: claimed.generation, previous: nil, next: UUID())
+        #expect(!store.stepSwipe(swipe, amount: -0.5, phase: .changed))
+        #expect(store.swipeProgress == .init())
+        #expect(store.swipeCancels == 1)
+    }
+
     // MARK: Moving Tabs
 
     @Test func detachingTheSelectedTabSelectsItsNeighborFirst() throws {
