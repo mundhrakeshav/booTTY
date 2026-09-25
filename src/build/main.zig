@@ -2,14 +2,12 @@
 //! and spaghetti, so this package extracts the build logic into smaller,
 //! more manageable pieces.
 
-pub const gtk = @import("gtk.zig");
 pub const Config = @import("Config.zig");
 pub const GitVersion = @import("GitVersion.zig");
 
 // Artifacts
 pub const GhosttyBench = @import("GhosttyBench.zig");
 pub const GhosttyDocs = @import("GhosttyDocs.zig");
-pub const GhosttyExe = @import("GhosttyExe.zig");
 pub const GhosttyFrameData = @import("GhosttyFrameData.zig");
 pub const GhosttyLib = @import("GhosttyLib.zig");
 pub const GhosttyLibVt = @import("GhosttyLibVt.zig");

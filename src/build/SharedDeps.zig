@@ -8,8 +8,6 @@ const HelpStrings = @import("HelpStrings.zig");
 const MetallibStep = @import("MetallibStep.zig");
 const UnicodeTables = @import("UnicodeTables.zig");
 const GhosttyFrameData = @import("GhosttyFrameData.zig");
-const DistResource = @import("GhosttyDist.zig").Resource;
-const gtk_helpers = @import("gtk.zig");
 const translate_c = @import("translate_c");
 
 config: *const Config,
@@ -481,9 +479,6 @@ pub fn add(
         else
             &.{},
     });
-    if (step.rootModuleTarget().os.tag == .linux) {
-        step.root_module.addIncludePath(b.path("src/apprt/gtk"));
-    }
 
     // libcpp is required for various dependencies. On MSVC, we must
     // not use linkLibCpp because Zig unconditionally passes -nostdinc++
@@ -662,15 +657,6 @@ pub fn add(
             .flags = &.{},
         });
 
-        // Link EGL for GTK.
-        if (self.config.app_runtime == .gtk) {
-            step.root_module.addCSourceFile(.{
-                .file = b.path("vendor/glad/src/glad_egl.c"),
-                .flags = &.{},
-            });
-            step.root_module.linkSystemLibrary("egl", dynamic_link_opts);
-        }
-
         // When we're targeting flatpak we ALWAYS link GTK so we
         // get access to glib for dbus.
         if (self.config.flatpak) {
@@ -690,7 +676,7 @@ pub fn add(
 
         switch (self.config.app_runtime) {
             .none => {},
-            .gtk => try self.addGtkNg(step),
+            .gtk => @panic("GTK was cut from booTTY"),
         }
     }
 
@@ -699,185 +685,6 @@ pub fn add(
     self.framedata.addImport(step);
 
     return static_libs;
-}
-
-/// Setup the dependencies for the GTK apprt build.
-fn addGtkNg(
-    self: *const SharedDeps,
-    step: *std.Build.Step.Compile,
-) !void {
-    const b = step.step.owner;
-    const target = step.root_module.resolved_target.?;
-    const optimize = step.root_module.optimize.?;
-
-    const gobject_ = b.lazyDependency("gobject", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    if (gobject_) |gobject| {
-        const gobject_imports = .{
-            .{ "adw", "adw1" },
-            .{ "gdk", "gdk4" },
-            .{ "gio", "gio2" },
-            .{ "glib", "glib2" },
-            .{ "glibunix", "glibunix2" },
-            .{ "gobject", "gobject2" },
-            .{ "gtk", "gtk4" },
-            .{ "xlib", "xlib2" },
-        };
-        inline for (gobject_imports) |import| {
-            const name, const module = import;
-            step.root_module.addImport(name, gobject.module(module));
-        }
-    }
-
-    // GTK C translation
-    try translate_c.addImportToModule(b, "gtk_c", step.root_module, .{
-        .source = .{ .includes = .{ .files = &.{.{ .path = "gtk/gtk.h" }} } },
-        .target = target,
-        .optimize = optimize,
-        .link_system_libs = &.{"gtk4"},
-    });
-
-    // Adwaita C translation
-    try translate_c.addImportToModule(b, "adw_c", step.root_module, .{
-        .source = .{ .includes = .{ .files = &.{.{ .path = "adwaita.h" }} } },
-        .target = target,
-        .optimize = optimize,
-        .link_system_libs = &.{"libadwaita-1"},
-    });
-
-    if (self.config.x11) {
-        // X11 headers
-        try translate_c.addImportToModule(b, "x11_c", step.root_module, .{
-            .source = .{ .includes = .{ .files = &.{
-                .{ .path = "X11/Xlib.h" },
-                .{ .path = "X11/Xatom.h" },
-                .{ .path = "X11/XKBlib.h" },
-            } } },
-            .target = target,
-            .optimize = optimize,
-            .link_system_libs = &.{"X11"},
-        });
-
-        if (gobject_) |gobject| {
-            step.root_module.addImport(
-                "gdk_x11",
-                gobject.module("gdkx114"),
-            );
-        }
-    }
-
-    if (self.config.wayland) wayland: {
-        // These need to be all be called to note that we need them.
-        const wayland_dep_ = b.lazyDependency("wayland", .{});
-        const wayland_protocols_dep_ = b.lazyDependency(
-            "wayland_protocols",
-            .{},
-        );
-        const plasma_wayland_protocols_dep_ = b.lazyDependency(
-            "plasma_wayland_protocols",
-            .{},
-        );
-        const zig_wayland_import_ = b.lazyImport(
-            @import("../../build.zig"),
-            "zig_wayland",
-        );
-        const zig_wayland_dep_ = b.lazyDependency("zig_wayland", .{});
-
-        // Unwrap or return, there are no more dependencies below.
-        const wayland_dep = wayland_dep_ orelse break :wayland;
-        const wayland_protocols_dep = wayland_protocols_dep_ orelse break :wayland;
-        const plasma_wayland_protocols_dep = plasma_wayland_protocols_dep_ orelse break :wayland;
-        const zig_wayland_import = zig_wayland_import_ orelse break :wayland;
-        const zig_wayland_dep = zig_wayland_dep_ orelse break :wayland;
-
-        const Scanner = zig_wayland_import.Scanner;
-        const scanner = Scanner.create(zig_wayland_dep.builder, .{
-            .wayland_xml = wayland_dep.path("protocol/wayland.xml"),
-            .wayland_protocols = wayland_protocols_dep.path(""),
-        });
-
-        // FIXME: replace with `zxdg_decoration_v1` once GTK merges https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/6398
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/server-decoration.xml"),
-        );
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/slide.xml"),
-        );
-        scanner.addCustomProtocol(
-            plasma_wayland_protocols_dep.path("src/protocols/kde-output-order-v1.xml"),
-        );
-        scanner.addSystemProtocol("staging/xdg-activation/xdg-activation-v1.xml");
-        scanner.addSystemProtocol("staging/ext-background-effect/ext-background-effect-v1.xml");
-        scanner.addCustomProtocol(
-            b.path("src/apprt/gtk/winproto/wayland/protocols/vicinae-hotkey-v1.xml"),
-        );
-
-        scanner.generate("wl_compositor", 1);
-        // Only referenced by vicinae_hotkey_manager_v1.bind (nullable arg).
-        scanner.generate("wl_seat", 1);
-        scanner.generate("org_kde_kwin_server_decoration_manager", 1);
-        scanner.generate("org_kde_kwin_slide_manager", 1);
-        scanner.generate("kde_output_order_v1", 1);
-        scanner.generate("xdg_activation_v1", 1);
-        scanner.generate("ext_background_effect_manager_v1", 1);
-        scanner.generate("vicinae_hotkey_manager_v1", 1);
-
-        step.root_module.addImport("wayland", b.createModule(.{
-            .root_source_file = scanner.result,
-        }));
-        if (gobject_) |gobject| step.root_module.addImport(
-            "gdk_wayland",
-            gobject.module("gdkwayland4"),
-        );
-
-        if (b.lazyDependency("gtk4_layer_shell", .{
-            .target = target,
-            .optimize = optimize,
-        })) |gtk4_layer_shell| {
-            const layer_shell_module = gtk4_layer_shell.module("gtk4-layer-shell");
-            if (gobject_) |gobject| {
-                layer_shell_module.addImport("gtk", gobject.module("gtk4"));
-                layer_shell_module.addImport("gdk", gobject.module("gdk4"));
-            }
-            step.root_module.addImport(
-                "gtk4-layer-shell",
-                layer_shell_module,
-            );
-
-            // IMPORTANT: gtk4-layer-shell must be linked BEFORE
-            // wayland-client, as it relies on shimming libwayland's APIs.
-            if (b.systemIntegrationOption("gtk4-layer-shell", .{})) {
-                step.root_module.linkSystemLibrary("gtk4-layer-shell-0", dynamic_link_opts);
-            } else {
-                // gtk4-layer-shell *must* be dynamically linked,
-                // so we don't add it as a static library
-                const shared_lib = gtk4_layer_shell.artifact("gtk4-layer-shell");
-                b.installArtifact(shared_lib);
-                step.root_module.linkLibrary(shared_lib);
-            }
-        }
-
-        step.root_module.linkSystemLibrary("wayland-client", dynamic_link_opts);
-    }
-
-    {
-        // Get our gresource c/h files and add them to our build.
-        const dist = gtkNgDistResources(b);
-        const translated = try translate_c.init(b, .{
-            .source = .{ .includes = .{
-                .generated_name = "ghostty_gtk_resources_c.h",
-                .files = &.{.{ .path = "ghostty_resources.h" }},
-            } },
-            .target = target,
-            .optimize = optimize,
-            .link_system_libs = &.{"glib-2.0"},
-            .include_paths = &.{dist.resources_h.path(b).dirname()},
-        });
-        translated.mod.addCSourceFile(.{ .file = dist.resources_c.path(b), .flags = &.{} });
-        step.root_module.addImport("ghostty_gtk_resources", translated.mod);
-    }
 }
 
 /// Add only the dependencies required for `Config.simd` enabled. This also
@@ -996,190 +803,6 @@ pub fn addSimd(
             .flags = flags.items,
         });
     }
-}
-
-pub const GtkNgResources = struct {
-    resources_c: DistResource,
-    resources_h: DistResource,
-};
-
-/// Memoized result of `gtkNgDistResources`, keyed on the `*std.Build`.
-/// The configure pass is single-threaded, so a file-scope map is enough.
-var gtk_ng_resources: std.AutoHashMapUnmanaged(*std.Build, GtkNgResources) = .empty;
-
-/// Creates the resources that can be prebuilt for our dist build.
-///
-/// Memoized because `add` calls this once per artifact that links GTK and
-/// `GhosttyDist` calls it too. Each call used to build its own copy of the
-/// whole pipeline, and since Zig's cache hashes input *paths* as well as
-/// contents, the copies did not share results downstream.
-pub fn gtkNgDistResources(b: *std.Build) GtkNgResources {
-    if (gtk_ng_resources.get(b)) |cached| return cached;
-    const resources = gtkNgDistResourcesUncached(b);
-    gtk_ng_resources.put(b.allocator, b, resources) catch @panic("OOM");
-    return resources;
-}
-
-fn gtkNgDistResourcesUncached(b: *std.Build) GtkNgResources {
-    const gresource = @import("../apprt/gtk/build/gresource.zig");
-    const gresource_file_inputs = gresource.file_inputs;
-
-    // Compile every blueprint into one directory laid out as
-    // `{major}.{minor}/{name}.ui`, so that `glib-compile-resources` gets a
-    // single `--sourcedir` and the gresource XML needs no absolute paths.
-    //
-    // `blueprint-compiler` is run directly, not through a compiled wrapper.
-    // A run step hashes the bytes of the executable it runs, and a Zig
-    // binary does not relink to the same bytes (anonymous declaration
-    // numbering depends on compilation history), so a branch switch that
-    // touched the wrapper would move every `.ui`, re-run the gresource
-    // compiler and recompile the whole app for identical output. Run
-    // directly, a `.ui` depends only on its `.blp`.
-    const ui_dir = ui_dir: {
-        // The version checks, done once. This links libadwaita for the
-        // version macros and so relinks as described above, which is
-        // harmless: nothing reads its output, the compile steps only
-        // depend on it having succeeded.
-        const check_exe = b.addExecutable(.{
-            .name = "gtk_blueprint_check",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/apprt/gtk/build/blueprint.zig"),
-                .target = b.graph.host,
-                .link_libc = true,
-            }),
-        });
-
-        // Adwaita headers
-        translate_c.addImportToModule(b, "adw_c", check_exe.root_module, .{
-            .source = .{ .includes = .{ .files = &.{.{ .path = "adwaita.h" }} } },
-            .target = b.graph.host,
-            .optimize = .Debug,
-            .link_system_libs = &.{"libadwaita-1"},
-        }) catch unreachable;
-
-        // The headers have to satisfy the newest blueprint.
-        var required: struct { major: u16, minor: u16 } = .{ .major = 0, .minor = 0 };
-        for (gresource.blueprints) |bp| {
-            if (bp.major > required.major or
-                (bp.major == required.major and bp.minor > required.minor))
-            {
-                required = .{ .major = bp.major, .minor = bp.minor };
-            }
-        }
-
-        const check_run = b.addRunArtifact(check_exe);
-        check_run.addArgs(&.{
-            b.fmt("{d}", .{required.major}),
-            b.fmt("{d}", .{required.minor}),
-        });
-        // An output, so the check is cached instead of run every build.
-        _ = check_run.addOutputFileArg("blueprint-check.stamp");
-
-        // `WriteFile` hashes source paths as well as bytes, but these paths
-        // only move when a `.blp` changes, which reaches the gresource
-        // compiler regardless since the `.blp` files are its inputs too.
-        const ui_files = b.addWriteFiles();
-        for (gresource.blueprints) |bp| {
-            const sub_path = b.fmt("{d}.{d}/{s}.ui", .{
-                bp.major,
-                bp.minor,
-                bp.name,
-            });
-
-            const compile = b.addSystemCommand(&.{
-                "blueprint-compiler",
-                "compile",
-                "--output",
-            });
-            const ui_file = compile.addOutputFileArg(sub_path);
-            compile.addFileArg(b.path(b.fmt(
-                "{s}/{d}.{d}/{s}.blp",
-                .{
-                    gresource.ui_path,
-                    bp.major,
-                    bp.minor,
-                    bp.name,
-                },
-            )));
-            compile.step.dependOn(&check_run.step);
-
-            _ = ui_files.addCopyFile(ui_file, sub_path);
-        }
-
-        break :ui_dir ui_files.getDirectory();
-    };
-
-    // The gresource XML. Its only inputs are source tree files, so its path
-    // and contents are stable. The compiled `.ui` files are deliberately
-    // not inputs: it names them relative to the `--sourcedir` below, so no
-    // cache path ever appears in it.
-    const gresource_xml = gresource_xml: {
-        const xml_exe = b.addExecutable(.{
-            .name = "generate_gresource_xml",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("src/apprt/gtk/build/gresource.zig"),
-                .target = b.graph.host,
-            }),
-        });
-        const xml_run = b.addRunArtifact(xml_exe);
-
-        // Named in the XML by relative path; the program only `access`es them.
-        for (gresource.file_inputs) |path| xml_run.addFileInput(b.path(path));
-
-        break :gresource_xml xml_run.captureStdOut(.{});
-    };
-
-    const generate = struct {
-        fn step(
-            bb: *std.Build,
-            dir: std.Build.LazyPath,
-            xml: std.Build.LazyPath,
-            mode: []const u8,
-            name: []const u8,
-        ) std.Build.LazyPath {
-            const run = bb.addSystemCommand(&.{"glib-compile-resources"});
-
-            // The build root for the icons and CSS, the collected directory
-            // for the compiled blueprints. Any `--sourcedir` replaces the
-            // default of the working directory, so the root must be named.
-            run.addArgs(&.{ "--sourcedir", "." });
-            run.addArg("--sourcedir");
-            run.addDirectoryArg(dir);
-
-            run.addArgs(&.{ "--c-name", "ghostty", mode, "--target" });
-            const out = run.addOutputFileArg(name);
-            run.addFileArg(xml);
-
-            // `glib-compile-resources` reads these itself, so they are
-            // inputs here as well as of the XML step.
-            for (gresource_file_inputs) |path| run.addFileInput(bb.path(path));
-
-            return out;
-        }
-    }.step;
-
-    return .{
-        .resources_c = .{
-            .dist = "src/apprt/gtk/ghostty_resources.c",
-            .generated = generate(
-                b,
-                ui_dir,
-                gresource_xml,
-                "--generate-source",
-                "ghostty_resources.c",
-            ),
-        },
-        .resources_h = .{
-            .dist = "src/apprt/gtk/ghostty_resources.h",
-            .generated = generate(
-                b,
-                ui_dir,
-                gresource_xml,
-                "--generate-header",
-                "ghostty_resources.h",
-            ),
-        },
-    };
 }
 
 // For dynamic linking, we prefer dynamic linking and to search by

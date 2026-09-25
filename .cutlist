@@ -27,3 +27,11 @@ src/build/webgen
 src/build/GhosttyWebdata.zig
 po
 src/build/GhosttyI18n.zig
+src/apprt/gtk
+src/apprt/gtk.zig
+src/build/gtk.zig
+pkg/gtk4-layer-shell
+dist/linux
+images/gnome
+src/build/GhosttyExe.zig
+dist/windows

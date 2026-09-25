@@ -8,8 +8,8 @@ const xev = @import("../global.zig").xev;
 const renderer = @import("../renderer.zig");
 const global = @import("../global.zig");
 
-const gtk_version = @import("../apprt/gtk/gtk_version.zig");
-const adw_version = @import("../apprt/gtk/adw_version.zig");
+const gtk_version = struct {}; // booTTY: cut
+const adw_version = struct {}; // booTTY: cut
 
 pub const Options = struct {};
 

@@ -13,7 +13,6 @@ const XCFrameworkTarget = @import("xcframework.zig").Target;
 const WasmTarget = @import("../os/wasm/target.zig").Target;
 const expandPath = @import("../os/path.zig").expand;
 
-const gtk = @import("gtk.zig");
 const GitVersion = @import("GitVersion.zig");
 
 /// Standard build configuration options.
@@ -28,8 +27,6 @@ renderer: RendererBackend = .opengl,
 font_backend: FontBackend = .freetype,
 
 /// Feature flags
-x11: bool = false,
-wayland: bool = false,
 sentry: bool = true,
 simd: bool = true,
 i18n: bool = true,
@@ -41,7 +38,6 @@ version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 lib_version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 
 /// Binary properties
-pie: bool = false,
 strip: bool = false,
 patchelf: ?PatchElf = null,
 
@@ -50,7 +46,6 @@ flatpak: bool = false,
 snap: bool = false,
 emit_bench: bool = false,
 emit_docs: bool = false,
-emit_exe: bool = false,
 emit_helpgen: bool = false,
 emit_lib_vt: bool = false,
 emit_macos_app: bool = false,
@@ -160,11 +155,6 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
     // one exists so this is hardcoded.
     const wasm_target: WasmTarget = .browser;
 
-    // Determine whether GTK supports X11 and Wayland. This is always safe
-    // to run even on non-Linux platforms because any failures result in
-    // defaults.
-    const gtk_targets = gtk.targets(b);
-
     // Grab the environment from build state
     const env = &b.graph.environ_map;
 
@@ -246,18 +236,6 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
 
         break :simd true;
     };
-
-    config.wayland = b.option(
-        bool,
-        "gtk-wayland",
-        "Enables linking against Wayland libraries when using the GTK rendering backend.",
-    ) orelse gtk_targets.wayland;
-
-    config.x11 = b.option(
-        bool,
-        "gtk-x11",
-        "Enables linking against X11 libraries when using the GTK rendering backend.",
-    ) orelse gtk_targets.x11;
 
     config.i18n = b.option(
         bool,
@@ -404,12 +382,6 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         }
     }
 
-    config.pie = b.option(
-        bool,
-        "pie",
-        "Build a Position Independent Executable. Default true for system packages.",
-    ) orelse system_package;
-
     config.strip = b.option(
         bool,
         "strip",
@@ -448,12 +420,6 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
             return error.UnknownVtFeature;
         };
     };
-
-    config.emit_exe = b.option(
-        bool,
-        "emit-exe",
-        "Build and install main executables with 'build'",
-    ) orelse !config.emit_lib_vt;
 
     config.emit_test_exe = b.option(
         bool,
@@ -595,15 +561,6 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         }) |dep| {
             _ = b.systemIntegrationOption(dep, .{ .default = false });
         }
-
-        // These are dynamic libraries we default to true, preferring
-        // to use system packages over building and installing libs
-        // as they require additional ldconfig of library paths or
-        // patching the rpath of the program to discover the dynamic library
-        // at runtime
-        for (&[_][]const u8{"gtk4-layer-shell"}) |dep| {
-            _ = b.systemIntegrationOption(dep, .{ .default = true });
-        }
     }
 
     return config;
@@ -654,8 +611,6 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
     // support all types.
     step.addOption(bool, "flatpak", self.flatpak);
     step.addOption(bool, "snap", self.snap);
-    step.addOption(bool, "x11", self.x11);
-    step.addOption(bool, "wayland", self.wayland);
     step.addOption(bool, "sentry", self.sentry);
     step.addOption(bool, "simd", self.simd);
     step.addOption(bool, "i18n", self.i18n);

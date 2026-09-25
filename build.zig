@@ -78,9 +78,6 @@ pub fn build(b: *std.Build) !void {
     // Ghostty resources like terminfo, shell integration, themes, etc.
     const resources = try buildpkg.GhosttyResources.init(b, &config, &deps);
 
-    // Ghostty executable, the actual runnable Ghostty program.
-    const exe = try buildpkg.GhosttyExe.init(b, &config, &deps);
-
     // Ghostty docs
     const docs = try buildpkg.GhosttyDocs.init(b, &deps);
     if (config.emit_docs) {
@@ -185,10 +182,7 @@ pub fn build(b: *std.Build) !void {
 
     // Runtime "none" is libghostty, anything else is an executable.
     if (config.app_runtime != .none) {
-        if (config.emit_exe) {
-            exe.install();
-            resources.install();
-        }
+        @panic("GTK was cut from booTTY");
     } else if (!config.emit_lib_vt) {
         // The macOS Ghostty Library
         //
@@ -248,24 +242,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     // Run step
-    run: {
-        if (config.app_runtime != .none) {
-            const run_cmd = b.addRunArtifact(exe.exe);
-            if (b.args) |args| run_cmd.addArgs(args);
-
-            // Set the proper resources dir so things like shell integration
-            // work correctly. If we're running `zig build run` in Ghostty,
-            // this also ensures it overwrites the release one with our debug
-            // build.
-            run_cmd.setEnvironmentVariable(
-                "GHOSTTY_RESOURCES_DIR",
-                b.getInstallPath(.prefix, "share/ghostty"),
-            );
-
-            run_step.dependOn(&run_cmd.step);
-            break :run;
-        }
-
+    {
         assert(config.app_runtime == .none);
 
         // On macOS we can run the macOS app. For "run" we always force
