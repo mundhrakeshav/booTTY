@@ -21,4 +21,21 @@ struct VerticalTabBarModelTests {
 
         #expect(model.tabs.map(\.title) == ["after"])
     }
+
+    /// SPEC §5.1: a row holds 11 Workspaces and "+" at the default 200 pt width and 5 at
+    /// the 120 pt minimum (rows get the bar's width less 16 pt of padding). "+" is the
+    /// last index.
+    @Test func dotRowsWrapWhenFull() {
+        #expect(VerticalTabBarModel.dotRows(count: 11, width: 184) == [Array(0...11)])
+        #expect(VerticalTabBarModel.dotRows(count: 12, width: 184) == [Array(0..<12), [12]])
+        #expect(VerticalTabBarModel.dotRows(count: 14, width: 184) == [Array(0..<13), [13, 14]])
+        #expect(VerticalTabBarModel.dotRows(count: 5, width: 104) == [Array(0...5)])
+        #expect(VerticalTabBarModel.dotRows(count: 6, width: 104) == [Array(0..<6), [6]])
+        #expect(VerticalTabBarModel.dotRows(count: 15, width: 104) == [Array(0..<7), Array(7..<14), [14, 15]])
+    }
+
+    /// A bar narrower than one item still places everything, one item per row.
+    @Test func dotRowsNeverLeaveARowEmpty() {
+        #expect(VerticalTabBarModel.dotRows(count: 2, width: 10) == [[0], [1], [2]])
+    }
 }

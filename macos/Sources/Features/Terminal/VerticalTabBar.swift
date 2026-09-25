@@ -56,8 +56,9 @@ final class TabBarSettings: ObservableObject {
 
     private init() {
         let defaults = UserDefaults.ghostty
+        // Left by default so the Workspace dots show (SPEC §4.1); a stored position wins.
         position = defaults.string(forKey: Self.positionKey)
-            .flatMap(TabBarPosition.init(rawValue:)) ?? .top
+            .flatMap(TabBarPosition.init(rawValue:)) ?? .left
         isCollapsed = defaults.bool(forKey: Self.collapsedKey)
         let width = CGFloat(defaults.double(forKey: Self.expandedWidthKey))
         let range = Self.expandedWidthRange
@@ -87,7 +88,19 @@ final class VerticalTabBarModel: ObservableObject {
         let isSelected: Bool
     }
 
+    /// A Workspace of the Window, drawn as a dot at the foot of the bar.
+    struct Workspace: Identifiable, Equatable {
+        let id: WorkspaceStore.Workspace.ID
+        let name: String
+        let color: TerminalTabColor
+        let isShown: Bool
+    }
+
     @Published private(set) var tabs: [Tab] = []
+
+    /// The Window's Workspaces in bar order. Empty when the Window can't hold them
+    /// (SPEC §4.2), so the bar draws no dots.
+    @Published private(set) var workspaces: [Workspace] = []
 
     /// The tab being renamed inline.
     @Published private(set) var renamingTab: Tab.ID?
@@ -101,6 +114,8 @@ final class VerticalTabBarModel: ObservableObject {
     private var tabWindows: [Tab.ID: Weak<NSWindow>] = [:]
     private weak var observedTabGroup: NSWindowTabGroup?
     private var tabGroupObservations: [NSKeyValueObservation] = []
+    private weak var observedStore: WorkspaceStore?
+    private var storeObservation: AnyCancellable?
     private var cancellables: Set<AnyCancellable> = []
     private var refreshScheduled = false
 
@@ -144,6 +159,7 @@ final class VerticalTabBarModel: ObservableObject {
         guard visibleBars == 0 else { return }
         cancellables.removeAll()
         observe(nil)
+        observe(store: nil)
     }
 
     /// Coalesces bursts of changes (e.g. many titles changing) into one rebuild.
@@ -191,6 +207,17 @@ final class VerticalTabBarModel: ObservableObject {
                 isSelected: tabWindow === selected)
         }
         if tabs != self.tabs { self.tabs = tabs }
+
+        // Every Tab's bar follows the Window's store, so a switch also redraws the bar of
+        // a Tab that comes in without becoming key.
+        let store = workspaceTab?.workspaceStore
+        if store !== observedStore { observe(store: store) }
+        let workspaces = store.map { store in
+            store.workspaces.map {
+                Workspace(id: $0.id, name: $0.name, color: $0.color, isShown: $0.id == store.shownID)
+            }
+        } ?? []
+        if workspaces != self.workspaces { self.workspaces = workspaces }
     }
 
     private func observe(_ tabGroup: NSWindowTabGroup?) {
@@ -208,6 +235,12 @@ final class VerticalTabBarModel: ObservableObject {
                 DispatchQueue.main.async { self?.setNeedsRefresh() }
             },
         ]
+    }
+
+    private func observe(store: WorkspaceStore?) {
+        observedStore = store
+        // Fires before the change, and the refresh runs on a later turn that sees it.
+        storeObservation = store?.objectWillChange.sink { [weak self] _ in self?.setNeedsRefresh() }
     }
 
     // MARK: Actions
@@ -270,6 +303,50 @@ final class VerticalTabBarModel: ObservableObject {
               surface.window === window
         else { return }
         window.makeFirstResponder(surface)
+    }
+
+    // MARK: Workspaces
+
+    /// This bar's Tab, when its Window holds Workspaces (SPEC §4.2).
+    private var workspaceTab: TerminalController? {
+        guard let tab = window?.windowController as? TerminalController,
+              tab.workspacesUnavailableAlert == nil
+        else { return nil }
+        return tab
+    }
+
+    /// Clicking a dot: shows its Workspace, refused as `goto_workspace` is. Clicking the
+    /// shown Workspace's capsule does nothing.
+    func showWorkspace(_ id: Workspace.ID) {
+        guard let tab = workspaceTab else { return }
+        let store = tab.workspaceStore
+        guard id != store.shownID else { return focusTerminal() }
+        guard store.allowsRequest(from: tab, orShow: .cannotSwitch) else { return }
+        store.show(id)
+    }
+
+    /// "+": runs `new_workspace` on the focused Split, as the keybind does.
+    func newWorkspace() {
+        guard let tab = workspaceTab, let surface = tab.focusedSurface else { return }
+        tab.performAction("new_workspace", on: surface)
+    }
+
+    /// The expanded bar's rows of dots (SPEC §5.1): indices of `count` 14 pt dots, then
+    /// "+" (22 pt) as index `count`, broken greedily into rows no wider than `width`. A row
+    /// breaks before the item that doesn't fit and is never empty.
+    static func dotRows(count: Int, width: CGFloat) -> [[Int]] {
+        var rows: [[Int]] = [[]]
+        var x: CGFloat = 0
+        for i in 0...count {
+            let itemWidth: CGFloat = i == count ? 22 : 14
+            if x + itemWidth > width, !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                x = 0
+            }
+            rows[rows.count - 1].append(i)
+            x += itemWidth
+        }
+        return rows
     }
 
     // MARK: Renaming
@@ -466,6 +543,11 @@ private struct VerticalTabBar: View {
                 .onChange(of: selectedTab) { id in
                     if let id { proxy.scrollTo(id) }
                 }
+            }
+
+            // Pinned below the list, which scrolls to make room.
+            if !model.workspaces.isEmpty {
+                WorkspaceDots(model: model, collapsed: settings.isCollapsed, barWidth: width)
             }
         }
         .frame(width: width)
@@ -697,6 +779,131 @@ private struct NewTabRow: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("New Tab")
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// The Window's Workspaces as page dots, then "+" (SPEC §5.1). Expanded they run in rows
+/// that wrap, leading-aligned on either side; collapsed they stack in one column.
+private struct WorkspaceDots: View {
+    @ObservedObject var model: VerticalTabBarModel
+    let collapsed: Bool
+    let barWidth: CGFloat
+
+    /// The dot under the pointer. Only a dot that still matches clears it, so passing
+    /// from dot to dot doesn't flicker the label.
+    @State private var hovered: VerticalTabBarModel.Workspace.ID?
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if collapsed {
+                VStack(spacing: 0) {
+                    ForEach(model.workspaces.indices, id: \.self) { dot($0) }
+                    newWorkspaceButton
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 8)
+            } else {
+                let count = model.workspaces.count
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(VerticalTabBarModel.dotRows(count: count, width: barWidth - 16), id: \.self) { row in
+                        HStack(spacing: 0) {
+                            ForEach(row, id: \.self) { i in
+                                if i == count { newWorkspaceButton } else { dot(i) }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .overlay(alignment: .top) { hoverLabel }
+                .padding(.bottom, 2)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Workspaces")
+        // Every switch morphs the capsule from the old mark to the new (SPEC §6.5).
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.workspaces.first(where: \.isShown)?.id)
+    }
+
+    private func dot(_ index: Int) -> some View {
+        WorkspaceDot(
+            model: model,
+            workspace: model.workspaces[index],
+            index: index,
+            collapsed: collapsed,
+            hovered: $hovered)
+    }
+
+    private var newWorkspaceButton: some View {
+        IconButton(systemImage: "plus", pointSize: 10, weight: .medium, size: 20, help: "New Workspace") {
+            model.newWorkspace()
+        }
+        .frame(width: collapsed ? 32 : 22, height: 22)
+    }
+
+    /// The hovered dot's name, above the dots and never wider than the bar. Collapsed,
+    /// dots use tooltips instead, since nothing can draw over the terminal.
+    @ViewBuilder
+    private var hoverLabel: some View {
+        if let workspace = model.workspaces.first(where: { $0.id == hovered }) {
+            Text(workspace.name)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 7)
+                .frame(height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(colorScheme == .dark ? Color(white: 0.2) : .white))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.12)))
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                .frame(maxWidth: barWidth - 12)
+                .offset(y: -24)
+                .allowsHitTesting(false)
+                // VoiceOver reads the name on the dot itself.
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// One Workspace's mark: a 6 pt dot, or the 12×6 capsule (upright when collapsed) for
+/// the shown Workspace. One shape for both, so a switch morphs it in place.
+private struct WorkspaceDot: View {
+    @ObservedObject var model: VerticalTabBarModel
+    let workspace: VerticalTabBarModel.Workspace
+    let index: Int
+    let collapsed: Bool
+    @Binding var hovered: VerticalTabBarModel.Workspace.ID?
+
+    var body: some View {
+        let long: CGFloat = workspace.isShown ? 12 : 6
+        let fill = workspace.color.displayColor.map { Color(nsColor: $0) } ?? .primary
+        let opacity = workspace.isShown ? 1 : hovered == workspace.id ? 0.8 : 0.35
+
+        Capsule()
+            .fill(fill.opacity(opacity))
+            .frame(width: collapsed ? 6 : long, height: collapsed ? long : 6)
+            .frame(width: collapsed ? 32 : 14, height: collapsed ? 14 : 22)
+            .contentShape(Rectangle())
+            .onTapGesture { model.showWorkspace(workspace.id) }
+            .onHover { inside in
+                if inside {
+                    hovered = workspace.id
+                } else if hovered == workspace.id {
+                    hovered = nil
+                }
+            }
+            .help(collapsed ? workspace.name : "")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(workspace.name)
+            .accessibilityValue("Workspace \(index + 1) of \(model.workspaces.count)")
+            .accessibilityAddTraits(workspace.isShown ? [.isButton, .isSelected] : .isButton)
     }
 }
 
