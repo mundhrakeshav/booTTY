@@ -230,6 +230,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         pendingInitialPresentation = nil
     }
 
+    /// True while the new Window this Tab starts waits a runloop turn to be presented. It
+    /// forms no tab group until then.
+    var awaitsInitialPresentation: Bool { pendingInitialPresentation != nil }
+
     private func scheduleInitialPresentation(_ block: @escaping () -> Void) {
         cancelPendingInitialPresentation()
 
@@ -329,13 +333,16 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     // by something like an App Intent) then we prefer the most previous main.
     static private(set) weak var lastMain: TerminalController?
 
-    /// The "new window" action.
+    /// The "new window" action. The Window's one Workspace is `workspaceName`, by default
+    /// "Workspace 1" (SPEC §1.2).
     static func newWindow(
         _ ghostty: Ghostty.App,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
-        withParent explicitParent: NSWindow? = nil
+        withParent explicitParent: NSWindow? = nil,
+        workspaceName: String? = nil
     ) -> TerminalController {
         let c = TerminalController.init(ghostty, withBaseConfig: baseConfig)
+        if let workspaceName { c.workspaceStore = WorkspaceStore(tab: c, name: workspaceName) }
 
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.
@@ -418,7 +425,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                     _ = TerminalController.newWindow(
                         ghostty,
                         withBaseConfig: baseConfig,
-                        withParent: explicitParent)
+                        withParent: explicitParent,
+                        workspaceName: workspaceName)
                 }
             }
         }
@@ -504,16 +512,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         return c
     }
 
+    /// A new Tab in `parent`'s shown Workspace. Without a `parent`, a new Window opens, and
+    /// its one Workspace is `workspaceName`, by default "Workspace 1" (SPEC §1.2).
     static func newTab(
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,
-        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
+        workspaceName: String? = nil
     ) -> TerminalController? {
         // Making sure that we're dealing with a TerminalController. If not,
         // then we just create a new window.
         guard let parent,
               let parentController = parent.windowController as? TerminalController else {
-            return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent)
+            return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent, workspaceName: workspaceName)
         }
 
         // A Tab opened from a hidden Split joins its Workspace out of sight, and booTTY

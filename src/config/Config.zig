@@ -3407,20 +3407,24 @@ keybind: Keybinds = .{},
 /// editor, etc.
 @"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .visible,
 
-/// Controls the windowing behavior when dropping a file or folder
-/// onto the Ghostty icon in the macOS dock.
+/// Controls where a file or folder opens when it is dropped on the
+/// Ghostty icon in the macOS dock, opened with Ghostty from Finder,
+/// or passed to `open -a`.
 ///
 /// Valid values are:
 ///
+///   * `new-workspace` - Open a folder as a new Workspace in the current
+///     window, named after the folder, or in a new window if none exist.
+///     A file opens in a new tab of the current Workspace.
 ///   * `new-tab` - Create a new tab in the current window, or open
 ///     a new window if none exist.
 ///   * `new-window` - Create a new window unconditionally.
 ///
-/// The default value is `new-tab`.
+/// The default value is `new-workspace`.
 ///
 /// This setting is only supported on macOS and has no effect on other
 /// platforms.
-@"macos-dock-drop-behavior": MacOSDockDropBehavior = .@"new-tab",
+@"macos-dock-drop-behavior": MacOSDockDropBehavior = .@"new-workspace",
 
 /// macOS doesn't have a distinct "alt" key and instead has the "option"
 /// key which behaves slightly differently. On macOS by default, the
@@ -9464,6 +9468,7 @@ pub const WindowNewTabPosition = enum {
 
 /// See macos-dock-drop-behavior
 pub const MacOSDockDropBehavior = enum {
+    @"new-workspace",
     @"new-tab",
     @"new-window",
 };
@@ -11237,6 +11242,36 @@ test "clipboard write limit" {
     try testing.expectEqual(
         std.math.maxInt(usize),
         cfg.@"clipboard-write-limit-bytes".value,
+    );
+}
+
+test "macos-dock-drop-behavior" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    try testing.expectEqual(
+        MacOSDockDropBehavior.@"new-workspace",
+        cfg.@"macos-dock-drop-behavior",
+    );
+
+    var it: TestIterator = .{ .data = &.{
+        "--macos-dock-drop-behavior=new-tab",
+    } };
+    try cfg.loadIter(alloc, &it);
+    try testing.expectEqual(
+        MacOSDockDropBehavior.@"new-tab",
+        cfg.@"macos-dock-drop-behavior",
+    );
+
+    var workspace_it: TestIterator = .{ .data = &.{
+        "--macos-dock-drop-behavior=new-workspace",
+    } };
+    try cfg.loadIter(alloc, &workspace_it);
+    try testing.expectEqual(
+        MacOSDockDropBehavior.@"new-workspace",
+        cfg.@"macos-dock-drop-behavior",
     );
 }
 

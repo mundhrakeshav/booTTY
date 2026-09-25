@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import System
 
 /// The Window's store (SPEC §1.1, §2.2): the Window id, its Workspaces in bar order, and
 /// which one is shown. Every Tab of the Window, shown or hidden, points at it through
@@ -85,10 +86,10 @@ final class WorkspaceStore: ObservableObject {
         self.shownID = shownID
     }
 
-    /// The store of a new Window whose first Tab is `tab`: one Workspace, "Workspace 1".
-    /// A restored Window keeps its saved `id`.
-    convenience init(id: UUID = UUID(), tab: TerminalController) {
-        let first = Workspace(name: Self.newName(in: []))
+    /// The store of a new Window whose first Tab is `tab`: one Workspace, `name`, by default
+    /// "Workspace 1". A restored Window keeps its saved `id`.
+    convenience init(id: UUID = UUID(), tab: TerminalController, name: String? = nil) {
+        let first = Workspace(name: name ?? Self.newName(in: []))
         self.init(id: id, workspaces: [first], shownID: first.id)
         knownShownTabs = [Weak(tab)]
     }
@@ -190,6 +191,14 @@ final class WorkspaceStore: ObservableObject {
         return "Workspace \(n)"
     }
 
+    /// A Workspace made from a folder is named after its basename, `~` for home, with no
+    /// suffix (SPEC §1.2).
+    nonisolated static func name(ofFolder path: String) -> String {
+        let folder = FilePath(path).lexicallyNormalized()
+        if folder == FilePath(NSHomeDirectory()).lexicallyNormalized() { return "~" }
+        return folder.lastComponent?.string ?? folder.string
+    }
+
     /// The index `target` shows, or nil when the command reports false: the Window has one
     /// Workspace, or the number is below 1 (SPEC §7.1). Previous and next wrap around.
     func index(of target: Target) -> Int? {
@@ -212,19 +221,25 @@ final class WorkspaceStore: ObservableObject {
         return show(workspaces[index].id)
     }
 
-    /// New Workspace (SPEC §9.5): "Workspace N" at the end, holding one new Tab made from
-    /// `baseConfig`, and shown. `parent` is the Tab the request came from. Registers Undo
+    /// New Workspace (SPEC §9.5): "Workspace N", or `name`, at the end, holding one new Tab
+    /// made from `baseConfig`, and shown. `parent` is the Tab the request came from. A folder
+    /// opened into the Window passes its name and `comingForward` (§9.1). Registers Undo
     /// New Workspace.
     @discardableResult
-    func newWorkspace(from parent: TerminalController, withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?) -> Bool {
+    func newWorkspace(
+        from parent: TerminalController,
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?,
+        named name: String? = nil,
+        comingForward: Bool = false
+    ) -> Bool {
         reconcile()
         guard tabGroup != nil, !isInNonNativeFullscreen,
               let tab = newTab(from: parent, withBaseConfig: baseConfig)
         else { return false }
 
         let previous = shownID
-        let id = addWorkspace(holding: [tab])
-        if show(id) {
+        let id = addWorkspace(holding: [tab], named: name)
+        if show(id, comingForward: comingForward) {
             registerUndoForNewWorkspace(tab, previous: previous, withBaseConfig: baseConfig)
             return true
         }
@@ -244,10 +259,10 @@ final class WorkspaceStore: ObservableObject {
         return tab.window != nil ? tab : nil
     }
 
-    /// Adds a hidden Workspace named "Workspace N", holding `tabs`, at the end of the bar,
-    /// so existing Workspaces keep their places (SPEC §1.3).
-    func addWorkspace(holding tabs: [TerminalController]) -> Workspace.ID {
-        let workspace = Workspace(name: Self.newName(in: workspaces), hiddenTabs: tabs)
+    /// Adds a hidden Workspace named `name`, by default "Workspace N", holding `tabs`, at the
+    /// end of the bar, so existing Workspaces keep their places (SPEC §1.3).
+    func addWorkspace(holding tabs: [TerminalController], named name: String? = nil) -> Workspace.ID {
+        let workspace = Workspace(name: name ?? Self.newName(in: workspaces), hiddenTabs: tabs)
         workspaces.append(workspace)
         return workspace.id
     }
@@ -483,18 +498,21 @@ final class WorkspaceStore: ObservableObject {
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?
     ) {
         guard let undoManager = tab.undoManager else { return }
-        undoManager.setActionName("New Workspace")
-        undoManager.registerUndo(withTarget: tab, expiresAfter: tab.undoExpiration) { tab in
-            let store = tab.workspaceStore
-            let saved = store.undoState(of: store.workspace(holding: tab).id)
-            tab.showForUndo()
-            undoManager.disableUndoRegistration {
-                tab.closeTab(showing: previous)
-            }
+        // Its own step, so each folder of a multi-folder open undoes on its own (SPEC §9.1).
+        undoManager.registerAsOwnStep {
+            undoManager.setActionName("New Workspace")
+            undoManager.registerUndo(withTarget: tab, expiresAfter: tab.undoExpiration) { tab in
+                let store = tab.workspaceStore
+                let saved = store.undoState(of: store.workspace(holding: tab).id)
+                tab.showForUndo()
+                undoManager.disableUndoRegistration {
+                    tab.closeTab(showing: previous)
+                }
 
-            guard let saved else { return }
-            undoManager.registerUndo(withTarget: tab.ghostty, expiresAfter: tab.undoExpiration) { _ in
-                Self.live(saved.windowID)?.redoNewWorkspace(saved, withBaseConfig: baseConfig)
+                guard let saved else { return }
+                undoManager.registerUndo(withTarget: tab.ghostty, expiresAfter: tab.undoExpiration) { _ in
+                    Self.live(saved.windowID)?.redoNewWorkspace(saved, withBaseConfig: baseConfig)
+                }
             }
         }
     }

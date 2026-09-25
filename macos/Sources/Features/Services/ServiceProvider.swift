@@ -61,15 +61,18 @@ class ServiceProvider: NSObject {
             var config = Ghostty.SurfaceConfiguration()
             config.workingDirectory = url.pathWithoutTrailingSlash
 
+            // A new Window's one Workspace is named after the folder (SPEC §1.2, §9.2).
+            let name = WorkspaceStore.name(ofFolder: url.pathWithoutTrailingSlash)
             switch target {
             case .window:
-                _ = TerminalController.newWindow(delegate.ghostty, withBaseConfig: config)
+                _ = TerminalController.newWindow(delegate.ghostty, withBaseConfig: config, workspaceName: name)
 
             case .tab:
                 _ = TerminalController.newTab(
                     delegate.ghostty,
                     from: TerminalController.preferredParent?.window,
-                    withBaseConfig: config)
+                    withBaseConfig: config,
+                    workspaceName: name)
             }
         }
 

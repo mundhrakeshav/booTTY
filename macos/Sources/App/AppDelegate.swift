@@ -488,8 +488,8 @@ class AppDelegate: NSObject,
         var config = Ghostty.SurfaceConfiguration()
 
         if isDirectory.boolValue {
-            // When opening a directory, check the configuration to decide
-            // whether to open in a new tab or new window.
+            // A directory's first Tab starts in it (SPEC §1.5). The configuration
+            // decides below whether it opens as a Workspace, a tab, or a window.
             config.workingDirectory = filename
         } else {
             // Unconditionally require confirmation in the file execution case.
@@ -534,17 +534,58 @@ class AppDelegate: NSObject,
             }
         }
 
-        switch ghostty.config.macosDockDropBehavior {
-        case .new_tab:
+        // A folder's Workspace is named after it wherever one is made from it. A file that
+        // opens a new Window gets "Workspace 1" (SPEC §1.2).
+        let folderName = isDirectory.boolValue ? WorkspaceStore.name(ofFolder: filename) : nil
+
+        switch (ghostty.config.macosDockDropBehavior, folderName) {
+        case (.new_workspace, let name?):
+            openWorkspace(named: name, withBaseConfig: config)
+
+        case (.new_workspace, nil), (.new_tab, _):
             _ = TerminalController.newTab(
                 ghostty,
                 from: TerminalController.preferredParent?.window,
-                withBaseConfig: config
+                withBaseConfig: config,
+                workspaceName: folderName
             )
-        case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+
+        case (.new_window, _):
+            _ = TerminalController.newWindow(ghostty, withBaseConfig: config, workspaceName: folderName)
         }
 
         return true
+    }
+
+    /// A folder opened under `new-workspace` (SPEC §9.1): a new Workspace named `name` at the
+    /// end of the receiving Window, the front one, shown as the Window comes forward. Where
+    /// that Window can't hold Tabs, or a sheet blocks switching, the folder opens as a new
+    /// Window instead, with no alert, and so it does when no Window is open. Non-native
+    /// fullscreen refuses it with "Cannot Create New Workspace". Each folder is its own undo
+    /// step.
+    @MainActor private func openWorkspace(named name: String, withBaseConfig config: Ghostty.SurfaceConfiguration) {
+        if let parent = TerminalController.preferredParent {
+            // A Window an earlier folder of this open made forms its tab group only once
+            // it's presented, a runloop turn later.
+            if parent.awaitsInitialPresentation {
+                DispatchQueue.main.async { self.openWorkspace(named: name, withBaseConfig: config) }
+                return
+            }
+
+            let store = parent.workspaceStore
+            store.reconcile()
+            if parent.workspacesUnavailableAlert == nil, store.shownTab?.window?.attachedSheet == nil {
+                guard store.allowsRequest(from: parent, orShow: .cannotCreate) else { return }
+                if store.newWorkspace(from: parent, withBaseConfig: config, named: name, comingForward: true) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    return
+                }
+            }
+        }
+
+        undoManager.registerAsOwnStep {
+            _ = TerminalController.newWindow(ghostty, withBaseConfig: config, workspaceName: name)
+        }
     }
 
     /// Setup signal handlers
