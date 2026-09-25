@@ -84,6 +84,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         didSet { NotificationCenter.default.post(name: TerminalWindow.tabDidChangeNotification, object: nil) }
     }
 
+    /// Turns two-finger horizontal swipes over this Tab's vertical tab bar into Workspace
+    /// switches (SPEC §6.2).
+    private var swipeMonitor: Any?
+
     /// `windowStyle` is the style of the Window this Tab is created into. Nil means a new
     /// Window, styled by the current config.
     init(_ ghostty: Ghostty.App,
@@ -159,6 +163,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             name: .ghosttyCloseWindow,
             object: nil
         )
+
+        // Local monitors see every window's events, so this acts only on its own.
+        swipeMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            self?.swipeMonitorEvent(event) ?? event
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -169,6 +178,50 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Remove all of our notificationcenter subscriptions
         let center = NotificationCenter.default
         center.removeObserver(self)
+        if let swipeMonitor { NSEvent.removeMonitor(swipeMonitor) }
+    }
+
+    private func swipeMonitorEvent(_ event: NSEvent) -> NSEvent? {
+        guard let window, event.window === window else { return event }
+
+        let store = workspaceStore
+        switch store.swipeAction(
+            phase: event.phase,
+            momentumPhase: event.momentumPhase,
+            deltaX: event.scrollingDeltaX,
+            deltaY: event.scrollingDeltaY,
+            startsSwipe: startsSwipe(at: event.locationInWindow)
+        ) {
+        case .pass:
+            return event
+        case .drop:
+            return nil
+        case .track:
+            store.trackSwipe(event)
+            return event
+        }
+    }
+
+    /// Whether a scroll gesture beginning at `point` may become a swipe (SPEC §6.1): it's
+    /// over the vertical tab bar of a Window with Workspaces, and nothing else holds the bar
+    /// or the Window.
+    private func startsSwipe(at point: NSPoint) -> Bool {
+        guard let window = window as? TerminalWindow,
+              window.showsVerticalTabBar,
+              workspacesUnavailableAlert == nil,
+              NSEvent.pressedMouseButtons == 0,
+              window.attachedSheet == nil,
+              window.verticalTabBar.renamingTab == nil,
+              !workspaceStore.isInNonNativeFullscreen
+        else { return false }
+
+        // The bar sits below the titlebar and takes at most half the window, as
+        // VerticalTabBarLayout lays it out.
+        let content = window.contentLayoutRect
+        let settings = TabBarSettings.shared
+        let width = min(settings.verticalWidth, content.width / 2)
+        let minX = settings.position == .left ? content.minX : content.maxX - width
+        return point.y < content.maxY && point.x >= minX && point.x < minX + width
     }
 
     private func cancelPendingInitialPresentation() {

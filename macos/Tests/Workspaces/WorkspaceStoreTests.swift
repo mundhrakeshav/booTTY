@@ -142,4 +142,103 @@ struct WorkspaceStoreTests {
         #expect(group.windows == old)
         #expect(group.selectedWindow === old[0])
     }
+
+    // MARK: Swiping
+
+    private func scroll(
+        _ store: WorkspaceStore,
+        _ phase: NSEvent.Phase,
+        momentum: NSEvent.Phase = [],
+        dx: CGFloat = 0,
+        dy: CGFloat = 0,
+        overBar: Bool = true
+    ) -> WorkspaceStore.SwipeEventAction {
+        store.swipeAction(phase: phase, momentumPhase: momentum, deltaX: dx, deltaY: dy, startsSwipe: overBar)
+    }
+
+    /// A flick's momentum after the fingers lift.
+    private func momentum(_ store: WorkspaceStore) -> [WorkspaceStore.SwipeEventAction] {
+        [.began, .changed, .ended].map { scroll(store, [], momentum: $0, dx: -3) }
+    }
+
+    @Test func horizontalFirstMovementClaimsTheGestureAndDropsItsMomentum() {
+        let store = store(["a", "b"])
+        #expect(scroll(store, .mayBegin) == .pass)
+        #expect(scroll(store, .began, dx: -4, dy: 1) == .track)
+        // AppKit's tracker needs the gesture's own events.
+        #expect(scroll(store, .changed, dx: 1, dy: -9) == .pass)
+        #expect(scroll(store, .ended) == .pass)
+        #expect(momentum(store) == [.drop, .drop, .drop])
+        // The momentum is over, so the next scroll is the user's again.
+        #expect(scroll(store, [], momentum: .changed, dx: -3) == .pass)
+    }
+
+    @Test func verticalFirstMovementKeepsTheWholeGestureForTheList() {
+        let store = store(["a", "b"])
+        // No movement yet decides nothing.
+        #expect(scroll(store, .began) == .pass)
+        #expect(scroll(store, .changed, dx: 2, dy: -6) == .pass)
+        #expect(scroll(store, .changed, dx: -20) == .pass)
+        #expect(scroll(store, .ended) == .pass)
+        #expect(momentum(store) == [.pass, .pass, .pass])
+    }
+
+    @Test func gestureThatCantStartASwipeIsNeverClaimed() {
+        // Over the terminal, or while the bar or Window refuses a swipe.
+        let store = store(["a", "b"])
+        #expect(scroll(store, .began, dx: -8, overBar: false) == .pass)
+        #expect(scroll(store, .changed, dx: -8) == .pass)
+        #expect(scroll(store, .ended) == .pass)
+        #expect(momentum(store) == [.pass, .pass, .pass])
+    }
+
+    @Test func newGestureStopsDroppingMomentum() {
+        let store = store(["a", "b"])
+        _ = scroll(store, .began, dx: -4)
+        _ = scroll(store, .ended)
+        #expect(scroll(store, .began, dy: 5, overBar: false) == .pass)
+        #expect(scroll(store, .ended) == .pass)
+        #expect(momentum(store) == [.pass, .pass, .pass])
+    }
+
+    @Test func swipeTargetsANeighborAndNeverWraps() {
+        let store = store(["a", "b", "c"])
+        let ids = store.workspaces.map(\.id)
+
+        let first = store.claimSwipe()
+        #expect(first.target(-0.4) == ids[1]) // fingers left: the next Workspace
+        #expect(first.target(0.4) == nil)
+        #expect(first.target(0) == nil)
+
+        // A rubber band at the first Workspace switches nothing when the fingers lift.
+        #expect(store.stepSwipe(first, amount: 0.1, phase: .ended))
+        #expect(store.shownIndex == 0)
+
+        let atLast = self.store(["a", "b", "c"], shown: 2)
+        let last = atLast.claimSwipe()
+        #expect(last.target(0.4) == atLast.workspaces[1].id) // fingers right: the previous Workspace
+        #expect(last.target(-0.4) == nil)
+    }
+
+    @Test func newSwipeStopsTheOneBefore() {
+        let store = store(["a", "b"])
+        let older = store.claimSwipe()
+        let newer = store.claimSwipe()
+        #expect(!store.stepSwipe(older, amount: -0.3, phase: []))
+        #expect(store.stepSwipe(newer, amount: -0.3, phase: .changed))
+    }
+
+    @Test func swipeWhoseTargetEndedIsCancelledAndDropped() {
+        let store = store(["a", "b"])
+        #expect(scroll(store, .began, dx: -4) == .track)
+        let claimed = store.claimSwipe()
+        let swipe = WorkspaceStore.Swipe(generation: claimed.generation, previous: nil, next: UUID())
+
+        #expect(!store.stepSwipe(swipe, amount: -0.3, phase: .changed))
+        #expect(store.shownIndex == 0)
+        // Once AppKit's tracker lets go, the rest of the gesture and its momentum are dropped.
+        #expect(scroll(store, .changed, dx: -4) == .drop)
+        #expect(scroll(store, .ended) == .drop)
+        #expect(momentum(store) == [.drop, .drop, .drop])
+    }
 }

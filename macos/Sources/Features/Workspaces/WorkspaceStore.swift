@@ -63,6 +63,17 @@ final class WorkspaceStore: ObservableObject {
     /// incoming Tab becoming key) don't reconcile a half-done switch.
     private var isChanging = false
 
+    /// The scroll gesture over this Window's bar, told apart by its first movement. The
+    /// Window has one gesture at a time, and every Tab's monitor reads it.
+    private var swipeGesture = SwipeGesture.none
+
+    /// Set when a claimed gesture ends, until its momentum ends or a new gesture begins, so
+    /// whichever of the Window's Tabs gets that momentum drops it (SPEC §6.2).
+    private var dropsSwipeMomentum = false
+
+    /// Bumped by each claimed swipe and each cancel. A swipe from before stops tracking.
+    private var swipeGeneration = 0
+
     init(id: UUID = UUID(), workspaces: [Workspace], shownID: Workspace.ID) {
         precondition(workspaces.contains { $0.id == shownID })
         self.id = id
@@ -320,12 +331,13 @@ final class WorkspaceStore: ObservableObject {
     /// The one switch path (SPEC §2.3): shows Workspace `id`. Returns false, with the old
     /// Workspace still shown, when AppKit throws while adding or selecting the incoming Tabs,
     /// or when the Window can't switch now. Showing the shown Workspace changes nothing.
+    /// A switch by any other path than the swipe itself cancels a swipe in progress (§6.3).
     ///
     /// `comingForward` is for a switch after which the Window comes forward (a jump, an undo,
     /// a folder opened into it): a minimized Window is deminiaturized first, and the incoming
     /// Tab is made key. Otherwise a background or minimized Window stays as it is.
     @discardableResult
-    func show(_ id: Workspace.ID, comingForward: Bool = false) -> Bool {
+    func show(_ id: Workspace.ID, comingForward: Bool = false, bySwipe: Bool = false) -> Bool {
         reconcile()
         guard id != shownID else { return true }
 
@@ -349,6 +361,7 @@ final class WorkspaceStore: ObservableObject {
             makeKey: comingForward || oldSelected.isKeyWindow || oldSelected.isMainWindow)
         isChanging = false
         guard let orderedOut else { return false }
+        if !bySwipe { cancelSwipe() }
 
         // The outgoing Workspace keeps the Tabs that left the group and remembers the one
         // that was selected.
@@ -444,6 +457,138 @@ final class WorkspaceStore: ObservableObject {
         }
 
         return true
+    }
+
+    // MARK: Swiping
+
+    /// What a Tab's scroll-wheel monitor does with a scroll event in its window.
+    enum SwipeEventAction: Equatable {
+        case pass
+        /// Keep it from the terminal and the Tab list.
+        case drop
+        /// Claim the gesture: `trackSwipe` this event, then let it through.
+        case track
+    }
+
+    private enum SwipeGesture { case none, undecided, passed, tracking, dropping }
+
+    /// A claimed swipe. Its targets are fixed by id when it starts: nil past the first or
+    /// last Workspace, since a swipe never wraps (SPEC §6.3).
+    struct Swipe: Equatable {
+        let generation: Int
+        let previous: Workspace.ID?
+        let next: Workspace.ID?
+
+        /// Negative `swipe` is fingers moving left, which brings in the next Workspace.
+        func target(_ swipe: CGFloat) -> Workspace.ID? {
+            swipe < 0 ? next : swipe > 0 ? previous : nil
+        }
+    }
+
+    /// Decides a scroll event in one of the Window's Tabs (SPEC §6.1, §6.2). A gesture whose
+    /// first movement is mostly horizontal, beginning where `startsSwipe` holds, is a swipe;
+    /// anything else passes untouched. A claimed gesture's own events pass, because AppKit's
+    /// tracker takes them and starves if they're swallowed. Its momentum is dropped.
+    func swipeAction(
+        phase: NSEvent.Phase,
+        momentumPhase: NSEvent.Phase,
+        deltaX: CGFloat,
+        deltaY: CGFloat,
+        startsSwipe: @autoclosure () -> Bool
+    ) -> SwipeEventAction {
+        // Momentum has no phase and belongs to the gesture that flicked it.
+        if phase.isEmpty {
+            guard dropsSwipeMomentum, !momentumPhase.isEmpty else { return .pass }
+            if !momentumPhase.isDisjoint(with: [.ended, .cancelled]) { dropsSwipeMomentum = false }
+            return .drop
+        }
+
+        if phase.contains(.mayBegin) { return .pass }
+        if phase.contains(.began) {
+            dropsSwipeMomentum = false
+            swipeGesture = startsSwipe() ? .undecided : .passed
+        }
+
+        let gesture = swipeGesture
+        let ends = !phase.isDisjoint(with: [.ended, .cancelled])
+        if ends { swipeGesture = .none }
+
+        switch gesture {
+        case .none, .passed:
+            return .pass
+        case .tracking, .dropping:
+            if ends { dropsSwipeMomentum = true }
+            return gesture == .tracking ? .pass : .drop
+        case .undecided:
+            guard !ends, deltaX != 0 || deltaY != 0 else { return .pass }
+            guard abs(deltaX) > abs(deltaY) else {
+                swipeGesture = .passed
+                return .pass
+            }
+            swipeGesture = .tracking
+            return .track
+        }
+    }
+
+    /// Tracks the swipe `swipeAction` claimed on `event` (SPEC §6.2). AppKit dampens it past
+    /// a side with no neighbor, where it never completes.
+    func trackSwipe(_ event: NSEvent) {
+        let swipe = claimSwipe()
+        // The amount has the sign of scrollingDeltaX, which Natural scrolling inverts. Flip it
+        // so fingers moving left bring in the next Workspace either way.
+        let flip: CGFloat = event.isDirectionInvertedFromDevice ? 1 : -1
+        let toPrevious: CGFloat = swipe.previous == nil ? 0 : 1
+        let toNext: CGFloat = swipe.next == nil ? 0 : 1
+        event.trackSwipeEvent(
+            options: [.lockDirection, .clampGestureAmount],
+            dampenAmountThresholdMin: flip > 0 ? -toNext : -toPrevious,
+            max: flip > 0 ? toPrevious : toNext
+        ) { [weak self] amount, phase, _, stop in
+            MainActor.assumeIsolated {
+                guard let self, self.stepSwipe(swipe, amount: amount * flip, phase: phase) else {
+                    stop.pointee = true
+                    return
+                }
+            }
+        }
+    }
+
+    /// Starts a swipe from the shown Workspace. One still settling stops, so the new one
+    /// counts from the Workspace shown now.
+    func claimSwipe() -> Swipe {
+        swipeGeneration += 1
+        let index = shownIndex
+        return Swipe(
+            generation: swipeGeneration,
+            previous: index > 0 ? workspaces[index - 1].id : nil,
+            next: index + 1 < workspaces.count ? workspaces[index + 1].id : nil)
+    }
+
+    /// One step of tracking `swipe`, with the amount flipped to follow the fingers. At the
+    /// lift (the Ended phase), a swipe AppKit will finish switches through the one switch
+    /// path. Returns false to stop tracking: the swipe was cancelled, or is cancelled now
+    /// because its target ended or a sheet appeared, which would refuse the switch.
+    func stepSwipe(_ swipe: Swipe, amount: CGFloat, phase: NSEvent.Phase) -> Bool {
+        guard swipe.generation == swipeGeneration else { return false }
+
+        // In case AppKit's tracker took the gesture's last event before the monitor saw it.
+        if !phase.isDisjoint(with: [.ended, .cancelled]) { dropsSwipeMomentum = true }
+
+        let target = swipe.target(amount)
+        if let target, !workspaces.contains(where: { $0.id == target }) || shownTab?.window?.attachedSheet != nil {
+            cancelSwipe()
+            return false
+        }
+
+        if phase.contains(.ended), let target { show(target, bySwipe: true) }
+        return true
+    }
+
+    /// Cancels a swipe in progress (SPEC §6.3): nothing switches, and the rest of its
+    /// gesture and its momentum are dropped.
+    private func cancelSwipe() {
+        swipeGeneration += 1
+        if swipeGesture == .tracking { swipeGesture = .dropping }
     }
 
     // MARK: Membership
