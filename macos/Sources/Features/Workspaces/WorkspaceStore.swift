@@ -325,23 +325,24 @@ final class WorkspaceStore: ObservableObject {
 
         // The shown group's Tabs become the live group, in order, around the selected Tab,
         // which never leaves it. The rest order out: they're unselected, so nothing flashes.
+        // This rebuilds the Workspaces without `show`, so it cancels a swipe too (SPEC §6.3).
         let incoming = groups[shown].tabs.compactMap(\.window)
         isChanging = true
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        for window in group.windows where !incoming.contains(window) {
-            _ = Self.performSafely(.orderOut) { window.orderOut(nil) }
-        }
-        var position = 0
-        for window in incoming {
-            if let index = group.windows.firstIndex(of: window) {
-                position = index + 1
-            } else if Self.performSafely(.add, { group.insertWindow(window, at: position) }) {
-                position += 1
+        Self.withoutAnimation {
+            for window in group.windows where !incoming.contains(window) {
+                _ = Self.performSafely(.orderOut) { window.orderOut(nil) }
+            }
+            var position = 0
+            for window in incoming {
+                if let index = group.windows.firstIndex(of: window) {
+                    position = index + 1
+                } else if Self.performSafely(.add, { group.insertWindow(window, at: position) }) {
+                    position += 1
+                }
             }
         }
-        NSAnimationContext.endGrouping()
         isChanging = false
+        cancelSwipe()
 
         // A Tab that failed to order out stayed in the group, so it's shown. One that failed
         // to join stays hidden, in a Workspace of its own beside the shown one.
