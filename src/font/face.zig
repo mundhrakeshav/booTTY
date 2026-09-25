@@ -3,9 +3,9 @@ const builtin = @import("builtin");
 const build_config = @import("../build_config.zig");
 const options = @import("main.zig").options;
 const config = @import("../config.zig");
-const freetype = @import("face/freetype.zig");
+const freetype = struct {}; // booTTY: cut
 const coretext = @import("face/coretext.zig");
-pub const web_canvas = @import("face/web_canvas.zig");
+pub const web_canvas = struct {}; // booTTY: cut
 
 /// Face implementation for the compile options.
 pub const Face = switch (options.backend) {

@@ -54,9 +54,7 @@
 
         // C libs
         .dcimgui = .{ .path = "./pkg/dcimgui", .lazy = true },
-        .fontconfig = .{ .path = "./pkg/fontconfig", .lazy = true },
         .freetype = .{ .path = "./pkg/freetype", .lazy = true },
-        .harfbuzz = .{ .path = "./pkg/harfbuzz", .lazy = true },
         .highway = .{ .path = "./pkg/highway", .lazy = true },
         .libintl = .{ .path = "./pkg/libintl", .lazy = true },
         .libpng = .{ .path = "./pkg/libpng", .lazy = true },

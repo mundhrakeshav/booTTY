@@ -251,55 +251,6 @@ pub fn add(
         }
     }
 
-    // Harfbuzz
-    _ = b.systemIntegrationOption("harfbuzz", .{}); // Shows it in help
-    if (self.config.font_backend.hasHarfbuzz()) {
-        if (b.lazyDependency("harfbuzz", .{
-            .target = target,
-            .optimize = optimize,
-            .@"enable-freetype" = self.config.font_backend.hasFreetype(),
-            .@"enable-coretext" = self.config.font_backend.hasCoretext(),
-        })) |harfbuzz_dep| {
-            step.root_module.addImport(
-                "harfbuzz",
-                harfbuzz_dep.module("harfbuzz"),
-            );
-            if (b.systemIntegrationOption("harfbuzz", .{})) {
-                step.root_module.linkSystemLibrary("harfbuzz", dynamic_link_opts);
-            } else {
-                step.root_module.linkLibrary(harfbuzz_dep.artifact("harfbuzz"));
-                try static_libs.append(
-                    b.allocator,
-                    harfbuzz_dep.artifact("harfbuzz").getEmittedBin(),
-                );
-            }
-        }
-    }
-
-    // Fontconfig
-    _ = b.systemIntegrationOption("fontconfig", .{}); // Shows it in help
-    if (self.config.font_backend.hasFontconfig()) {
-        if (b.lazyDependency("fontconfig", .{
-            .target = target,
-            .optimize = optimize,
-        })) |fontconfig_dep| {
-            step.root_module.addImport(
-                "fontconfig",
-                fontconfig_dep.module("fontconfig"),
-            );
-
-            if (b.systemIntegrationOption("fontconfig", .{})) {
-                step.root_module.linkSystemLibrary("fontconfig", dynamic_link_opts);
-            } else {
-                step.root_module.linkLibrary(fontconfig_dep.artifact("fontconfig"));
-                try static_libs.append(
-                    b.allocator,
-                    fontconfig_dep.artifact("fontconfig").getEmittedBin(),
-                );
-            }
-        }
-    }
-
     // Libpng - Ghostty doesn't actually use this directly, its only used
     // through dependencies, so we only need to add it to our static
     // libs list if we're not using system integration. The dependencies

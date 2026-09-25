@@ -42,3 +42,12 @@ src/renderer/Dmabuf.zig
 src/renderer/shaders/glsl
 pkg/opengl
 vendor/glad
+src/font/face/freetype.zig
+src/font/shaper/harfbuzz.zig
+src/font/shaper/noop.zig
+src/font/face/web_canvas.zig
+src/font/shaper/web_canvas.zig
+pkg/harfbuzz
+pkg/fontconfig
+pkg/libxml2
+src/font/shaper/testdata/arabic.txt

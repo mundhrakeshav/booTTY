@@ -182,6 +182,7 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         "font-backend",
         "The font backend to use for discovery and rasterization.",
     ) orelse FontBackend.default(target.result, wasm_target);
+    if (config.font_backend != .coretext) std.debug.panic("font-backend={t} was cut from booTTY", .{config.font_backend});
 
     config.app_runtime = b.option(
         ApprtRuntime,
@@ -536,8 +537,6 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         // `-fsys` flag.
         for (&[_][]const u8{
             "freetype",
-            "harfbuzz",
-            "fontconfig",
             "libpng",
             "zlib",
             "oniguruma",
