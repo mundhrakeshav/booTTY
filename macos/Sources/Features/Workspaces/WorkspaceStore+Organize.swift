@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// Organize (SPEC §10): how Tabs are keyed, grouped, and named. `organize(by:)` applies it.
 extension WorkspaceStore {
@@ -31,20 +31,67 @@ extension WorkspaceStore {
         }
     }
 
+    /// A Tab's Splits as Organize breaks them up (SPEC §10.3).
+    struct OrganizeSplit<View: NSView & Codable & Identifiable> {
+        /// The Tab's key: its focused Split's.
+        let key: String?
+        /// The piece holding the focused Split, which keeps the Tab: the tree with the other
+        /// pieces' Splits removed, zoomed as removing them leaves it.
+        let kept: SplitTree<View>
+        /// One piece per other key, in split-tree order of each piece's first Split: the tree
+        /// with every other Split removed, unzoomed.
+        let brokenOut: [(key: String, tree: SplitTree<View>)]
+    }
+
+    /// Breaks `tree` up by `key` (SPEC §10.3). Splits sharing a key stay together in their
+    /// original layout, and the piece holding `focused` (else the first Split) keeps the Tab.
+    /// A Split with no key stays with that piece.
+    static func organizeSplit<View>(
+        _ tree: SplitTree<View>,
+        focused: View?,
+        key: (View) -> String?
+    ) -> OrganizeSplit<View> {
+        let splits = Array(tree)
+        guard let anchor = splits.first(where: { $0 === focused }) ?? splits.first else {
+            return OrganizeSplit(key: nil, kept: tree, brokenOut: [])
+        }
+        let tabKey = key(anchor)
+
+        var keys: [String] = []
+        var members: [String: [View]] = [:]
+        for split in splits where split !== anchor {
+            guard let key = key(split), key != tabKey else { continue }
+            if members[key] == nil { keys.append(key) }
+            members[key, default: []].append(split)
+        }
+
+        func removing(_ views: [View]) -> SplitTree<View> {
+            views.reduce(tree) { tree, view in tree.root?.node(view: view).map(tree.removing) ?? tree }
+        }
+        let brokenOut = keys.map { key in
+            let piece = removing(splits.filter { split in !members[key]!.contains { $0 === split } })
+            return (key: key, tree: SplitTree(root: piece.root, zoomed: nil))
+        }
+        return OrganizeSplit(key: tabKey, kept: removing(keys.flatMap { members[$0]! }), brokenOut: brokenOut)
+    }
+
     /// Regroups `tabs`, in the Window's order (Workspaces left to right, then Tabs top to
-    /// bottom), by `key` (SPEC §10.3). Groups come in the order of their first Tab, with the
-    /// unplaced Tabs (nil key) last as "Other", and keep their Tabs' order. Each remembers
-    /// its first Tab found in `remembering` (the shown Tab and the remembered Tabs), else its
-    /// first Tab (§10.5).
+    /// bottom), by `key` (SPEC §10.3). The Tabs `brokenOut` of a Tab take its place, right
+    /// after it, in split-tree order. Groups come in the order of their first Tab, with the
+    /// unplaced Tabs (nil key) last as "Other", and keep their Tabs' order. So when groups'
+    /// first Tabs share a place, the group holding the Tab itself comes first, then the ones
+    /// whose first Tab broke out of it. Each group remembers its first Tab found in
+    /// `remembering` (the shown Tab and the remembered Tabs), else its first Tab (§10.5).
     static func organizeGroups<Tab: AnyObject>(
         _ tabs: [Tab],
         key: (Tab) -> String?,
+        brokenOut: (Tab) -> [Tab] = { _ in [] },
         remembering: [Tab],
         home: String = NSHomeDirectory()
     ) -> [OrganizeGroup<Tab>] {
         var keys: [String?] = []
         var members: [String?: [Tab]] = [:]
-        for tab in tabs {
+        for tab in tabs.flatMap({ [$0] + brokenOut($0) }) {
             let key = key(tab)
             if members[key] == nil { keys.append(key) }
             members[key, default: []].append(tab)
