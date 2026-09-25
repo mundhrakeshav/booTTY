@@ -78,7 +78,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The store of the Window this Tab belongs to, shown or hidden. A Tab that starts a
     /// Window makes one, holding "Workspace 1"; a Tab added to a Window adopts its store.
-    lazy var workspaceStore = WorkspaceStore(tab: self)
+    lazy var workspaceStore = WorkspaceStore(tab: self) {
+        // The bar draws the Window's Workspaces, so it follows the Tab to its new store.
+        // No object: reading `window` here would load it before the Tab is set up.
+        didSet { NotificationCenter.default.post(name: TerminalWindow.tabDidChangeNotification, object: nil) }
+    }
 
     /// `windowStyle` is the style of the Window this Tab is created into. Nil means a new
     /// Window, styled by the current config.
