@@ -340,11 +340,15 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Get our parent. Our parent is the one explicitly given to us,
         // otherwise the focused terminal, otherwise an arbitrary one.
         let parent: NSWindow? = explicitParent ?? preferredParent?.window
-        if let parentController = parent?.windowController as? TerminalController {
+        let parentController = parent?.windowController as? TerminalController
+        if let parentController {
             c.isBackgroundOpaque = parentController.isBackgroundOpaque
         }
 
-        if let parent, parent.styleMask.contains(.fullScreen) {
+        // Whether the parent's Window is fullscreen is read from its shown Tab, since a
+        // hidden or unselected Tab's own window doesn't say (SPEC §2.6, §14).
+        let fullscreenParent = parentController?.workspaceStore.shownTab?.window ?? parent
+        if let fullscreenParent, fullscreenParent.styleMask.contains(.fullScreen) {
             // If our previous window was fullscreen then we want our new window to
             // be fullscreen. This behavior actually doesn't match the native tabbing
             // behavior of macOS apps where new windows create tabs when in native
@@ -512,6 +516,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return newWindow(ghostty, withBaseConfig: baseConfig, withParent: parent)
         }
 
+        // A Tab opened from a hidden Split joins its Workspace out of sight, and booTTY
+        // isn't activated (SPEC §14).
+        if parentController.isHidden {
+            let controller = parentController.workspaceStore.newHiddenTab(
+                beside: parentController, withBaseConfig: baseConfig)
+            if let controller {
+                registerUndoForNewTab(controller, from: parent, of: parentController, withBaseConfig: baseConfig)
+            }
+            return controller
+        }
+
         // If our parent is in non-native fullscreen, then new tabs do not work.
         // See: https://github.com/mitchellh/ghostty/issues/392
         if let fullscreenStyle = parentController.fullscreenStyle,
@@ -611,32 +626,41 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             controller.relabelTabs()
         }
 
-        // Setup our undo
-        if let undoManager = parentController.undoManager {
-            undoManager.setActionName("New Tab")
-            undoManager.registerUndo(
-                withTarget: controller,
-                expiresAfter: controller.undoExpiration
-            ) { target in
-                // Close the tab when undoing
-                undoManager.disableUndoRegistration {
-                    target.closeTab(nil)
-                }
-
-                // Register redo action
-                undoManager.registerUndo(
-                    withTarget: ghostty,
-                    expiresAfter: target.undoExpiration
-                ) { ghostty in
-                    _ = TerminalController.newTab(
-                        ghostty,
-                        from: parent,
-                        withBaseConfig: baseConfig)
-                }
-            }
-        }
+        registerUndoForNewTab(controller, from: parent, of: parentController, withBaseConfig: baseConfig)
 
         return controller
+    }
+
+    /// Registers Undo New Tab: undo closes `controller`, and redo opens another Tab from
+    /// `parent` the same way.
+    private static func registerUndoForNewTab(
+        _ controller: TerminalController,
+        from parent: NSWindow,
+        of parentController: TerminalController,
+        withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?
+    ) {
+        guard let undoManager = parentController.undoManager else { return }
+        undoManager.setActionName("New Tab")
+        undoManager.registerUndo(
+            withTarget: controller,
+            expiresAfter: controller.undoExpiration
+        ) { target in
+            // Close the tab when undoing
+            undoManager.disableUndoRegistration {
+                target.closeTab(nil)
+            }
+
+            // Register redo action
+            undoManager.registerUndo(
+                withTarget: target.ghostty,
+                expiresAfter: target.undoExpiration
+            ) { ghostty in
+                _ = TerminalController.newTab(
+                    ghostty,
+                    from: parent,
+                    withBaseConfig: baseConfig)
+            }
+        }
     }
 
     // MARK: - Methods
@@ -784,8 +808,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// the Window (SPEC §13.2).
     var isOnlyTabInWindow: Bool { groupedTabs.count <= 1 && workspaceStore.workspaces.count <= 1 }
 
-    /// Whether this Tab is in one of its Window's hidden Workspaces.
-    var isHidden: Bool { workspaceStore.isHidden(self) }
+    override var isHidden: Bool { workspaceStore.isHidden(self) }
 
     /// Where a sheet about this Tab goes: the Tab itself, or for a hidden Tab its Window's
     /// shown Tab (SPEC §2.5).
@@ -1678,6 +1701,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let action = notification.userInfo?[Notification.Name.GhosttyMoveTabKey] as? Ghostty.Action.MoveTab else { return }
         guard action.amount != 0 else { return }
 
+        // A hidden Tab moves among its Workspace's Tabs, out of sight (SPEC §14).
+        if isHidden {
+            let tabs = groupedTabs
+            guard let index = tabs.firstIndex(of: window) else { return }
+            workspaceStore.moveHiddenTab(self, to: Self.movedTabIndex(from: index, by: action.amount, count: tabs.count))
+            return
+        }
+
         // Determine our current selected index
         guard let windowController = window.windowController else { return }
         guard let tabGroup = windowController.window?.tabGroup else { return }
@@ -1687,13 +1718,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
 
         // Determine the final index we want to insert our tab
-        let finalIndex: Int
-        if action.amount < 0 {
-            finalIndex = selectedIndex - min(selectedIndex, -action.amount)
-        } else {
-            let remaining: Int = tabbedWindows.count - 1 - selectedIndex
-            finalIndex = selectedIndex + min(remaining, action.amount)
-        }
+        let finalIndex = Self.movedTabIndex(from: selectedIndex, by: action.amount, count: tabbedWindows.count)
 
         // If our index is the same we do nothing
         guard finalIndex != selectedIndex else { return }
@@ -1735,53 +1760,54 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     @objc private func onGotoTab(notification: SwiftUI.Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard target == self.focusedSurface else { return }
-        guard let window = self.window else { return }
 
         // Get the tab index from the notification
         guard let tabEnumAny = notification.userInfo?[Ghostty.Notification.GotoTabKey] else { return }
         guard let tabEnum = tabEnumAny as? ghostty_action_goto_tab_e else { return }
-        let tabIndex: Int32 = tabEnum.rawValue
 
-        guard let windowController = window.windowController else { return }
-        guard let tabGroup = windowController.window?.tabGroup else { return }
+        // A hidden Workspace's remembered Tab stands in for the selected Tab, and going to a
+        // Tab remembers it, out of sight (SPEC §14).
+        let hiddenWorkspace = workspaceStore.hiddenWorkspace(holding: self)
+        let selectedWindow = hiddenWorkspace == nil
+            ? window?.tabGroup?.selectedWindow
+            : hiddenWorkspace?.rememberedTab?.window
         let tabbedWindows = groupedTabs
+        guard let finalIndex = Self.gotoTabIndex(
+            tabEnum,
+            selected: tabbedWindows.firstIndex { $0 == selectedWindow },
+            count: tabbedWindows.count
+        ) else { return }
 
-        // This will be the index we want to actual go to
-        let finalIndex: Int
-
-        // An index that is invalid is used to signal some special values.
-        if tabIndex <= 0 {
-            guard let selectedWindow = tabGroup.selectedWindow else { return }
-            guard let selectedIndex = tabbedWindows.firstIndex(where: { $0 == selectedWindow }) else { return }
-
-            if tabIndex == GHOSTTY_GOTO_TAB_PREVIOUS.rawValue {
-                if selectedIndex == 0 {
-                    finalIndex = tabbedWindows.count - 1
-                } else {
-                    finalIndex = selectedIndex - 1
-                }
-            } else if tabIndex == GHOSTTY_GOTO_TAB_NEXT.rawValue {
-                if selectedIndex == tabbedWindows.count - 1 {
-                    finalIndex = 0
-                } else {
-                    finalIndex = selectedIndex + 1
-                }
-            } else if tabIndex == GHOSTTY_GOTO_TAB_LAST.rawValue {
-                finalIndex = tabbedWindows.count - 1
-            } else {
-                return
-            }
-        } else {
-            // The configured value is 1-indexed.
-            guard tabIndex >= 1 else { return }
-
-            // If our index is outside our boundary then we use the max
-            finalIndex = min(Int(tabIndex - 1), tabbedWindows.count - 1)
-        }
-
-        guard finalIndex >= 0 else { return }
         let targetWindow = tabbedWindows[finalIndex]
-        targetWindow.makeKeyAndOrderFront(nil)
+        if hiddenWorkspace == nil {
+            targetWindow.makeKeyAndOrderFront(nil)
+        } else if let tab = targetWindow.windowController as? TerminalController {
+            workspaceStore.remember(tab)
+        }
+    }
+
+    /// The index `goto_tab` goes to among `count` Tabs, `selected` being the selected Tab's:
+    /// previous and next wrap around, last is the last, and N counts from 1 and stops at the
+    /// last. Nil when there's nowhere to go.
+    static func gotoTabIndex(_ tab: ghostty_action_goto_tab_e, selected: Int?, count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        switch tab {
+        case GHOSTTY_GOTO_TAB_PREVIOUS: return selected.map { ($0 + count - 1) % count }
+        case GHOSTTY_GOTO_TAB_NEXT: return selected.map { ($0 + 1) % count }
+        case GHOSTTY_GOTO_TAB_LAST: return count - 1
+        default:
+            // The configured value is 1-indexed, and other values below 1 go nowhere.
+            let n = Int(tab.rawValue)
+            return n >= 1 ? min(n, count) - 1 : nil
+        }
+    }
+
+    /// The index a Tab at `index` among `count` Tabs moves to by `amount`. It stops at the ends.
+    static func movedTabIndex(from index: Int, by amount: Int, count: Int) -> Int {
+        if amount < 0 {
+            return index - min(index, -amount)
+        }
+        return index + min(count - 1 - index, amount)
     }
 
     @objc private func onCloseTab(notification: SwiftUI.Notification) {

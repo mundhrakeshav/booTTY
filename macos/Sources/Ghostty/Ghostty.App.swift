@@ -582,6 +582,13 @@ extension Ghostty {
             return Unmanaged<SurfaceView>.fromOpaque(surface_ud).takeUnretainedValue()
         }
 
+        /// Whether `surfaceView` is a hidden Split: its Tab is in a hidden Workspace. Actions on
+        /// its Window, or that open UI on it, are refused there: they report false and show
+        /// nothing (SPEC §14).
+        static private func isHiddenSplit(_ surfaceView: SurfaceView) -> Bool {
+            BaseTerminalController.controller(owning: surfaceView)?.isHidden ?? false
+        }
+
         // MARK: Actions (macOS)
 
         static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
@@ -613,10 +620,10 @@ extension Ghostty {
                 closeTab(app, target: target, mode: action.action.close_tab_mode)
 
             case GHOSTTY_ACTION_CLOSE_WINDOW:
-                closeWindow(app, target: target)
+                return closeWindow(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_FULLSCREEN:
-                toggleFullscreen(app, target: target, mode: action.action.toggle_fullscreen)
+                return toggleFullscreen(app, target: target, mode: action.action.toggle_fullscreen)
 
             case GHOSTTY_ACTION_MOVE_TAB:
                 return moveTab(app, target: target, move: action.action.move_tab)
@@ -670,7 +677,7 @@ extension Ghostty {
                 openConfig(app)
 
             case GHOSTTY_ACTION_FLOAT_WINDOW:
-                toggleFloatWindow(app, target: target, mode: action.action.float_window)
+                return toggleFloatWindow(app, target: target, mode: action.action.float_window)
 
             case GHOSTTY_ACTION_SECURE_INPUT:
                 toggleSecureInput(app, target: target, mode: action.action.secure_input)
@@ -688,7 +695,7 @@ extension Ghostty {
                 setInitialSize(app, target: target, v: action.action.initial_size)
 
             case GHOSTTY_ACTION_RESET_WINDOW_SIZE:
-                resetWindowSize(app, target: target)
+                return resetWindowSize(app, target: target)
 
             case GHOSTTY_ACTION_CELL_SIZE:
                 setCellSize(app, target: target, v: action.action.cell_size)
@@ -697,10 +704,10 @@ extension Ghostty {
                 rendererHealth(app, target: target, v: action.action.renderer_health)
 
             case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE:
-                toggleCommandPalette(app, target: target)
+                return toggleCommandPalette(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_MAXIMIZE:
-                toggleMaximize(app, target: target)
+                return toggleMaximize(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_QUICK_TERMINAL:
                 toggleQuickTerminal(app, target: target)
@@ -709,7 +716,7 @@ extension Ghostty {
                 toggleVisibility(app, target: target)
 
             case GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY:
-                toggleBackgroundOpacity(app, target: target)
+                return toggleBackgroundOpacity(app, target: target)
 
             case GHOSTTY_ACTION_KEY_SEQUENCE:
                 keySequence(app, target: target, v: action.action.key_sequence)
@@ -1087,23 +1094,26 @@ extension Ghostty {
             }
         }
 
-        private static func closeWindow(_ app: ghostty_app_t, target: ghostty_target_s) {
+        private static func closeWindow(_ app: ghostty_app_t, target: ghostty_target_s) -> Bool {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("close window does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard !isHiddenSplit(surfaceView) else { return false }
 
                 NotificationCenter.default.post(
                     name: .ghosttyCloseWindow,
                     object: surfaceView
                 )
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
         }
 
@@ -1115,18 +1125,19 @@ extension Ghostty {
         private static func toggleFullscreen(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
-            mode raw: ghostty_action_fullscreen_e) {
+            mode raw: ghostty_action_fullscreen_e) -> Bool {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle fullscreen does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard !isHiddenSplit(surfaceView) else { return false }
                 guard let mode = FullscreenMode.from(ghostty: raw) else {
                     Ghostty.logger.warning("unknown fullscreen mode raw=\(raw.rawValue, privacy: .public)")
-                    return
+                    return false
                 }
                 NotificationCenter.default.post(
                     name: Notification.ghosttyToggleFullscreen,
@@ -1135,52 +1146,60 @@ extension Ghostty {
                         Notification.FullscreenModeKey: mode,
                     ]
                 )
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
         }
 
         private static func toggleCommandPalette(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) {
+            target: ghostty_target_s) -> Bool {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle command palette does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard !isHiddenSplit(surfaceView) else { return false }
                 NotificationCenter.default.post(
                     name: .ghosttyCommandPaletteDidToggle,
                     object: surfaceView
                 )
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
         }
 
         private static func toggleMaximize(
             _ app: ghostty_app_t,
             target: ghostty_target_s
-        ) {
+        ) -> Bool {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle maximize does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard !isHiddenSplit(surfaceView) else { return false }
                 NotificationCenter.default.post(
                     name: .ghosttyMaximizeDidToggle,
                     object: surfaceView
                 )
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
         }
 
@@ -1277,7 +1296,7 @@ extension Ghostty {
 
                     // See gotoTab for notes on this check.
                     guard let controller = surfaceView.window?.windowController as? TerminalController,
-                          !controller.isHidden, controller.groupedTabs.count > 1 else { return false }
+                          controller.groupedTabs.count > 1 else { return false }
 
                     NotificationCenter.default.post(
                         name: .ghosttyMoveTab,
@@ -1336,9 +1355,9 @@ extension Ghostty {
 
                     // Similar to goto_split (see comment there) about our performability,
                     // we should make this more accurate later. This counts the Workspace's
-                    // Tabs, and a hidden Workspace's are ordered out, so none can be gone to.
+                    // Tabs; in a hidden Workspace, going to one remembers it (SPEC §14).
                     guard let controller = surfaceView.window?.windowController as? TerminalController,
-                          !controller.isHidden, controller.groupedTabs.count > 1 else { return false }
+                          controller.groupedTabs.count > 1 else { return false }
 
                     NotificationCenter.default.post(
                         name: Notification.ghosttyGotoTab,
@@ -1818,18 +1837,19 @@ extension Ghostty {
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             mode mode_raw: ghostty_action_float_window_e
-        ) {
-            guard let mode = SetFloatWIndow.from(mode_raw) else { return }
+        ) -> Bool {
+            guard let mode = SetFloatWIndow.from(mode_raw) else { return false }
 
             switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle float window does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
-                guard let window = surfaceView.window as? TerminalWindow else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard !isHiddenSplit(surfaceView) else { return false }
+                guard let window = surfaceView.window as? TerminalWindow else { return false }
 
                 switch mode {
                 case .on:
@@ -1845,30 +1865,35 @@ extension Ghostty {
                 if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
                     appDelegate.syncFloatOnTopMenu(window)
                 }
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
         }
 
         private static func toggleBackgroundOpacity(
             _ app: ghostty_app_t,
             target: ghostty_target_s
-        ) {
+        ) -> Bool {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("toggle background opacity does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface,
                     let surfaceView = self.surfaceView(from: surface),
-                    let controller = surfaceView.window?.windowController as? BaseTerminalController else { return }
+                    let controller = surfaceView.window?.windowController as? BaseTerminalController,
+                    !controller.isHidden else { return false }
 
                 controller.toggleBackgroundOpacity()
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
         }
 
@@ -2015,6 +2040,7 @@ extension Ghostty {
                 case GHOSTTY_TARGET_SURFACE:
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                    guard !isHiddenSplit(surfaceView) else { return false }
                     surfaceView.promptTitle()
                     return true
 
@@ -2036,7 +2062,8 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
                     guard let window = surfaceView.window,
-                          let controller = window.windowController as? BaseTerminalController
+                          let controller = window.windowController as? BaseTerminalController,
+                          !controller.isHidden
                     else { return false }
                     controller.promptTabTitle()
                     return true
@@ -2161,22 +2188,25 @@ extension Ghostty {
 
         private static func resetWindowSize(
             _ app: ghostty_app_t,
-            target: ghostty_target_s) {
+            target: ghostty_target_s) -> Bool {
             switch target.tag {
             case GHOSTTY_TARGET_APP:
                 Ghostty.logger.warning("reset window size does nothing with an app target")
-                return
+                return false
 
             case GHOSTTY_TARGET_SURFACE:
-                guard let surface = target.target.surface else { return }
-                guard let surfaceView = self.surfaceView(from: surface) else { return }
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard !isHiddenSplit(surfaceView) else { return false }
                 NotificationCenter.default.post(
                     name: .ghosttyResetWindowSize,
                     object: surfaceView
                 )
+                return true
 
             default:
                 assertionFailure()
+                return false
             }
         }
 

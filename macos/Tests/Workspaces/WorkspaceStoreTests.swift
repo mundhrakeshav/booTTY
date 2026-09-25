@@ -135,6 +135,16 @@ struct WorkspaceStoreTests {
         #expect(behindWaiting.since == t[0])
     }
 
+    // MARK: Hidden Tabs
+
+    @Test func newHiddenTabGoesAfterTheRememberedTabOrAtTheEnd() {
+        let a = NSObject(), b = NSObject(), c = NSObject()
+        let tabs = [a, b, c]
+        #expect(WorkspaceStore.newTabIndex(after: a, in: tabs, atEnd: false) == 1)
+        #expect(WorkspaceStore.newTabIndex(after: c, in: tabs, atEnd: false) == 3)
+        #expect(WorkspaceStore.newTabIndex(after: a, in: tabs, atEnd: true) == 3)
+        #expect(WorkspaceStore.newTabIndex(after: nil as NSObject?, in: tabs, atEnd: false) == 3)
+    }
     // MARK: Switching
 
     /// A tab group of two windows, `old` with the first selected, and two ordered-out
