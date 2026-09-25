@@ -38,4 +38,61 @@ struct VerticalTabBarModelTests {
     @Test func dotRowsNeverLeaveARowEmpty() {
         #expect(VerticalTabBarModel.dotRows(count: 2, width: 10) == [[0], [1], [2]])
     }
+
+    // MARK: Swiping
+
+    /// SPEC §6.3: fingers left move the shown page left and bring the next one in from the
+    /// right; fingers right bring the previous one in from the left. Past an end the shown
+    /// page stretches by the dampened amount.
+    @Test func pagesFollowTheSwipe() {
+        func place(_ amount: CGFloat, neighbor: Bool) -> (offset: CGFloat, opacity: Double) {
+            VerticalTabBarModel.pagePlacement(
+                amount: amount, isNeighbor: neighbor, hasNeighbor: true, reduceMotion: false)
+        }
+        #expect(place(-0.25, neighbor: false) == (-0.25, 1))
+        #expect(place(-0.25, neighbor: true) == (0.75, 1))
+        #expect(place(0.25, neighbor: true) == (-0.75, 1))
+        // After the switch at the lift, -0.4 counts as +0.6 from the incoming Workspace.
+        #expect(place(0.6, neighbor: false) == (0.6, 1))
+        #expect(place(0.6, neighbor: true) == (-0.4, 1))
+
+        let band = VerticalTabBarModel.pagePlacement(amount: 0.08, isNeighbor: false, hasNeighbor: false, reduceMotion: false)
+        #expect(band == (0.08, 1))
+    }
+
+    /// SPEC §6.4: under Reduce Motion the pages crossfade in place, and nothing changes
+    /// past an end.
+    @Test func reduceMotionCrossfadesThePages() {
+        func place(_ amount: CGFloat, neighbor: Bool, hasNeighbor: Bool = true) -> (offset: CGFloat, opacity: Double) {
+            VerticalTabBarModel.pagePlacement(
+                amount: amount, isNeighbor: neighbor, hasNeighbor: hasNeighbor, reduceMotion: true)
+        }
+        #expect(place(-0.25, neighbor: false) == (0, 0.75))
+        #expect(place(-0.25, neighbor: true) == (0, 0.25))
+        #expect(place(0.08, neighbor: false, hasNeighbor: false) == (0, 1))
+    }
+
+    /// SPEC §6.5: the shown mark hands the neighbor's the swipe's share of the capsule;
+    /// other marks, a rubber band, and Reduce Motion leave it whole on the shown mark.
+    @Test func capsuleSharePassesFromTheShownMarkToTheNeighbor() {
+        let (shown, neighbor, other) = (UUID(), UUID(), UUID())
+        func share(_ id: UUID, _ amount: CGFloat, neighbor n: UUID? = neighbor, reduceMotion: Bool = false) -> CGFloat {
+            VerticalTabBarModel.capsuleShare(of: id, shown: shown, neighbor: n, amount: amount, reduceMotion: reduceMotion)
+        }
+        #expect(share(shown, -0.25) == 0.75)
+        #expect(share(neighbor, -0.25) == 0.25)
+        #expect(share(other, -0.25) == 0)
+        #expect(share(neighbor, 1.2) == 1)
+        #expect(share(shown, 0.08, neighbor: nil) == 1)
+        #expect(share(shown, -0.5, reduceMotion: true) == 1)
+        #expect(share(neighbor, -0.5, reduceMotion: true) == 0)
+    }
+
+    /// SPEC §6.5: a mark grows from the 6 pt dot to the 12 pt capsule by its share, and its
+    /// status ring fades by the same share.
+    @Test func markGrowsAndItsRingFadesByItsShare() {
+        #expect(VerticalTabBarModel.mark(share: 0) == (6, 1))
+        #expect(VerticalTabBarModel.mark(share: 0.25) == (7.5, 0.75))
+        #expect(VerticalTabBarModel.mark(share: 1) == (12, 0))
+    }
 }

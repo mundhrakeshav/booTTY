@@ -74,6 +74,18 @@ final class WorkspaceStore: ObservableObject {
     /// Bumped by each claimed swipe and each cancel. A swipe from before stops tracking.
     private var swipeGeneration = 0
 
+    /// Set when the swipe switched at the lift: what its amount gains to count from the
+    /// Workspace shown now, and the Workspace it came from, which the settle keeps beside it.
+    private var swipeSwitch: (rebase: CGFloat, from: Workspace.ID)?
+
+    /// Where the swipe stands, so whichever of the Window's Tabs is shown draws it, the
+    /// incoming Tab's bar included during the settle (SPEC §6.3).
+    @Published private(set) var swipeProgress = SwipeProgress()
+
+    /// Bumped by each cancel that moved the swipe back to rest, so the bar morphs the
+    /// capsule back to the shown mark (SPEC §6.5).
+    @Published private(set) var swipeCancels = 0
+
     init(id: UUID = UUID(), workspaces: [Workspace], shownID: Workspace.ID) {
         precondition(workspaces.contains { $0.id == shownID })
         self.id = id
@@ -529,6 +541,15 @@ final class WorkspaceStore: ObservableObject {
 
     private enum SwipeGesture { case none, undecided, passed, tracking, dropping }
 
+    /// A swipe's progress, measured from the shown Workspace. Negative `amount` is fingers
+    /// moving left, toward the next Workspace; its size is the share of the bar's width the
+    /// pages have moved. `neighbor` is the Workspace whose page comes in beside the shown
+    /// one: nil at rest and past the first or last Workspace, where the page rubber-bands.
+    struct SwipeProgress: Equatable {
+        var amount: CGFloat = 0
+        var neighbor: Workspace.ID?
+    }
+
     /// A claimed swipe. Its targets are fixed by id when it starts: nil past the first or
     /// last Workspace, since a swipe never wraps (SPEC §6.3).
     struct Swipe: Equatable {
@@ -600,9 +621,9 @@ final class WorkspaceStore: ObservableObject {
             options: [.lockDirection, .clampGestureAmount],
             dampenAmountThresholdMin: flip > 0 ? -toNext : -toPrevious,
             max: flip > 0 ? toPrevious : toNext
-        ) { [weak self] amount, phase, _, stop in
+        ) { [weak self] amount, phase, isComplete, stop in
             MainActor.assumeIsolated {
-                guard let self, self.stepSwipe(swipe, amount: amount * flip, phase: phase) else {
+                guard let self, self.stepSwipe(swipe, amount: amount * flip, phase: phase, isComplete: isComplete) else {
                     stop.pointee = true
                     return
                 }
@@ -614,6 +635,8 @@ final class WorkspaceStore: ObservableObject {
     /// counts from the Workspace shown now.
     func claimSwipe() -> Swipe {
         swipeGeneration += 1
+        swipeSwitch = nil
+        swipeProgress = SwipeProgress()
         let index = shownIndex
         return Swipe(
             generation: swipeGeneration,
@@ -623,13 +646,21 @@ final class WorkspaceStore: ObservableObject {
 
     /// One step of tracking `swipe`, with the amount flipped to follow the fingers. At the
     /// lift (the Ended phase), a swipe AppKit will finish switches through the one switch
-    /// path. Returns false to stop tracking: the swipe was cancelled, or is cancelled now
-    /// because its target ended or a sheet appeared, which would refuse the switch.
-    func stepSwipe(_ swipe: Swipe, amount: CGFloat, phase: NSEvent.Phase) -> Bool {
+    /// path, and the rest of the settle counts from the Workspace it switched to. Returns
+    /// false to stop tracking: the swipe was cancelled, or is cancelled now because its
+    /// target ended or a sheet appeared, which would refuse the switch.
+    func stepSwipe(_ swipe: Swipe, amount: CGFloat, phase: NSEvent.Phase, isComplete: Bool = false) -> Bool {
         guard swipe.generation == swipeGeneration else { return false }
 
         // In case AppKit's tracker took the gesture's last event before the monitor saw it.
         if !phase.isDisjoint(with: [.ended, .cancelled]) { dropsSwipeMomentum = true }
+
+        if let swipeSwitch {
+            swipeProgress = isComplete
+                ? SwipeProgress()
+                : SwipeProgress(amount: amount + swipeSwitch.rebase, neighbor: swipeSwitch.from)
+            return true
+        }
 
         let target = swipe.target(amount)
         if let target, !workspaces.contains(where: { $0.id == target }) || shownTab?.window?.attachedSheet != nil {
@@ -637,15 +668,32 @@ final class WorkspaceStore: ObservableObject {
             return false
         }
 
-        if phase.contains(.ended), let target { show(target, bySwipe: true) }
+        if phase.contains(.ended), let target {
+            let from = shownID
+            guard show(target, bySwipe: true) else {
+                cancelSwipe()
+                return false
+            }
+            // -0.4 toward the next Workspace is +0.6 from it, so the settle slides on.
+            let rebase: CGFloat = amount < 0 ? 1 : -1
+            swipeSwitch = (rebase, from)
+            swipeProgress = SwipeProgress(amount: amount + rebase, neighbor: from)
+            return true
+        }
+
+        swipeProgress = isComplete ? SwipeProgress() : SwipeProgress(amount: amount, neighbor: target)
         return true
     }
 
-    /// Cancels a swipe in progress (SPEC §6.3): nothing switches, and the rest of its
-    /// gesture and its momentum are dropped.
+    /// Cancels a swipe in progress (SPEC §6.3): nothing switches, the rest of its gesture
+    /// and its momentum are dropped, and the bar shows the shown Workspace's page at once.
     private func cancelSwipe() {
         swipeGeneration += 1
+        swipeSwitch = nil
         if swipeGesture == .tracking { swipeGesture = .dropping }
+        guard swipeProgress != SwipeProgress() else { return }
+        swipeProgress = SwipeProgress()
+        swipeCancels += 1
     }
 
     // MARK: Membership
