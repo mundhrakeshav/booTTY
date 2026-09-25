@@ -89,14 +89,45 @@ final class WorkspaceStore: ObservableObject {
         return shownTabs
     }
 
+    /// The hidden Workspace holding `tab`, or nil if `tab` is shown or not this Window's.
+    func hiddenWorkspace(holding tab: TerminalController) -> Workspace? {
+        workspaces.first { $0.hiddenTabs.contains { $0 === tab } }
+    }
+
     /// True if `tab` is in one of this Window's hidden Workspaces.
     func isHidden(_ tab: TerminalController) -> Bool {
-        workspaces.contains { $0.hiddenTabs.contains { $0 === tab } }
+        hiddenWorkspace(holding: tab) != nil
     }
 
     /// A Window is in non-native fullscreen while any of its Tabs is (SPEC §3).
     var isInNonNativeFullscreen: Bool {
         shownTabs.contains { $0.isInNonNativeFullscreen }
+    }
+
+    /// The Window's shown Tab, where sheets about its hidden Tabs go (SPEC §2.5): the Tab in
+    /// non-native fullscreen, else the live group's selected Tab.
+    var shownTab: TerminalController? {
+        tabs(of: shownID).first { $0.isInNonNativeFullscreen }
+            ?? tabGroup?.selectedWindow?.windowController as? TerminalController
+    }
+
+    /// The Workspace shown when the shown one ends: the one to its right, else the one to its
+    /// left (SPEC §1.4). Nil when it's the Window's only Workspace.
+    var neighborID: Workspace.ID? {
+        Self.neighbor(of: shownIndex, in: workspaces)?.id
+    }
+
+    /// The Tab a hidden Workspace remembers once `tab` leaves `tabs`: `remembered` if that's
+    /// another Tab, else the Tab to the right of `tab`, else the one to its left (SPEC §13.5).
+    static func remembered<Tab: AnyObject>(_ remembered: Tab?, after tab: Tab, leaves tabs: [Tab]) -> Tab? {
+        guard remembered === tab, let index = tabs.firstIndex(where: { $0 === tab }) else { return remembered }
+        return neighbor(of: index, in: tabs)
+    }
+
+    /// The element to the right of `index`, else the one to its left.
+    private static func neighbor<Element>(of index: Int, in elements: [Element]) -> Element? {
+        if elements.indices.contains(index + 1) { return elements[index + 1] }
+        return elements.indices.contains(index - 1) ? elements[index - 1] : nil
     }
 
     private var shownTabs: [TerminalController] {
@@ -165,6 +196,23 @@ final class WorkspaceStore: ObservableObject {
         let workspace = Workspace(name: Self.newName(in: workspaces), hiddenTabs: tabs)
         workspaces.append(workspace)
         return workspace.id
+    }
+
+    /// Drops `tab`, which closed or left, from its hidden Workspace; does nothing if it isn't
+    /// in one. The remembered Tab passes on per `remembered(_:after:leaves:)`, and a Workspace
+    /// left without Tabs ends quietly while the Window keeps showing what it shows (SPEC §1.4,
+    /// §13.5).
+    func removeHiddenTab(_ tab: TerminalController) {
+        guard let index = workspaces.firstIndex(where: { $0.hiddenTabs.contains { $0 === tab } }) else { return }
+        var workspace = workspaces[index]
+        workspace.rememberedTab = Self.remembered(workspace.rememberedTab, after: tab, leaves: workspace.hiddenTabs)
+        workspace.hiddenTabs.removeAll { $0 === tab }
+        if workspace.hiddenTabs.isEmpty {
+            workspaces.remove(at: index)
+        } else {
+            workspaces[index] = workspace
+        }
+        invalidateRestorableState()
     }
 
     // MARK: Switching

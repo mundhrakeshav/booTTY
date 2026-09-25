@@ -1271,7 +1271,7 @@ extension Ghostty {
 
                     // See gotoTab for notes on this check.
                     guard let controller = surfaceView.window?.windowController as? TerminalController,
-                          !controller.isOnlyTabInWindow else { return false }
+                          !controller.isHidden, controller.groupedTabs.count > 1 else { return false }
 
                     NotificationCenter.default.post(
                         name: .ghosttyMoveTab,
@@ -1303,7 +1303,7 @@ extension Ghostty {
                     // See gotoTab for notes on this check. A lone tab is already
                     // a window of its own, so there is nothing to move.
                     guard let controller = surfaceView.window?.windowController as? TerminalController,
-                          !controller.isOnlyTabInWindow else { return false }
+                          !controller.isHidden, controller.groupedTabs.count > 1 else { return false }
 
                     surfaceView.window?.moveTabToNewWindow(nil)
 
@@ -1328,9 +1328,10 @@ extension Ghostty {
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
                     // Similar to goto_split (see comment there) about our performability,
-                    // we should make this more accurate later.
+                    // we should make this more accurate later. This counts the Workspace's
+                    // Tabs, and a hidden Workspace's are ordered out, so none can be gone to.
                     guard let controller = surfaceView.window?.windowController as? TerminalController,
-                          !controller.isOnlyTabInWindow else { return false }
+                          !controller.isHidden, controller.groupedTabs.count > 1 else { return false }
 
                     NotificationCenter.default.post(
                         name: Notification.ghosttyGotoTab,
