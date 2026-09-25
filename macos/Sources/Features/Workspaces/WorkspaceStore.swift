@@ -261,6 +261,16 @@ final class WorkspaceStore: ObservableObject {
         invalidateRestorableState()
     }
 
+    /// Workspace Color ▸ (SPEC §5.4). Any Workspace, hidden ones included. No undo, just
+    /// like a Tab's color.
+    func setColor(_ color: TerminalTabColor, of id: Workspace.ID) {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }),
+              workspaces[index].color != color
+        else { return }
+        workspaces[index].color = color
+        invalidateRestorableState()
+    }
+
     /// The rename prompt (SPEC §7.5), as a sheet on the shown Tab. Any Workspace can be
     /// its target, hidden ones included. False when there's no shown Tab to put it on.
     func promptName(for id: Workspace.ID) -> Bool {

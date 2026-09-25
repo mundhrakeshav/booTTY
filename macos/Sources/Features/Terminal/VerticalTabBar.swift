@@ -366,6 +366,33 @@ final class VerticalTabBarModel: ObservableObject {
         focusTerminal()
     }
 
+    // The dot menu (SPEC §5.3) aims at its dot's Workspace, shown or hidden.
+
+    /// Rename Workspace…: in the header for the shown Workspace of an expanded bar, else
+    /// with the rename prompt.
+    func renameWorkspace(_ id: Workspace.ID) {
+        guard let store = workspaceTab?.workspaceStore else { return }
+        if id == store.shownID && !TabBarSettings.shared.isCollapsed {
+            renamingWorkspace = id
+        } else {
+            _ = store.promptName(for: id)
+        }
+    }
+
+    func setColor(_ color: TerminalTabColor, forWorkspace id: Workspace.ID) {
+        workspaceTab?.workspaceStore.setColor(color, of: id)
+    }
+
+    func closeWorkspace(_ id: Workspace.ID) {
+        guard let tab = workspaceTab else { return }
+        _ = tab.workspaceStore.closeWorkspace(id, from: tab)
+    }
+
+    func moveWorkspaceToNewWindow(_ id: Workspace.ID) {
+        guard let tab = workspaceTab else { return }
+        _ = tab.workspaceStore.moveToNewWindow(id, requestedBy: tab)
+    }
+
     /// A dot's drag payload. With no Window to name, it names none that exists, so every
     /// dot refuses it.
     func dragItem(for id: Workspace.ID) -> DraggedWorkspace {
@@ -637,7 +664,7 @@ private struct VerticalTabBar: View {
 
             // Pinned below the list, which scrolls to make room.
             if !model.workspaces.isEmpty {
-                WorkspaceDots(model: model, collapsed: settings.isCollapsed, barWidth: width)
+                WorkspaceDots(model: model, settings: settings, barWidth: width)
             }
         }
         .frame(width: width)
@@ -809,19 +836,7 @@ private struct VerticalTabRow: View {
     @ViewBuilder
     private var menu: some View {
         Button("Rename Tab…") { model.rename(tab.id) }
-        Menu("Tab Color") {
-            ForEach(TerminalTabColor.allCases, id: \.self) { color in
-                Button {
-                    model.setColor(color, for: tab.id)
-                } label: {
-                    Label {
-                        Text(color.localizedName)
-                    } icon: {
-                        Image(nsImage: color.swatchImage(selected: color == tab.color))
-                    }
-                }
-            }
-        }
+        ColorMenu(title: "Tab Color", current: tab.color) { model.setColor($0, for: tab.id) }
 
         Divider()
 
@@ -897,8 +912,10 @@ private struct NewTabRow: View {
 /// that wrap, leading-aligned on either side; collapsed they stack in one column.
 private struct WorkspaceDots: View {
     @ObservedObject var model: VerticalTabBarModel
-    let collapsed: Bool
+    @ObservedObject var settings: TabBarSettings
     let barWidth: CGFloat
+
+    private var collapsed: Bool { settings.isCollapsed }
 
     /// The dot under the pointer. Only a dot that still matches clears it, so passing
     /// from dot to dot doesn't flicker the label.
@@ -945,7 +962,7 @@ private struct WorkspaceDots: View {
             model: model,
             workspace: model.workspaces[index],
             index: index,
-            collapsed: collapsed,
+            settings: settings,
             hovered: $hovered)
     }
 
@@ -989,8 +1006,10 @@ private struct WorkspaceDot: View {
     @ObservedObject var model: VerticalTabBarModel
     let workspace: VerticalTabBarModel.Workspace
     let index: Int
-    let collapsed: Bool
+    @ObservedObject var settings: TabBarSettings
     @Binding var hovered: VerticalTabBarModel.Workspace.ID?
+
+    private var collapsed: Bool { settings.isCollapsed }
 
     @State private var isDropTarget = false
 
@@ -1026,6 +1045,7 @@ private struct WorkspaceDot: View {
                     hovered = nil
                 }
             }
+            .contextMenu { menu }
             .draggable(model.dragItem(for: workspace.id))
             .dropDestination(for: WorkspaceDrop.self) { items, _ in
                 items.first.map { model.drop($0, on: workspace.id) } ?? false
@@ -1040,6 +1060,25 @@ private struct WorkspaceDot: View {
                     .compactMap { $0 }
                     .joined(separator: ", "))
             .accessibilityAddTraits(workspace.isShown ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// The dot menu (SPEC §5.3). The last group acts on the bar, not on this Workspace.
+    @ViewBuilder
+    private var menu: some View {
+        Button("Rename Workspace…") { model.renameWorkspace(workspace.id) }
+        ColorMenu(title: "Workspace Color", current: workspace.color) {
+            model.setColor($0, forWorkspace: workspace.id)
+        }
+
+        Divider()
+
+        Button("Close Workspace") { model.closeWorkspace(workspace.id) }
+        Button("Move Workspace to New Window") { model.moveWorkspaceToNewWindow(workspace.id) }
+            .disabled(model.workspaces.count < 2)
+
+        Divider()
+
+        TabBarMenuItems(model: model, settings: settings)
     }
 }
 
@@ -1142,6 +1181,30 @@ private struct TabBarMenuItems: View {
         }
         Button(settings.isCollapsed ? "Expand Tab Bar" : "Collapse Tab Bar") {
             settings.isCollapsed.toggle()
+        }
+    }
+}
+
+/// A swatch for each color, None first, with `current` marked: the Tab Color and
+/// Workspace Color menus.
+private struct ColorMenu: View {
+    let title: String
+    let current: TerminalTabColor
+    let set: (TerminalTabColor) -> Void
+
+    var body: some View {
+        Menu(title) {
+            ForEach(TerminalTabColor.allCases, id: \.self) { color in
+                Button {
+                    set(color)
+                } label: {
+                    Label {
+                        Text(color.localizedName)
+                    } icon: {
+                        Image(nsImage: color.swatchImage(selected: color == current))
+                    }
+                }
+            }
         }
     }
 }
