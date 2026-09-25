@@ -1,4 +1,5 @@
 import AppKit
+import CoreTransferable
 import Testing
 @testable import Ghostty
 
@@ -37,5 +38,31 @@ struct VerticalTabBarModelTests {
     /// A bar narrower than one item still places everything, one item per row.
     @Test func dotRowsNeverLeaveARowEmpty() {
         #expect(VerticalTabBarModel.dotRows(count: 2, width: 10) == [[0], [1], [2]])
+    }
+
+    /// SPEC §5.5: the one drop type of a dot and "+" tells a Tab row from a dot.
+    @Test func workspaceDropTellsTabRowsFromDots() async throws {
+        func drop(_ provider: NSItemProvider) async throws -> WorkspaceDrop {
+            try await withCheckedThrowingContinuation { continuation in
+                _ = provider.loadTransferable(type: WorkspaceDrop.self) { continuation.resume(with: $0) }
+            }
+        }
+
+        let row = NSItemProvider()
+        row.register(DraggedTab(window: 7))
+        guard case .tab(let tab) = try await drop(row) else {
+            Issue.record("a row isn't a Tab drop")
+            return
+        }
+        #expect(tab.window == 7)
+
+        let dragged = DraggedWorkspace(window: UUID(), workspace: UUID())
+        let dot = NSItemProvider()
+        dot.register(dragged)
+        guard case .workspace(let workspace) = try await drop(dot) else {
+            Issue.record("a dot isn't a Workspace drop")
+            return
+        }
+        #expect(workspace.window == dragged.window && workspace.workspace == dragged.workspace)
     }
 }

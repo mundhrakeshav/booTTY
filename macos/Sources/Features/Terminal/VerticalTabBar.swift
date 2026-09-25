@@ -372,19 +372,34 @@ final class VerticalTabBarModel: ObservableObject {
         DraggedWorkspace(window: workspaceTab?.workspaceStore.id ?? UUID(), workspace: id)
     }
 
-    /// Something dropped on the dot of Workspace `target` (SPEC §5.5). A dot moves its
-    /// Workspace to the target's place, and dots from another Window are refused.
-    func drop(_ item: WorkspaceDrop, on target: Workspace.ID) -> Bool {
-        guard let store = workspaceTab?.workspaceStore,
-              let index = store.workspaces.firstIndex(where: { $0.id == target })
-        else { return false }
+    /// Something dropped on the dot of Workspace `target`, or on "+" when `target` is nil
+    /// (SPEC §5.5). A dot moves its Workspace to the target's place, and "+" refuses it. A
+    /// Tab row moves its Tab to the end of the target (§11.1), or into a new Workspace on
+    /// "+", which refuses a Workspace's only Tab; the capsule takes no Tab. Both payloads
+    /// from another Window are refused.
+    func drop(_ item: WorkspaceDrop, on target: Workspace.ID?) -> Bool {
+        guard let store = workspaceTab?.workspaceStore else { return false }
 
         switch item {
         case .workspace(let dragged):
-            guard dragged.window == store.id else { return false }
+            guard dragged.window == store.id,
+                  let index = store.workspaces.firstIndex(where: { $0.id == target })
+            else { return false }
             return store.moveWorkspace(dragged.workspace, to: index)
+
+        case .tab(let dragged):
+            guard target != store.shownID,
+                  let tab = draggedWindow(dragged)?.windowController as? TerminalController,
+                  tab.workspaceStore === store,
+                  // A row's Tab is shown, so in non-native fullscreen its drop would change
+                  // the shown Workspace's Tabs, and a drop is refused silently (SPEC §3).
+                  !store.isInNonNativeFullscreen || store.isHidden(tab)
+            else { return false }
+            guard let target else { return store.moveTabToNewWorkspace(tab) }
+            return store.moveTab(tab, to: target)
         }
     }
+
     /// The expanded bar's rows of dots (SPEC §5.1): indices of `count` 14 pt dots, then
     /// "+" (22 pt) as index `count`, broken greedily into rows no wider than `width`. A row
     /// breaks before the item that doesn't fit and is never empty.
@@ -443,12 +458,14 @@ final class VerticalTabBarModel: ObservableObject {
         DraggedTab(window: UInt(bitPattern: id))
     }
 
+    private func draggedWindow(_ tab: DraggedTab) -> NSWindow? {
+        NSApp.windows.first(where: { UInt(bitPattern: ObjectIdentifier($0)) == tab.window })
+    }
+
     /// Moves the dragged tab to `index` in this window's tab group, taking it out of
     /// another group if it came from a different window.
     func moveTab(_ tab: DraggedTab, to index: Int) -> Bool {
-        guard let window,
-              let dragged = NSApp.windows.first(where: { UInt(bitPattern: ObjectIdentifier($0)) == tab.window })
-        else { return false }
+        guard let window, let dragged = draggedWindow(tab) else { return false }
 
         let windows = window.tabGroup?.windows ?? [window]
         let from = windows.firstIndex(of: dragged)
@@ -500,6 +517,12 @@ struct DraggedTab: Codable, Transferable {
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .ghosttyTab)
     }
+
+    /// Whether the drag in flight carries a Tab row. `isTargeted` doesn't say what hovers
+    /// a drop destination, and the capsule and "+" each refuse one payload.
+    static var isDragging: Bool {
+        NSPasteboard(name: .drag).types?.contains(.init(UTType.ghosttyTab.identifier)) ?? false
+    }
 }
 
 extension UTType {
@@ -518,13 +541,15 @@ struct DraggedWorkspace: Codable, Transferable {
     }
 }
 
-/// What a dot accepts. Chained `.dropDestination`s honor only the first matching type, so
-/// each dot has one destination for this enum, which wraps every payload it takes.
+/// What a dot and "+" accept. Chained `.dropDestination`s honor only the first matching
+/// type, so each has one destination for this enum, which wraps every payload they take.
 enum WorkspaceDrop: Transferable {
     case workspace(DraggedWorkspace)
+    case tab(DraggedTab)
 
     static var transferRepresentation: some TransferRepresentation {
         ProxyRepresentation(importing: { (dragged: DraggedWorkspace) in .workspace(dragged) })
+        ProxyRepresentation(importing: { (dragged: DraggedTab) in .tab(dragged) })
     }
 }
 
@@ -904,6 +929,8 @@ private struct WorkspaceDots: View {
     /// from dot to dot doesn't flicker the label.
     @State private var hovered: VerticalTabBarModel.Workspace.ID?
 
+    @State private var isNewWorkspaceDropTarget = false
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -949,11 +976,21 @@ private struct WorkspaceDots: View {
             hovered: $hovered)
     }
 
+    /// "+" takes only Tab rows, and not a Workspace's only Tab (SPEC §5.5), so it lights up
+    /// only for those.
     private var newWorkspaceButton: some View {
         IconButton(systemImage: "plus", pointSize: 10, weight: .medium, size: 20, help: "New Workspace") {
             model.newWorkspace()
         }
         .frame(width: collapsed ? 32 : 22, height: 22)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(isNewWorkspaceDropTarget ? Color.accentColor.opacity(0.25) : .clear))
+        .contentShape(Rectangle())
+        .dropDestination(for: WorkspaceDrop.self) { items, _ in
+            items.first.map { model.drop($0, on: nil) } ?? false
+        } isTargeted: {
+            isNewWorkspaceDropTarget = $0 && DraggedTab.isDragging && model.tabs.count > 1
+        }
     }
 
     /// The hovered dot's name, above the dots and never wider than the bar. Collapsed,
@@ -1030,7 +1067,8 @@ private struct WorkspaceDot: View {
             .dropDestination(for: WorkspaceDrop.self) { items, _ in
                 items.first.map { model.drop($0, on: workspace.id) } ?? false
             } isTargeted: {
-                isDropTarget = $0
+                // The capsule takes no Tab (SPEC §11.1), so it doesn't light up for one.
+                isDropTarget = $0 && !(workspace.isShown && DraggedTab.isDragging)
             }
             .help(collapsed ? workspace.name : "")
             .accessibilityElement(children: .ignore)
