@@ -1425,10 +1425,16 @@ extension AppDelegate: NSMenuItemValidation {
 // MARK: - Termination Flow
 
 extension AppDelegate {
+    /// Quit asks once per Window, on its shown Tab, when any of its Tabs would, hidden
+    /// Workspaces included, and nothing switches Workspaces (SPEC §13.3). The Quick Terminal
+    /// asks on its own.
     func terminate() -> NSApplication.TerminateReply {
+        var seen = Set<ObjectIdentifier>()
         let controllersNeedConfirmation = NSApplication.shared.windows
             .compactMap { $0.windowController as? BaseTerminalController }
             .filter { !$0.windowCanBeClosedWithoutConfirmation() }
+            .map { ($0 as? TerminalController)?.windowShownTab ?? $0 }
+            .filter { seen.insert(ObjectIdentifier($0)).inserted }
 
         guard !controllersNeedConfirmation.isEmpty else {
             return .terminateNow
@@ -1436,17 +1442,7 @@ extension AppDelegate {
 
         if controllersNeedConfirmation.count == 1 {
             Task {
-                let response = await controllersNeedConfirmation[0].confirmCloseAsync(
-                    messageText: "Quit Ghostty?",
-                    informativeText: "The terminal still has a running process. If you quit, the process will be killed.",
-                    confirmButtonTitle: "Terminate",
-                )
-
-                if [.OK, .alertFirstButtonReturn].contains(response) {
-                    await NSApp.reply(toApplicationShouldTerminate: true)
-                } else {
-                    await NSApp.reply(toApplicationShouldTerminate: false)
-                }
+                await NSApp.reply(toApplicationShouldTerminate: confirmQuit(controllersNeedConfirmation[0]))
             }
 
             return .terminateLater
@@ -1467,26 +1463,44 @@ extension AppDelegate {
         }
     }
 
-    private func reviewWindows(_ controllers: [BaseTerminalController]) {
-        Task {
-            for controller in controllers {
-                let response = await controller.confirmCloseAsync(
-                    messageText: "Quit Ghostty?",
-                    informativeText: "The terminal still has a running process. If you quit, the process will be killed.",
-                    confirmButtonTitle: "Terminate",
-                )
+    /// "Quit Ghostty?" on `controller`, a Window's shown Tab or the Quick Terminal. A Window's
+    /// text names its hidden Workspaces that would ask. True for Terminate.
+    @MainActor private func confirmQuit(_ controller: BaseTerminalController) async -> Bool {
+        let informativeText: String
+        if let tab = controller as? TerminalController {
+            let hidden = WorkspaceStore.hiddenWorkspacesPhrase(
+                naming: tab.workspaceStore.hiddenNames { !$0.windowCanBeClosedWithoutConfirmation() })
+            informativeText = "This window still has running processes\(hidden.map { ", including in \($0)" } ?? ""). If you quit, they will be killed."
+        } else {
+            informativeText = "The terminal still has a running process. If you quit, the process will be killed."
+        }
 
-                if [.OK, .alertFirstButtonReturn].contains(response) {
-                    // Close this window and until next review is cancelled
-                    await controller.window?.close()
-                    continue
-                } else {
-                    await NSApp.reply(toApplicationShouldTerminate: false)
+        let response = await controller.confirmCloseAsync(
+            messageText: "Quit Ghostty?",
+            informativeText: informativeText,
+            confirmButtonTitle: "Terminate",
+        )
+        return [.OK, .alertFirstButtonReturn].contains(response)
+    }
+
+    private func reviewWindows(_ controllers: [BaseTerminalController]) {
+        Task { @MainActor in
+            for controller in controllers {
+                guard await confirmQuit(controller) else {
+                    NSApp.reply(toApplicationShouldTerminate: false)
                     // Cancel the review
                     return
                 }
+
+                // Terminate closes the whole Window, hidden Workspaces included, with nothing
+                // to undo, and the review goes on.
+                if let tab = controller as? TerminalController {
+                    undoManager.disableUndoRegistration { tab.closeWindowImmediately() }
+                } else {
+                    controller.window?.close()
+                }
             }
-            await NSApp.reply(toApplicationShouldTerminate: true)
+            NSApp.reply(toApplicationShouldTerminate: true)
         }
     }
 }

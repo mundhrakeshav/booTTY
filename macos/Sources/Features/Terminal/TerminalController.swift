@@ -1008,149 +1008,134 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    /// Closes the current window (including any other tabs) immediately and without
-    /// confirmation. This will setup proper undo state so the action can be undone.
-    func closeWindowImmediately() {
-        guard let window = window else { return }
-
-        cancelPendingInitialPresentation()
-
-        registerUndoForCloseWindow()
-
-        if !isOnlyTabInWindow {
-            groupedTabs.forEach { window in
-                // Clear out the surfacetree to ensure there is no undo state.
-                // This prevents unnecessary undos registered since AppKit may
-                // process them on later ticks so we can't just disable undo registration.
-                if let controller = window.windowController as? TerminalController {
-                    controller.cancelPendingInitialPresentation()
-                    controller.surfaceTree = .init()
-                }
-
-                window.close()
-            }
-        } else {
-            window.close()
+    /// Every Tab of this Window, by Workspace in bar order, hidden Workspaces included: what
+    /// Close Window checks, closes, and brings back (SPEC §13.2). The shown Workspace's are its
+    /// live group's plus a Tab in non-native fullscreen, or this Tab alone while the store has
+    /// no group, which only a Window without hidden Workspaces lacks.
+    private var windowTabs: [(workspace: WorkspaceStore.Workspace, tabs: [TerminalController])] {
+        let store = workspaceStore
+        store.reconcile()
+        let shown = store.tabs(of: store.shownID)
+        return store.workspaces.map { workspace in
+            (workspace, workspace.id != store.shownID ? workspace.hiddenTabs : shown.isEmpty ? [self] : shown)
         }
     }
 
-    /// Registers undo for closing window(s), handling both single windows and tab groups.
-    private func registerUndoForCloseWindow() {
+    /// This Tab's Window's shown Tab, where Close Window, Close All Windows, and Quit ask about
+    /// the whole Window (SPEC §13), or this Tab while the store has no group to find it in.
+    var windowShownTab: TerminalController {
+        workspaceStore.reconcile()
+        return workspaceStore.shownTab ?? self
+    }
+
+    /// Close Window without asking (SPEC §13.2): closes every Tab of every Workspace of this
+    /// Window and registers Undo Close Window.
+    func closeWindowImmediately() {
+        guard window != nil else { return }
+
+        let workspaces = windowTabs
+        registerUndoForCloseWindow(workspaces)
+
+        for tab in workspaces.flatMap(\.tabs) {
+            tab.cancelPendingInitialPresentation()
+            // Clear out the surfacetree to ensure there is no undo state.
+            // This prevents unnecessary undos registered since AppKit may
+            // process them on later ticks so we can't just disable undo registration.
+            tab.surfaceTree = .init()
+            tab.window?.close()
+        }
+    }
+
+    /// What Undo Close Window keeps of one of the Window's Workspaces.
+    private struct ClosedWorkspace {
+        let saved: WorkspaceStore.UndoState
+        let tabs: [UndoState]
+        /// The index in `tabs` of the Tab it showed, or remembered while hidden.
+        let selected: Int?
+    }
+
+    /// Registers Undo Close Window (SPEC §16) for the Window's `workspaces`: it reopens the
+    /// Window with its Window id and every Workspace, each with its id, name, original name,
+    /// color, Tabs, and selected or remembered Tab, and the same one shown.
+    private func registerUndoForCloseWindow(_ workspaces: [(workspace: WorkspaceStore.Workspace, tabs: [TerminalController])]) {
         guard let undoManager, undoManager.isUndoRegistrationEnabled else { return }
 
-        // If we don't have multiple tabs, then do a normal single window close.
-        guard !isOnlyTabInWindow else {
-            // No tabs, just save this window's state
-            if var undoState {
-                // Undo Close Window reopens a Window of its own.
-                undoState.workspace = nil
-                // Register undo action to restore the window
-                undoManager.setActionName("Close Window")
-                undoManager.registerUndo(
-                    withTarget: ghostty,
-                    expiresAfter: undoExpiration) { ghostty in
-                        // Restore the undo state
-                        let newController = TerminalController(ghostty, with: undoState)
-
-                        // Register redo action
-                        undoManager.registerUndo(
-                            withTarget: newController,
-                            expiresAfter: newController.undoExpiration) { target in
-                                target.closeWindowImmediately()
-                            }
-                    }
+        let store = workspaceStore
+        let shownTab = store.shownTab ?? self
+        let closed = workspaces.compactMap { workspace, tabs -> ClosedWorkspace? in
+            let kept = tabs.compactMap { tab -> (tab: TerminalController, state: UndoState)? in
+                guard var state = tab.undoState else { return nil }
+                // It comes back with its Window, not into a Workspace of a live one.
+                state.workspace = nil
+                return (tab, state)
             }
-
-            return
+            guard !kept.isEmpty, let saved = store.undoState(of: workspace.id) else { return nil }
+            let selected = workspace.id == store.shownID ? shownTab : workspace.rememberedTab
+            return ClosedWorkspace(saved: saved, tabs: kept.map(\.state), selected: kept.firstIndex { $0.tab === selected })
         }
-
-        // Multiple windows in tab group - collect all undo states in sorted order
-        // by tab ordering. Also track which window was key.
-        let tabs = groupedTabs
-        let undoStates = tabs
-            .compactMap { tabWindow -> UndoState? in
-                guard let controller = tabWindow.windowController as? TerminalController,
-                      var undoState = controller.undoState else { return nil }
-                // Undo reopens these Tabs as a Window of their own, recreated below.
-                undoState.workspace = nil
-                return undoState
-            }
-            .sorted { (lhs, rhs) in
-                switch (lhs.tabIndex, rhs.tabIndex) {
-                case let (l?, r?): return l < r
-                case (_?, nil): return true
-                case (nil, _?): return false
-                case (nil, nil): return true
-                }
-            }
-
-        // Find the index of the key window in our sorted states. This is a bit verbose
-        // but we only need this for this style of undo so we don't want to add it to
-        // UndoState.
-        let keyWindowIndex: Int?
-        if let keyWindow = tabs.first(where: { $0.isKeyWindow }),
-            let keyController = keyWindow.windowController as? TerminalController,
-            let keyUndoState = keyController.undoState {
-            keyWindowIndex = undoStates.firstIndex {
-                $0.tabIndex == keyUndoState.tabIndex }
-        } else {
-            keyWindowIndex = nil
-        }
-
-        // Register undo action to restore all windows
-        guard !undoStates.isEmpty else { return }
+        guard !closed.isEmpty else { return }
+        let shown = closed.firstIndex { $0.saved.id == store.shownID } ?? 0
+        let windowID = store.id
 
         undoManager.setActionName("Close Window")
         undoManager.registerUndo(
             withTarget: ghostty,
             expiresAfter: undoExpiration
         ) { ghostty in
-            // Restore all windows in the tab group
-            let controllers = undoStates.map { undoState in
-                TerminalController(ghostty, with: undoState)
-            }
+            guard let tab = Self.reopenWindow(windowID, closed, shown: shown, ghostty: ghostty) else { return }
 
-            // The first controller becomes the parent window for all tabs.
-            // If we don't have a first controller (shouldn't be possible?)
-            // then we can't restore tabs.
-            guard let firstController = controllers.first else { return }
-
-            // Add all subsequent controllers as tabs to the first window
-            for controller in controllers.dropFirst() {
-                controller.showWindow(nil)
-                if let firstWindow = firstController.window,
-                   let newWindow = controller.window {
-                    firstWindow.addTabbedWindowSafely(newWindow, ordered: .above)
-                }
-            }
-
-            // Make the appropriate window key. If we had a key window, restore it.
-            // Otherwise, make the last window key.
-            if let keyWindowIndex, keyWindowIndex < controllers.count {
-                controllers[keyWindowIndex].window?.makeKeyAndOrderFront(nil)
-            } else {
-                controllers.last?.window?.makeKeyAndOrderFront(nil)
-            }
-
-            // Register redo action on the first controller
+            // Register redo action
             undoManager.registerUndo(
-                withTarget: firstController,
-                expiresAfter: firstController.undoExpiration
+                withTarget: tab,
+                expiresAfter: tab.undoExpiration
             ) { target in
                 target.closeWindowImmediately()
             }
         }
     }
 
+    /// Undo Close Window: reopens Window `id` with `closed`'s Workspaces in bar order, the one at
+    /// `shown` shown and the others hidden. Returns its first shown Tab.
+    private static func reopenWindow(
+        _ id: UUID,
+        _ closed: [ClosedWorkspace],
+        shown: Int,
+        ghostty: Ghostty.App
+    ) -> TerminalController? {
+        // The shown Tabs each open as a window, then tab in after the first, in order.
+        let controllers = closed[shown].tabs.map { TerminalController(ghostty, with: $0) }
+        guard let first = controllers.first else { return nil }
+        let store = WorkspaceStore(id: id, tab: first)
+        for (index, controller) in controllers.enumerated() {
+            controller.workspaceStore = store
+            if index > 0, let previous = controllers[index - 1].window, let window = controller.window {
+                previous.addTabbedWindowSafely(window, ordered: .above)
+            }
+        }
+
+        store.bringBack(closed.enumerated().map { index, entry in
+            let tabs = index == shown ? [] : entry.tabs.map { TerminalController(ghostty, rebuilding: $0) }
+            var workspace = WorkspaceStore.Workspace(id: entry.saved.id, name: entry.saved.name, hiddenTabs: tabs)
+            workspace.originalName = entry.saved.originalName
+            workspace.color = entry.saved.color
+            if let selected = entry.selected, tabs.indices.contains(selected) {
+                workspace.rememberedTab = tabs[selected]
+            }
+            return workspace
+        }, shown: closed[shown].saved.id)
+
+        let selected = closed[shown].selected.map { controllers[$0] } ?? controllers.last
+        selected?.window?.makeKeyAndOrderFront(nil)
+        store.reconcile()
+        return first
+    }
+
     /// Close all windows, asking for confirmation if necessary.
     static func closeAllWindows() {
-        // The window we use for confirmations. Try to find the first window that
-        // needs quit confirmation. This lets us attach the confirmation to something
-        // that is running.
+        // The alert goes on the shown Tab of the first Window that would ask (SPEC §13.4).
         guard let confirmWindow = all
             .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })?
-            .surfaceTree.first(where: { $0.needsConfirmQuit })?
-            .window
+            .windowShownTab.window
         else {
             closeAllWindowsImmediately()
             return
@@ -1175,7 +1160,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static private func closeAllWindowsImmediately() {
         let undoManager = (NSApp.delegate as? AppDelegate)?.undoManager
         undoManager?.beginUndoGrouping()
-        all.forEach { $0.closeWindowImmediately() }
+        // Each Window once: Close Window closes all of its Workspaces.
+        var closed = Set<ObjectIdentifier>()
+        for tab in all where closed.insert(ObjectIdentifier(tab.workspaceStore)).inserted {
+            tab.closeWindowImmediately()
+        }
         undoManager?.setActionName("Close All Windows")
         undoManager?.endUndoGrouping()
     }
@@ -1597,63 +1586,23 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         defaultSize.apply(to: window)
     }
 
+    /// Close Window (SPEC §13.2): asks once, on the shown Tab, when any Tab of any Workspace
+    /// would, naming the hidden Workspaces that would; else closes silently.
     @IBAction override func closeWindow(_ sender: Any?) {
-        guard let window = window else { return }
+        guard window != nil else { return }
 
-        // We need to check all the Tabs grouped with this one for confirmation
-        // since closing the window closes all of them.
-        let confirmControllers = groupedTabs
-            .compactMap({ $0.windowController as? TerminalController })
-            .filter({ $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })
-        guard
-            !confirmControllers.isEmpty
-        else {
+        let asks: (TerminalController) -> Bool = { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) }
+        guard windowTabs.contains(where: { $0.tabs.contains(where: asks) }) else {
             closeWindowImmediately()
             return
         }
-        if confirmControllers.count == 1 {
-            // We call confirmClose on the proper controller so the alert is
-            // attached to the window that needs confirmation.
-            confirmControllers[0].confirmClose(
-                messageText: "Close Window?",
-                informativeText: "All terminal sessions in this window will be terminated.",
-            ) {
-                self.closeWindowImmediately()
-            }
-            return
-        }
 
-        Task {
-            let alert = NSAlert.reviewWindowsAlert(
-                messageText: "You have \(confirmControllers.count) windows with running processes. Do you want to review these windows before closing?",
-                terminateNowButtonTitle: "Close"
-            )
-            switch await alert.beginSheetModal(for: window) {
-            case .alertFirstButtonReturn:
-                await reviewWindows(confirmControllers, window: window)
-            case .alertSecondButtonReturn:
-                closeWindowImmediately()
-            default:
-                break
-            }
-        }
-    }
-
-    private func reviewWindows(_ controllers: [TerminalController], window: NSWindow) async {
-        for controller in controllers {
-            let response = await controller.confirmCloseAsync(
-                messageText: "Close Window?",
-                informativeText: "All terminal sessions in this window will be terminated.",
-            )
-
-            if [.OK, .alertFirstButtonReturn].contains(response) {
-                // Close this tab
-                controller.closeTabImmediately()
-                continue
-            } else {
-                // Cancel the review
-                return
-            }
+        let hidden = WorkspaceStore.hiddenWorkspacesPhrase(naming: workspaceStore.hiddenNames(where: asks))
+        windowShownTab.confirmClose(
+            messageText: "Close Window?",
+            informativeText: "All terminal sessions in this window will be terminated\(hidden.map { ", including those in \($0)" } ?? "").",
+        ) {
+            self.closeWindowImmediately()
         }
     }
 

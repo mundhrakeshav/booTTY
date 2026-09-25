@@ -228,6 +228,20 @@ struct WorkspaceStoreTests {
         #expect(store.undoState(of: UUID()) == nil)
     }
 
+    // MARK: Closing the Window
+
+    @Test func closeWindowAndQuitNameAtMostThreeHiddenWorkspaces() {
+        let names = ["api", "web", "docs", "infra", "blog"]
+        func phrase(_ count: Int) -> String? { WorkspaceStore.hiddenWorkspacesPhrase(naming: Array(names.prefix(count))) }
+
+        #expect(phrase(0) == nil)
+        #expect(phrase(1) == "the hidden Workspace “api”")
+        #expect(phrase(2) == "the hidden Workspaces “api” and “web”")
+        #expect(phrase(3) == "the hidden Workspaces “api”, “web”, and “docs”")
+        #expect(phrase(4) == "the hidden Workspaces “api”, “web”, “docs”, and 1 more")
+        #expect(phrase(5) == "the hidden Workspaces “api”, “web”, “docs”, and 2 more")
+    }
+
     // MARK: Switching
 
     /// A tab group of two windows, `old` with the first selected, and two ordered-out
