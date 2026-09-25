@@ -92,6 +92,7 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuMoveWorkspaceRight: NSMenuItem?
     @IBOutlet private var menuMoveWorkspaceToNewWindow: NSMenuItem?
     @IBOutlet private var menuMoveTabToWorkspace: NSMenuItem?
+    @IBOutlet private var menuJumpToAgent: NSMenuItem?
     @IBOutlet private var menuOrganizeByRepo: NSMenuItem?
     @IBOutlet private var menuOrganizeByFolder: NSMenuItem?
     /// The Workspace menu's list of Workspaces follows this separator.
@@ -1079,6 +1080,11 @@ class AppDelegate: NSObject,
         quickController.toggle()
     }
 
+    /// Jump to Agent (SPEC §15.2). App-scoped, so it runs whatever window is key.
+    @IBAction func jumpToAgent(_ sender: Any?) {
+        _ = JumpToAgent.perform()
+    }
+
     /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application
     @IBAction func toggleVisibility(_ sender: Any) {
         // If we have focus, then we hide all windows.
@@ -1312,6 +1318,7 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "move_workspace:-1", menuItem: self.menuMoveWorkspaceLeft)
         syncMenuShortcut(config, action: "move_workspace:1", menuItem: self.menuMoveWorkspaceRight)
         syncMenuShortcut(config, action: "move_workspace_to_new_window", menuItem: self.menuMoveWorkspaceToNewWindow)
+        syncMenuShortcut(config, action: "jump_to_agent", menuItem: self.menuJumpToAgent)
         syncMenuShortcut(config, action: "organize_workspaces:repo", menuItem: self.menuOrganizeByRepo)
         syncMenuShortcut(config, action: "organize_workspaces:folder", menuItem: self.menuOrganizeByFolder)
 
@@ -1429,6 +1436,10 @@ extension AppDelegate: NSMenuItemValidation {
         switch item.action {
         case #selector(setAsDefaultTerminal(_:)):
             return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
+
+        case #selector(jumpToAgent(_:)):
+            // Enabled whenever there's a Split to visit, even with no terminal window key.
+            return JumpToAgent.target() != nil
 
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):

@@ -35,6 +35,7 @@
                 <outlet property="menuFloatOnTop" destination="uRj-7z-1Nh" id="94n-o9-Jol"/>
                 <outlet property="menuHideFindBar" destination="xzC-AG-HAc" id="HCo-o6-VWv"/>
                 <outlet property="menuIncreaseFontSize" destination="CIH-ey-Z6x" id="hkc-9C-80E"/>
+                <outlet property="menuJumpToAgent" destination="J2A-Mn-Itm" id="J2A-Ol-Itm"/>
                 <outlet property="menuMoveSplitDividerDown" destination="Zj7-2W-fdF" id="997-LL-nlN"/>
                 <outlet property="menuMoveSplitDividerLeft" destination="wSR-ny-j1a" id="HCZ-CI-2ob"/>
                 <outlet property="menuMoveSplitDividerRight" destination="CcX-ql-QU4" id="rIn-PK-fVM"/>
@@ -484,6 +485,13 @@
                             <menuItem title="Move Tab to Workspace" id="W13-Mt-Itm">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <menu key="submenu" title="Move Tab to Workspace" id="W13-Mt-Sub"/>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="J2A-Sp-Sep"/>
+                            <menuItem title="Jump to Agent" id="J2A-Mn-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="jumpToAgent:" target="bbz-4X-AYv" id="J2A-Mn-Act"/>
+                                </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="W26-Sp-Org"/>
                             <menuItem title="Organize by Repo" id="W26-Or-Itm">

@@ -813,6 +813,7 @@ pub const Application = extern struct {
             .workspace,
             .set_workspace_name,
             .toggle_workspace_switcher,
+            .jump_to_agent,
             => {
                 log.warn("unimplemented action={}", .{action});
                 return false;

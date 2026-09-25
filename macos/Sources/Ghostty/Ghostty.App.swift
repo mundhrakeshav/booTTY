@@ -799,6 +799,10 @@ extension Ghostty {
             case GHOSTTY_ACTION_TOGGLE_WORKSPACE_SWITCHER:
                 return toggleWorkspaceSwitcher(app, target: target)
 
+            case GHOSTTY_ACTION_JUMP_TO_AGENT:
+                // Actions arrive on the main thread.
+                return MainActor.assumeIsolated { JumpToAgent.perform() }
+
             default:
                 Ghostty.logger.warning("unknown action action=\(action.tag.rawValue, privacy: .public)")
                 return false
