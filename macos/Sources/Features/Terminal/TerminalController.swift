@@ -196,6 +196,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Whenever our surface tree changes in any way (new split, close split, etc.)
         // we want to invalidate our state.
         invalidateRestorableState()
+        // Only the app-level Workspaces entry saves a hidden Tab.
+        if workspaceStore.isHidden(self) { NSApp.invalidateRestorableState() }
 
         // Update our zoom state
         if let window = window as? TerminalWindow {

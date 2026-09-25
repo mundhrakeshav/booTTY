@@ -71,9 +71,10 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// The store of a new Window whose first Tab is `tab`: one Workspace, "Workspace 1".
-    convenience init(tab: TerminalController) {
+    /// A restored Window keeps its saved `id`.
+    convenience init(id: UUID = UUID(), tab: TerminalController) {
         let first = Workspace(name: Self.newName(in: []))
-        self.init(workspaces: [first], shownID: first.id)
+        self.init(id: id, workspaces: [first], shownID: first.id)
         knownShownTabs = [Weak(tab)]
     }
 
@@ -241,6 +242,38 @@ final class WorkspaceStore: ObservableObject {
         } else {
             workspaces[index] = workspace
         }
+        invalidateRestorableState()
+    }
+
+    // MARK: Restoring
+
+    /// Brings back a restored Window's Workspaces (SPEC §17.2). The shown Workspace's Tabs are
+    /// the ones AppKit restored, which form the group. The others come back hidden, and their
+    /// Tabs' shells start now. A hidden Workspace none of whose Tabs comes back is gone.
+    func restore(_ saved: WorkspacesRestorableState.Window, ghostty: Ghostty.App) {
+        guard saved.workspaces.indices.contains(saved.shownIndex) else { return }
+
+        var restored: [Workspace] = []
+        for (index, entry) in saved.workspaces.enumerated() {
+            let isShown = index == saved.shownIndex
+            let tabs: [TerminalController?] = isShown ? [] : entry.tabs.map { data in
+                guard let state = TerminalRestorableState(archived: data) else { return nil }
+                return TerminalWindowRestoration.makeTab(from: state, ghostty: ghostty)
+            }
+            var workspace = Workspace(id: entry.id, name: entry.name, hiddenTabs: tabs.compactMap { $0 })
+            guard isShown || !workspace.hiddenTabs.isEmpty else { continue }
+
+            workspace.originalName = entry.originalName
+            workspace.color = entry.color
+            if let i = entry.rememberedTabIndex, tabs.indices.contains(i), let tab = tabs[i] {
+                workspace.rememberedTab = tab
+            }
+            for tab in workspace.hiddenTabs { tab.workspaceStore = self }
+            restored.append(workspace)
+        }
+
+        workspaces = restored
+        shownID = saved.workspaces[saved.shownIndex].id
         invalidateRestorableState()
     }
 

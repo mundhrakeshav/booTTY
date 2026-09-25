@@ -209,6 +209,14 @@ class AppDelegate: NSObject,
             // Manual autofill via the `Edit => AutoFill` menu item still work as expected.
             "NSAutoFillHeuristicControllerEnabled": false,
         ])
+
+        // Restored Windows claim their Workspaces until AppKit finishes restoring windows,
+        // which can happen before or after applicationDidFinishLaunching.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didFinishRestoringWindows(_:)),
+            name: NSApplication.didFinishRestoringWindowsNotification,
+            object: nil)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -885,16 +893,28 @@ class AppDelegate: NSObject,
         default:
             break
         }
+
+        // Encode every Window's Workspaces, which restored Tabs claim by Window id.
+        WorkspacesRestorableState.current.encode(with: coder)
     }
 
     func application(_ app: NSApplication, didDecodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will restore window state")
+        guard ghostty.config.windowSaveState != "never" else { return }
 
         // Decode our quick terminal state.
-        if ghostty.config.windowSaveState != "never",
-            let state = QuickTerminalRestorableState(coder: coder) {
+        if let state = QuickTerminalRestorableState(coder: coder) {
             quickTerminalControllerState = .pendingRestore(state)
         }
+
+        // Decode the Windows' Workspaces. Their restored Tabs claim them by Window id.
+        if let state = WorkspacesRestorableState(coder: coder) {
+            WorkspaceRestoration.didDecode(state, ghostty: ghostty)
+        }
+    }
+
+    @MainActor @objc private func didFinishRestoringWindows(_ notification: Notification) {
+        WorkspaceRestoration.didFinishRestoringWindows()
     }
 
     // MARK: - UNUserNotificationCenterDelegate
