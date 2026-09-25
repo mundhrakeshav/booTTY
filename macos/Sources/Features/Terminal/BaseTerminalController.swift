@@ -1451,6 +1451,30 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    // Workspace menu items run their keybind action on the focused Split, so they get the
+    // same checks and alerts as the keys (SPEC §7.3, §4.2).
+
+    @IBAction func newWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("new_workspace", on: focusedSurface)
+    }
+
+    @IBAction func previousWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("previous_workspace", on: focusedSurface)
+    }
+
+    @IBAction func nextWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("next_workspace", on: focusedSurface)
+    }
+
+    /// A row of the Workspace menu's list; its tag is the Workspace's 1-based number.
+    @IBAction func selectWorkspace(_ sender: NSMenuItem) {
+        guard let focusedSurface else { return }
+        performAction("goto_workspace:\(sender.tag)", on: focusedSurface)
+    }
+
     @IBAction func find(_ sender: Any) {
         focusedSurface?.find(sender)
     }
