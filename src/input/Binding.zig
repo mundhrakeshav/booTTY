@@ -637,6 +637,13 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     set_workspace_name: []const u8,
 
+    /// Move the current Workspace to a new window of its own, with its
+    /// name, color, tabs, and splits. The window it leaves shows its
+    /// neighbor. Does nothing when it is the window's only Workspace.
+    ///
+    /// Only implemented on macOS.
+    move_workspace_to_new_window,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -1497,6 +1504,7 @@ pub const Action = union(enum) {
             .goto_workspace,
             .prompt_workspace_name,
             .set_workspace_name,
+            .move_workspace_to_new_window,
             .new_split,
             .goto_split,
             .goto_window,
@@ -3530,6 +3538,12 @@ test "parse: workspace actions" {
     }
     try testing.expectError(Error.InvalidFormat, parseSingle("a=set_workspace_name"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .move_workspace_to_new_window },
+        try parseSingle("a=move_workspace_to_new_window"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_workspace_to_new_window:1"));
 }
 
 test "parse: action with a tuple" {

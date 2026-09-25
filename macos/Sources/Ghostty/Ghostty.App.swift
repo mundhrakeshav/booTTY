@@ -1306,11 +1306,20 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
 
+                    guard let controller = surfaceView.window?.windowController as? TerminalController
+                    else { return false }
+
+                    // A hidden Tab is ordered out, so AppKit can't move it; it opens by Move
+                    // Workspace to New Window's path (SPEC §11.5, §14).
+                    if controller.isHidden {
+                        return MainActor.assumeIsolated {
+                            controller.workspaceStore.moveHiddenTabToNewWindow(controller)
+                        }
+                    }
+
                     // The shown Workspace's only Tab can't move to a new Window; Move Workspace
-                    // to New Window covers that (SPEC §11.5). A hidden Tab is ordered out, so
-                    // there's nothing here for AppKit to move.
-                    guard let controller = surfaceView.window?.windowController as? TerminalController,
-                          !controller.isHidden, controller.groupedTabs.count > 1 else { return false }
+                    // to New Window covers that (SPEC §11.5).
+                    guard controller.groupedTabs.count > 1 else { return false }
 
                     surfaceView.window?.moveTabToNewWindow(nil)
 
@@ -1404,6 +1413,10 @@ extension Ghostty {
                             // Aimed at a hidden Split, it's refused with nothing shown (SPEC §14).
                             guard !store.isHidden(tab) else { return false }
                             return store.promptName(for: store.shownID)
+
+                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TO_NEW_WINDOW:
+                            // A hidden Split moves its own Workspace (SPEC §14).
+                            return store.moveToNewWindow(store.workspace(holding: tab).id, requestedBy: tab)
 
                         default:
                             return false

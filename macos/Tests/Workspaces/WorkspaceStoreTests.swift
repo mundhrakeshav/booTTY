@@ -235,6 +235,19 @@ struct WorkspaceStoreTests {
         #expect(reformed.failed == [tabs[1]])
     }
 
+    // MARK: Moving Workspaces
+
+    @Test func newWindowComesOnScreenWithTheTabOrderAroundTheRememberedTab() throws {
+        let (tabs, other) = reformWindows()
+        defer { (tabs + [other]).forEach { $0.close() } }
+
+        let opened = try #require(WorkspaceStore.reform(tabs, around: tabs[2], frame: nil, below: nil))
+
+        #expect(opened.group.windows == tabs)
+        #expect(opened.group.selectedWindow === tabs[2])
+        #expect(tabs[2].isVisible)
+    }
+
     // MARK: Swiping
 
     private func scroll(

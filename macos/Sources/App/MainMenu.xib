@@ -38,6 +38,7 @@
                 <outlet property="menuMoveSplitDividerLeft" destination="wSR-ny-j1a" id="HCZ-CI-2ob"/>
                 <outlet property="menuMoveSplitDividerRight" destination="CcX-ql-QU4" id="rIn-PK-fVM"/>
                 <outlet property="menuMoveSplitDividerUp" destination="h9Y-40-3oo" id="dDi-Vq-I3r"/>
+                <outlet property="menuMoveWorkspaceToNewWindow" destination="W17-Mw-Itm" id="W17-Ol-Mww"/>
                 <outlet property="menuNewTab" destination="uTG-Vz-hJU" id="eMg-R3-SeS"/>
                 <outlet property="menuNewWindow" destination="Was-JA-tGl" id="lK7-3I-CPG"/>
                 <outlet property="menuNewWorkspace" destination="Wk4-Nw-Itm" id="Wk4-Ol-Nwk"/>
@@ -440,6 +441,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="nextWorkspace:" target="-1" id="Wk4-Nx-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Move Workspace to New Window" id="W17-Mw-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="moveWorkspaceToNewWindow:" target="-1" id="W17-Mw-Act"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="Wk4-Ls-Sep"/>

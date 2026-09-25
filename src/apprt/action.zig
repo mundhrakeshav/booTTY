@@ -593,6 +593,7 @@ pub const Workspace = extern struct {
         next,
         new,
         prompt_name,
+        move_to_new_window,
 
         test "ghostty.h Workspace.Op" {
             try lib.checkGhosttyHEnum(Op, "GHOSTTY_ACTION_WORKSPACE_");

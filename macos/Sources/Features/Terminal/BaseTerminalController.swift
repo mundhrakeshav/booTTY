@@ -1476,6 +1476,11 @@ class BaseTerminalController: NSWindowController,
         performAction("next_workspace", on: focusedSurface)
     }
 
+    @IBAction func moveWorkspaceToNewWindow(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("move_workspace_to_new_window", on: focusedSurface)
+    }
+
     /// A row of the Workspace menu's list; its tag is the Workspace's 1-based number.
     @IBAction func selectWorkspace(_ sender: NSMenuItem) {
         guard let focusedSurface else { return }

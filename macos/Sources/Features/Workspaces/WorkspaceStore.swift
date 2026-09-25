@@ -298,12 +298,16 @@ final class WorkspaceStore: ObservableObject {
             return false
         }
 
-        if let fullscreen = tabs(of: shownID).first(where: { $0.isInNonNativeFullscreen }) {
-            let isWindowedSelection = tab.window != nil && tab.window === tabGroup?.selectedWindow
-            alert.show(on: isWindowedSelection ? tab.window : fullscreen.window)
-            return false
-        }
+        return !refusesInFullscreen(tab, showing: alert)
+    }
 
+    /// True in non-native fullscreen (SPEC §3), after showing `alert` on `tab` when that's
+    /// the windowed group's selected Tab, else on the fullscreen Tab. A nil `alert` refuses
+    /// silently.
+    private func refusesInFullscreen(_ tab: TerminalController, showing alert: WorkspaceAlert?) -> Bool {
+        guard let fullscreen = tabs(of: shownID).first(where: { $0.isInNonNativeFullscreen }) else { return false }
+        let isWindowedSelection = tab.window != nil && tab.window === tabGroup?.selectedWindow
+        alert?.show(on: isWindowedSelection ? tab.window : fullscreen.window)
         return true
     }
 
@@ -513,16 +517,17 @@ final class WorkspaceStore: ObservableObject {
         return old.filter { window in perform(.orderOut) { window.orderOut(nil) } }
     }
 
-    /// The AppKit steps of re-forming an emptied group, each run through `perform`, with
-    /// animation off: `remembered` takes `frame` and comes on screen just below `joined`
-    /// without taking key, then the rest of `windows`, still ordered out, join its group in
-    /// their order. Returns that group and the windows that failed to join, or nil if
-    /// `remembered` couldn't come on screen.
+    /// The AppKit steps of re-forming an emptied group, or of opening a new Window, each run
+    /// through `perform`, with animation off: `remembered` takes `frame` and comes on screen
+    /// just below `joined` without taking key, or, with no `joined`, as the key window. Then
+    /// the rest of `windows`, still ordered out, join its group in their order. Returns that
+    /// group and the windows that failed to join, or nil if `remembered` couldn't come on
+    /// screen.
     static func reform(
         _ windows: [NSWindow],
         around remembered: NSWindow,
         frame: NSRect?,
-        below joined: NSWindow,
+        below joined: NSWindow?,
         perform: (SwapStep, () -> Void) -> Bool = performSafely
     ) -> (group: NSWindowTabGroup, failed: [NSWindow])? {
         NSAnimationContext.beginGrouping()
@@ -534,7 +539,13 @@ final class WorkspaceStore: ObservableObject {
         // Under "Prefer tabs: Always", AppKit would tab it into the key Window instead.
         let tabbingMode = remembered.tabbingMode
         remembered.tabbingMode = .disallowed
-        let ordered = perform(.select) { remembered.order(.below, relativeTo: joined.windowNumber) }
+        let ordered = perform(.select) {
+            if let joined {
+                remembered.order(.below, relativeTo: joined.windowNumber)
+            } else {
+                remembered.makeKeyAndOrderFront(nil)
+            }
+        }
         remembered.tabbingMode = tabbingMode
         guard ordered, let group = remembered.tabGroup else { return nil }
 
@@ -581,6 +592,105 @@ final class WorkspaceStore: ObservableObject {
         let tab = remembered.windowController as? TerminalController
         if let surface = tab?.focusedSurface { Ghostty.moveFocus(to: surface) }
         tab?.relabelTabs()
+    }
+
+    // MARK: Moving Workspaces
+
+    /// Move Workspace to New Window (SPEC §12.2): Workspace `id` leaves for a new Window of
+    /// its own, with its id, name, original name, color, Tabs and Splits, and remembered Tab.
+    /// `tab` is the Tab of the request's target Split. Moving the shown Workspace first shows
+    /// its neighbor; moving a hidden one leaves the view as it is. No undo.
+    ///
+    /// Reports false, with nothing moved, when it's the Window's only Workspace; in
+    /// non-native fullscreen, with "Cannot Move Workspace" unless `tab` is hidden (§3, §14);
+    /// and for the shown Workspace while the shown Tab has a sheet, which comes forward
+    /// (§13.7).
+    @discardableResult
+    func moveToNewWindow(_ id: Workspace.ID, requestedBy tab: TerminalController) -> Bool {
+        reconcile()
+        guard workspaces.count > 1, workspaces.contains(where: { $0.id == id }),
+              !refusesInFullscreen(tab, showing: isHidden(tab) ? nil : .cannotMoveWorkspace)
+        else { return false }
+
+        let source = shownTab?.window
+        if id == shownID {
+            if let source, source.attachedSheet != nil {
+                Self.bringForward(source)
+                return false
+            }
+            guard let neighbor = neighborID, show(neighbor) else { return false }
+        }
+
+        // A switch whose old Tabs all failed to order out keeps them shown.
+        guard id != shownID,
+              let index = workspaces.firstIndex(where: { $0.id == id }),
+              openWindow(holding: workspaces[index], sizedLike: source)
+        else { return false }
+
+        workspaces.remove(at: index)
+        invalidateRestorableState()
+        return true
+    }
+
+    /// `move_tab_to_new_window` aimed at a hidden Split (SPEC §11.5, §14): the Tab opens by
+    /// Move Workspace to New Window's path, as a Window holding one Workspace, "Workspace 1".
+    /// Its Workspace ends quietly if it was the last Tab. Refused silently (false) for a
+    /// shown Tab and in non-native fullscreen.
+    func moveHiddenTabToNewWindow(_ tab: TerminalController) -> Bool {
+        reconcile()
+        guard isHidden(tab), !isInNonNativeFullscreen,
+              openWindow(
+                  holding: Workspace(name: Self.newName(in: []), hiddenTabs: [tab]),
+                  sizedLike: shownTab?.window)
+        else { return false }
+
+        removeHiddenTab(tab)
+        return true
+    }
+
+    /// Opens a new Window showing `workspace`, whose Tabs are ordered out, and gives it a
+    /// store of its own. The Window takes `source`'s size and is placed as Cmd+N places one,
+    /// or gets its own native fullscreen Space when `source` is in one. It becomes key, with
+    /// the remembered Tab selected and focused. False, with nothing changed, if the
+    /// remembered Tab couldn't come on screen.
+    private func openWindow(holding workspace: Workspace, sizedLike source: NSWindow?) -> Bool {
+        guard let remembered = workspace.rememberedTab ?? workspace.hiddenTabs.first,
+              let window = remembered.window
+        else { return false }
+
+        let isFullscreen = source?.styleMask.contains(.fullScreen) ?? false
+        if !isFullscreen {
+            if let size = source?.frame.size {
+                window.setFrame(NSRect(origin: window.frame.origin, size: size), display: false)
+            }
+            remembered.placeAsNewWindow()
+        }
+
+        // Its becoming key mustn't make this store reconcile a half-done move.
+        isChanging = true
+        let reformed = Self.reform(workspace.hiddenTabs.compactMap(\.window), around: window, frame: nil, below: nil)
+        isChanging = false
+        guard let reformed else { return false }
+
+        var shown = workspace
+        shown.hiddenTabs = []
+        shown.rememberedTab = nil
+        let store = WorkspaceStore(workspaces: [shown], shownID: shown.id)
+        for tab in workspace.hiddenTabs { tab.workspaceStore = store }
+
+        // A Tab that failed to join stays hidden in a Workspace of its own, so it isn't lost.
+        let failed = reformed.failed.compactMap { $0.windowController as? TerminalController }
+        if !failed.isEmpty { _ = store.addWorkspace(holding: failed) }
+
+        store.bind(reformed.group)
+        store.knownShownTabs = Self.tabs(in: reformed.group).map { Weak($0) }
+        store.invalidateRestorableState()
+
+        if isFullscreen, !window.styleMask.contains(.fullScreen) { remembered.toggleFullscreen(mode: .native) }
+        if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
+        if let surface = remembered.focusedSurface { Ghostty.moveFocus(to: surface) }
+        remembered.relabelTabs()
+        return true
     }
 
     /// Runs one AppKit step under an Objective-C exception catcher and logs what threw.
