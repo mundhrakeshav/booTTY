@@ -120,6 +120,26 @@ final class WorkspaceStore: ObservableObject {
         workspaces.firstIndex { $0.hiddenTabs.contains { $0 === tab } }
     }
 
+    /// A Workspace's agent status and its date (SPEC §15.1), derived from its Tabs on every
+    /// read and never stored. See `agentStatus(of tabs:)`.
+    func agentStatus(of id: Workspace.ID) -> (status: Ghostty.AgentStatus?, since: Date) {
+        Self.agentStatus(of: tabs(of: id).map { tab in
+            let window = tab.window as? TerminalWindow
+            return (window?.agentStatus, window?.agentStatusDate ?? .distantPast)
+        })
+    }
+
+    /// The most urgent Tab's status: waiting, then done, then none. Its date is the newest
+    /// among the Tabs holding that status, so a second finish pings again and a finish
+    /// behind a waiting agent doesn't.
+    static func agentStatus(
+        of tabs: [(status: Ghostty.AgentStatus?, since: Date)]
+    ) -> (status: Ghostty.AgentStatus?, since: Date) {
+        guard let status = tabs.compactMap(\.status).max() else { return (nil, .distantPast) }
+        let since = tabs.filter { $0.status == status }.map(\.since).max() ?? .distantPast
+        return (status, since)
+    }
+
     /// A Window is in non-native fullscreen while any of its Tabs is (SPEC §3).
     var isInNonNativeFullscreen: Bool {
         shownTabs.contains { $0.isInNonNativeFullscreen }
