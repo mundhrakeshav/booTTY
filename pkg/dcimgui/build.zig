@@ -6,14 +6,12 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const freetype = b.option(bool, "freetype", "Use Freetype") orelse false;
-    const backend_opengl3 = b.option(bool, "backend-opengl3", "OpenGL3 backend") orelse false;
     const backend_metal = b.option(bool, "backend-metal", "Metal backend") orelse false;
     const backend_osx = b.option(bool, "backend-osx", "OSX backend") orelse false;
 
     // Build options
     const options = b.addOptions();
     options.addOption(bool, "freetype", freetype);
-    options.addOption(bool, "backend_opengl3", backend_opengl3);
     options.addOption(bool, "backend_metal", backend_metal);
     options.addOption(bool, "backend_osx", backend_osx);
 
@@ -62,9 +60,6 @@ pub fn build(b: *std.Build) !void {
     });
     if (freetype) try define_flags.appendSlice(b.allocator, &.{
         "-DIMGUI_ENABLE_FREETYPE=1",
-    });
-    if (backend_opengl3) try define_flags.appendSlice(b.allocator, &.{
-        "-DZIGPKG_IMGUI_ENABLE_OPENGL3=1",
     });
     if (target.result.os.tag == .windows) {
         try define_flags.appendSlice(b.allocator, &.{
@@ -149,18 +144,6 @@ pub fn build(b: *std.Build) !void {
                 upstream.path("backends"),
                 "",
                 .{ .include_extensions = &.{"imgui_impl_osx.h"} },
-            );
-        }
-        if (backend_opengl3) {
-            lib.root_module.addCSourceFiles(.{
-                .root = upstream.path("backends"),
-                .files = &.{"imgui_impl_opengl3.cpp"},
-                .flags = all_flags.items,
-            });
-            lib.installHeadersDirectory(
-                upstream.path("backends"),
-                "",
-                .{ .include_extensions = &.{"imgui_impl_opengl3.h"} },
             );
         }
     }

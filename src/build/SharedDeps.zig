@@ -503,9 +503,6 @@ pub fn add(
     }
 
     // Other dependencies, mostly pure Zig
-    if (b.lazyDependency("opengl", .{})) |dep| {
-        step.root_module.addImport("opengl", dep.module("opengl"));
-    }
     if (b.lazyDependency("vaxis", .{
         .target = target,
         .optimize = optimize,
@@ -571,7 +568,7 @@ pub fn add(
         }
 
         if (self.config.renderer == .opengl) {
-            step.root_module.linkFramework("OpenGL", .{});
+            @panic("OpenGL was cut from booTTY");
         }
 
         // Apple platforms do not include libc libintl so we bundle it.
@@ -597,9 +594,6 @@ pub fn add(
         .freetype = true,
         .@"backend-metal" = target.result.os.tag.isDarwin(),
         .@"backend-osx" = target.result.os.tag == .macos,
-        // OpenGL3 backend should only be built on non-Apple targets.
-        // Apple platforms use Metal (and macOS may also use the OSX backend).
-        .@"backend-opengl3" = !target.result.os.tag.isDarwin(),
     })) |dep| {
         step.root_module.addImport("dcimgui", dep.module("dcimgui"));
         step.root_module.linkLibrary(dep.artifact("dcimgui"));
@@ -650,13 +644,6 @@ pub fn add(
 
     // If we're building an exe then we have additional dependencies.
     if (step.kind != .lib) {
-        // We always statically compile glad
-        step.root_module.addIncludePath(b.path("vendor/glad/include/"));
-        step.root_module.addCSourceFile(.{
-            .file = b.path("vendor/glad/src/gl.c"),
-            .flags = &.{},
-        });
-
         // When we're targeting flatpak we ALWAYS link GTK so we
         // get access to glib for dbus.
         if (self.config.flatpak) {

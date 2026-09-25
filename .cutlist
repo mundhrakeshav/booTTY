@@ -35,3 +35,10 @@ dist/linux
 images/gnome
 src/build/GhosttyExe.zig
 dist/windows
+src/renderer/opengl
+src/renderer/OpenGL.zig
+src/renderer/WebGL.zig
+src/renderer/Dmabuf.zig
+src/renderer/shaders/glsl
+pkg/opengl
+vendor/glad
