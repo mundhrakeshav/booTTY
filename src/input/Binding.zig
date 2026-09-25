@@ -624,6 +624,13 @@ pub const Action = union(enum) {
     /// Only implemented on macOS.
     goto_workspace: usize,
 
+    /// Close the current Workspace and all its tabs, asking first if any
+    /// of them has a running process. On the window's only Workspace this
+    /// closes the window.
+    ///
+    /// Only implemented on macOS.
+    close_workspace,
+
     /// Rename the current Workspace via a pop-up prompt. A blank name
     /// restores the Workspace's original name.
     ///
@@ -1495,6 +1502,7 @@ pub const Action = union(enum) {
             .previous_workspace,
             .next_workspace,
             .goto_workspace,
+            .close_workspace,
             .prompt_workspace_name,
             .set_workspace_name,
             .new_split,
@@ -3511,6 +3519,12 @@ test "parse: workspace actions" {
     // goto_workspace is a 1-based index, so it needs one and it can't be negative.
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace"));
     try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:-1"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .close_workspace },
+        try parseSingle("a=close_workspace"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=close_workspace:1"));
 
     try testing.expectEqual(
         Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .prompt_workspace_name },

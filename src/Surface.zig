@@ -5391,6 +5391,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .previous_workspace,
         .next_workspace,
         .goto_workspace,
+        .close_workspace,
         .prompt_workspace_name,
         => |v, tag| return try self.rt_app.performAction(
             .{ .surface = self },
@@ -5403,6 +5404,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
                     .op = .goto,
                     .n = std.math.cast(isize, v) orelse std.math.maxInt(isize),
                 },
+                .close_workspace => .{ .op = .close, .n = 0 },
                 .prompt_workspace_name => .{ .op = .prompt_name, .n = 0 },
                 else => comptime unreachable,
             },

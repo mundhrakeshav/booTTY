@@ -1191,22 +1191,28 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let windowStyle: WindowStyle
     }
 
-    convenience init(_ ghostty: Ghostty.App, with undoState: UndoState) {
+    /// A Tab rebuilt from `undoState`, its window loaded but not placed or shown.
+    convenience init(_ ghostty: Ghostty.App, rebuilding undoState: UndoState) {
         self.init(ghostty, withSurfaceTree: undoState.surfaceTree, windowStyle: undoState.windowStyle)
         guard let window else { return }
 
         // Focus goes back to the Split that had it, else the first. It's set before the Tab
         // goes back, so a switch that shows it focuses that Split.
-        let focusTarget = undoState.focusedSurface.flatMap { id in surfaceTree.first { $0.id == id } }
+        focusedSurface = undoState.focusedSurface.flatMap { id in surfaceTree.first { $0.id == id } }
             ?? surfaceTree.first
-        focusedSurface = focusTarget
         if let terminalWindow = window as? TerminalWindow {
             terminalWindow.tabColor = undoState.tabColor
         }
+        window.setFrame(undoState.frame, display: false)
+    }
+
+    convenience init(_ ghostty: Ghostty.App, with undoState: UndoState) {
+        self.init(ghostty, rebuilding: undoState)
+        guard let window else { return }
+        let focusTarget = focusedSurface
 
         // Back into its Workspace while its Window is open, else a Window of its own.
         if let saved = undoState.workspace, let store = WorkspaceStore.live(saved.windowID) {
-            window.setFrame(undoState.frame, display: false)
             if store.returnTab(self, to: saved, at: undoState.tabIndex) {
                 if let focusTarget, !isHidden {
                     DispatchQueue.main.async { Ghostty.moveFocus(to: focusTarget, from: nil) }

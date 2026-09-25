@@ -1478,6 +1478,11 @@ class BaseTerminalController: NSWindowController,
         performAction("prompt_workspace_name", on: focusedSurface)
     }
 
+    @IBAction func closeWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("close_workspace", on: focusedSurface)
+    }
+
     @IBAction func previousWorkspace(_ sender: Any?) {
         guard let focusedSurface else { return }
         performAction("previous_workspace", on: focusedSurface)

@@ -592,6 +592,7 @@ pub const Workspace = extern struct {
         previous,
         next,
         new,
+        close,
         prompt_name,
 
         test "ghostty.h Workspace.Op" {

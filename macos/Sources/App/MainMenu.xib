@@ -23,6 +23,7 @@
                 <outlet property="menuCloseAllWindows" destination="yKr-Vi-Yqw" id="Zet-Ir-zbm"/>
                 <outlet property="menuCloseTab" destination="Obb-Mk-j8J" id="Gda-L0-gdz"/>
                 <outlet property="menuCloseWindow" destination="W5w-UZ-crk" id="6ff-BT-ENV"/>
+                <outlet property="menuCloseWorkspace" destination="Wk11-Cl-Itm" id="Wk11-Ol-Clw"/>
                 <outlet property="menuCommandPalette" destination="et6-de-Mh7" id="53t-cu-dm5"/>
                 <outlet property="menuCopy" destination="Jqf-pv-Zcu" id="bKd-1C-oy9"/>
                 <outlet property="menuDecreaseFontSize" destination="kzb-SZ-dOA" id="Y1B-Vh-6Z2"/>
@@ -427,6 +428,12 @@
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>
                                     <action selector="renameWorkspace:" target="-1" id="Wk8-Rn-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Close Workspace" id="Wk11-Cl-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="closeWorkspace:" target="-1" id="Wk11-Cl-Act"/>
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="Wk4-Sp-Nav"/>
