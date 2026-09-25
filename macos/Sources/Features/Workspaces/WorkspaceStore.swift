@@ -1575,6 +1575,9 @@ final class WorkspaceStore: ObservableObject {
         let tabs = Self.orderOut(group).compactMap { $0.windowController as? TerminalController }
         isChanging = false
 
+        // A switcher open in an outgoing Tab closes (SPEC §8.1).
+        for tab in tabs { tab.workspaceSwitcherIsShowing = false }
+
         var handed = workspaces
         handed[shownIndex].hiddenTabs = tabs
         handed[shownIndex].rememberedTab = tabs.first { $0.window === selected } ?? tabs.first
@@ -1583,6 +1586,7 @@ final class WorkspaceStore: ObservableObject {
         workspaces = [left]
         shownID = left.id
         knownShownTabs = Self.tabs(in: group).map { Weak($0) }
+        dropOrganizeUndoIfTabsChanged() // its Tabs left the Window
         return handed.filter { !$0.hiddenTabs.isEmpty }
     }
 

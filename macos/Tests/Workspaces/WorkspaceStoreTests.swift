@@ -470,14 +470,16 @@ struct WorkspaceStoreTests {
         group.selectedWindow = old[1]
         let tabs = group.windows
 
-        var left: [[NSWindow]] = []
+        // The group before each order-out. Not after the last: AppKit sometimes still lists a
+        // lone ordered-out window in its group.
+        var before: [[NSWindow]] = []
         let orderedOut = WorkspaceStore.orderOut(group) { step, block in
-            defer { left.append(group.windows) }
+            before.append(group.windows)
             return WorkspaceStore.performSafely(step, block)
         }
 
         #expect(orderedOut == tabs)
-        #expect(left == [[old[1], incoming[0]], [old[1]], []])
+        #expect(before == [tabs, [old[1], incoming[0]], [old[1]]])
     }
 
     @Test func tabThatFailsToOrderOutStaysInTheMergedAwayGroup() throws {
