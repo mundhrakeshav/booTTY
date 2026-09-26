@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import System
 
-/// The Window's store (SPEC §1.1, §2.2): the Window id, its Workspaces in bar order, and
+/// The Window's store: the Window id, its Workspaces in bar order, and
 /// which one is shown. Every Tab of the Window, shown or hidden, points at it through
 /// `TerminalController.workspaceStore`, and every Tab's bar reads from it.
 ///
@@ -57,13 +57,13 @@ final class WorkspaceStore: ObservableObject {
     let id: UUID
 
     @Published var workspaces: [Workspace] {
-        // One that ends or leaves the Window drops out of recency (SPEC §8.3).
+        // One that ends or leaves the Window drops out of recency.
         didSet { recentIDs.removeAll { id in !workspaces.contains { $0.id == id } } }
     }
     @Published var shownID: Workspace.ID
 
     /// Recency, newest first, the shown Workspace included once it has been shown by a
-    /// switch (SPEC §8.3). Per Window and in memory only. See `markShown(_:)`.
+    /// switch. Per Window and in memory only. See `markShown(_:)`.
     private var recentIDs: [Workspace.ID] = []
 
     var shownIndex: Int { workspaces.firstIndex { $0.id == shownID } ?? 0 }
@@ -74,7 +74,7 @@ final class WorkspaceStore: ObservableObject {
     var hasBound = false
 
     /// The shown Tabs as last seen, to tell which ones left the group. It keeps a Tab in
-    /// non-native fullscreen, which has left the group but is still shown (SPEC §3).
+    /// non-native fullscreen, which has left the group but is still shown.
     var knownShownTabs: [Weak<TerminalController>] = []
 
     /// The shown Tabs' frame as last seen. A re-formed group takes it, since by the time the
@@ -90,7 +90,7 @@ final class WorkspaceStore: ObservableObject {
     var swipeGesture = SwipeGesture.none
 
     /// Set when a claimed gesture ends, until its momentum ends or a new gesture begins, so
-    /// whichever of the Window's Tabs gets that momentum drops it (SPEC §6.2).
+    /// whichever of the Window's Tabs gets that momentum drops it.
     var dropsSwipeMomentum = false
 
     /// Bumped by each claimed swipe and each cancel. A swipe from before stops tracking.
@@ -101,7 +101,7 @@ final class WorkspaceStore: ObservableObject {
 
     /// Whether the Undo or Redo Organize last registered can still run: no Tab has entered
     /// or left the Window since, and no Split it would fold back or break out again has
-    /// opened or closed. Once it can't, both entries come off the stack (SPEC §10.6).
+    /// opened or closed. Once it can't, both entries come off the stack.
     var organizeUndoCanRun: (() -> Bool)?
 
     /// Set when the swipe switched at the lift: what its amount gains to count from the
@@ -109,11 +109,11 @@ final class WorkspaceStore: ObservableObject {
     var swipeSwitch: (rebase: CGFloat, from: Workspace.ID)?
 
     /// Where the swipe stands, so whichever of the Window's Tabs is shown draws it, the
-    /// incoming Tab's bar included during the settle (SPEC §6.3).
+    /// incoming Tab's bar included during the settle.
     @Published var swipeProgress = SwipeProgress()
 
     /// Bumped by each cancel that moved the swipe back to rest, so the bar morphs the
-    /// capsule back to the shown mark (SPEC §6.5).
+    /// capsule back to the shown mark.
     @Published var swipeCancels = 0
 
     init(id: UUID = UUID(), workspaces: [Workspace], shownID: Workspace.ID) {
@@ -162,7 +162,7 @@ final class WorkspaceStore: ObservableObject {
         workspaces.firstIndex { $0.hiddenTabs.contains { $0 === tab } }
     }
 
-    /// A Workspace's agent status and its date (SPEC §15.1), derived from its Tabs on every
+    /// A Workspace's agent status and its date, derived from its Tabs on every
     /// read and never stored. See `agentStatus(of tabs:)`.
     func agentStatus(of id: Workspace.ID) -> (status: Ghostty.AgentStatus?, since: Date) {
         Self.agentStatus(of: tabs(of: id).map { tab in
@@ -182,7 +182,7 @@ final class WorkspaceStore: ObservableObject {
         return (status, since)
     }
 
-    /// A Window is in non-native fullscreen while any of its Tabs is (SPEC §3).
+    /// A Window is in non-native fullscreen while any of its Tabs is.
     var isInNonNativeFullscreen: Bool {
         shownTabs.contains { $0.isInNonNativeFullscreen }
     }
@@ -195,13 +195,13 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// The Workspace shown when the shown one ends: the one to its right, else the one to its
-    /// left (SPEC §1.4). Nil when it's the Window's only Workspace.
+    /// left. Nil when it's the Window's only Workspace.
     var neighborID: Workspace.ID? {
         Self.neighbor(of: shownIndex, in: workspaces)?.id
     }
 
     /// The Tab a hidden Workspace remembers once `tab` leaves `tabs`: `remembered` if that's
-    /// another Tab, else the Tab to the right of `tab`, else the one to its left (SPEC §13.5).
+    /// another Tab, else the Tab to the right of `tab`, else the one to its left.
     static func remembered<Tab: AnyObject>(_ remembered: Tab?, after tab: Tab, leaves tabs: [Tab]) -> Tab? {
         guard remembered === tab, let index = tabs.firstIndex(where: { $0 === tab }) else { return remembered }
         return neighbor(of: index, in: tabs)
@@ -220,7 +220,7 @@ final class WorkspaceStore: ObservableObject {
         }
     }
 
-    /// "Workspace N", with the lowest N ≥ 1 that no Workspace shows as its name (SPEC §1.2).
+    /// "Workspace N", with the lowest N ≥ 1 that no Workspace shows as its name.
     static func newName(in workspaces: [Workspace]) -> String {
         let names = Set(workspaces.map(\.name))
         var n = 1
@@ -229,7 +229,7 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// A Workspace made from a folder is named after its basename, `~` for home, with no
-    /// suffix (SPEC §1.2).
+    /// suffix.
     nonisolated static func name(ofFolder path: String) -> String {
         let folder = FilePath(path).lexicallyNormalized()
         if folder == FilePath(NSHomeDirectory()).lexicallyNormalized() { return "~" }
@@ -237,7 +237,7 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// The index `target` shows, or nil when the command reports false: the Window has one
-    /// Workspace, or the number is below 1 (SPEC §7.1). Previous and next wrap around.
+    /// Workspace, or the number is below 1. Previous and next wrap around.
     func index(of target: Target) -> Int? {
         let count = workspaces.count
         guard count > 1 else { return nil }
@@ -254,7 +254,7 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// The shown Workspace first, then the ones in `recent` (newest first), then those not
-    /// shown since they arrived in the Window, in bar order (SPEC §8.3). Ids of Workspaces
+    /// shown since they arrived in the Window, in bar order. Ids of Workspaces
     /// that are gone are skipped.
     static func recencyOrder(_ workspaces: [Workspace], shownID: Workspace.ID, recent: [Workspace.ID]) -> [Workspace] {
         let ranks = Dictionary(([shownID] + recent).enumerated().map { ($1, $0) }, uniquingKeysWith: min)
@@ -267,7 +267,7 @@ final class WorkspaceStore: ObservableObject {
 
     /// Makes Workspace `id` newest in recency, with the Workspace shown until now right
     /// after it. `promoteToShown(at:)` calls this right before it sets `shownID = id`, so
-    /// showing a Workspace by any path counts (SPEC §2.3, §8.3).
+    /// showing a Workspace by any path counts.
     func markShown(_ id: Workspace.ID) {
         recentIDs = Self.recency(recentIDs, showing: id, from: shownID)
     }
@@ -288,9 +288,9 @@ final class WorkspaceStore: ObservableObject {
         return show(workspaces[index].id)
     }
 
-    /// New Workspace (SPEC §9.5): "Workspace N", or `name`, at the end, holding one new Tab
+    /// New Workspace: "Workspace N", or `name`, at the end, holding one new Tab
     /// made from `baseConfig`, and shown. `parent` is the Tab the request came from. A folder
-    /// opened into the Window passes its name and `comingForward` (§9.1). Registers Undo
+    /// opened into the Window passes its name and `comingForward`. Registers Undo
     /// New Workspace.
     @discardableResult
     func newWorkspace(
@@ -318,7 +318,7 @@ final class WorkspaceStore: ObservableObject {
 
     /// A new Tab for this Window, made from `baseConfig`, or holding `tree`, with `parent`'s
     /// window style and opacity. Its window is loaded but not shown: it appears when a switch
-    /// selects it and takes the group's frame then (SPEC §2.6).
+    /// selects it and takes the group's frame then.
     func newTab(
         from parent: TerminalController,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
@@ -332,14 +332,14 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Adds a hidden Workspace named `name`, by default "Workspace N", holding `tabs`, at the
-    /// end of the bar, so existing Workspaces keep their places (SPEC §1.3).
+    /// end of the bar, so existing Workspaces keep their places.
     func addWorkspace(holding tabs: [TerminalController], named name: String? = nil) -> Workspace.ID {
         let workspace = Workspace(name: name ?? Self.newName(in: workspaces), hiddenTabs: tabs)
         workspaces.append(workspace)
         return workspace.id
     }
 
-    /// Names Workspace `id` (SPEC §1.2). A blank name restores its original name; names
+    /// Names Workspace `id`. A blank name restores its original name; names
     /// needn't be unique, and a rename can't be undone.
     func rename(_ id: Workspace.ID, to name: String) {
         guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
@@ -348,7 +348,7 @@ final class WorkspaceStore: ObservableObject {
         invalidateRestorableState()
     }
 
-    /// Workspace Color ▸ (SPEC §5.4). Any Workspace, hidden ones included. No undo, just
+    /// Workspace Color ▸. Any Workspace, hidden ones included. No undo, just
     /// like a Tab's color.
     func setColor(_ color: TerminalTabColor, of id: Workspace.ID) {
         guard let index = workspaces.firstIndex(where: { $0.id == id }),
@@ -358,7 +358,7 @@ final class WorkspaceStore: ObservableObject {
         invalidateRestorableState()
     }
 
-    /// The rename prompt (SPEC §7.5), as a sheet on the shown Tab. Any Workspace can be
+    /// The rename prompt, as a sheet on the shown Tab. Any Workspace can be
     /// its target, hidden ones included. False when there's no shown Tab to put it on.
     func promptName(for id: Workspace.ID) -> Bool {
         guard let window = shownTab?.window,
@@ -386,11 +386,11 @@ final class WorkspaceStore: ObservableObject {
         return true
     }
 
-    /// Moves Workspace `id` to `index` in bar order, so ⌘⌥N order follows (SPEC §1.3). It
+    /// Moves Workspace `id` to `index` in bar order, so ⌘⌥N order follows. It
     /// lands at `index` by the Tab rows' rule, so moving right lands after the Workspace that
     /// was there, and an `index` past either end stops there. The shown Workspace stays
     /// shown. Reports false only when the Window has one Workspace or doesn't hold `id`, and
-    /// true when nothing moves (SPEC §7.1).
+    /// true when nothing moves.
     @discardableResult
     func moveWorkspace(_ id: Workspace.ID, to index: Int) -> Bool {
         guard workspaces.count > 1, let from = workspaces.firstIndex(where: { $0.id == id }) else { return false }
@@ -404,11 +404,11 @@ final class WorkspaceStore: ObservableObject {
         return true
     }
 
-    /// Close Workspace (SPEC §13.1) for Workspace `id`, shown or hidden, requested from `tab`,
+    /// Close Workspace for Workspace `id`, shown or hidden, requested from `tab`,
     /// the target Split's Tab. On the Window's only Workspace it forwards to Close Window.
     /// Otherwise it asks once, on the shown Tab, if any of the Workspace's Tabs would, then
     /// closes it. Closing the shown Workspace is a request (`allowsRequest`); a hidden one
-    /// closes out of sight, in non-native fullscreen too (§3, §14).
+    /// closes out of sight, in non-native fullscreen too.
     func closeWorkspace(_ id: Workspace.ID, from tab: TerminalController) -> Bool {
         reconcile()
         guard let workspace = workspaces.first(where: { $0.id == id }) else { return false }
@@ -437,7 +437,7 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Closes Workspace `id` and its Tabs without asking, and registers Undo Close Workspace.
-    /// The shown one shows its neighbor first, so the live group never empties (SPEC §13); if
+    /// The shown one shows its neighbor first, so the live group never empties; if
     /// that switch fails, nothing closes. The only Workspace closes the Window.
     @discardableResult
     func closeWorkspaceImmediately(_ id: Workspace.ID) -> Bool {
@@ -463,7 +463,7 @@ final class WorkspaceStore: ObservableObject {
 
     /// Shows the Workspace that follows the shown one when it ends: `preferred` while that's
     /// another of the Window's Workspaces, else the neighbor. Non-native fullscreen has no
-    /// group to switch, so the Window leaves it first (SPEC §13.6). False when the switch
+    /// group to switch, so the Window leaves it first. False when the switch
     /// can't run; the caller then closes nothing.
     func showNeighbor(preferring preferred: Workspace.ID? = nil) -> Bool {
         let next = preferred.flatMap { id in
@@ -477,12 +477,12 @@ final class WorkspaceStore: ObservableObject {
     // MARK: Closing the Window
 
     /// The names of the hidden Workspaces holding a Tab for which `asks` holds, in bar order.
-    /// Close Window and Quit name them (SPEC §13.2, §13.3).
+    /// Close Window and Quit name them.
     func hiddenNames(where asks: (TerminalController) -> Bool) -> [String] {
         workspaces.filter { $0.id != shownID && $0.hiddenTabs.contains(where: asks) }.map(\.name)
     }
 
-    /// How Close Window and Quit name hidden Workspaces (SPEC §13.8): "the hidden Workspace
+    /// How Close Window and Quit name hidden Workspaces: "the hidden Workspace
     /// “api”", or "the hidden Workspaces" and at most three names in bar order, joined as a list
     /// that ends with "and N more" past three. Nil for none.
     static func hiddenWorkspacesPhrase(naming names: [String]) -> String? {
@@ -499,7 +499,7 @@ final class WorkspaceStore: ObservableObject {
 
     // MARK: Restoring
 
-    /// Brings back a restored Window's Workspaces (SPEC §17.2). The shown Workspace's Tabs are
+    /// Brings back a restored Window's Workspaces. The shown Workspace's Tabs are
     /// the ones AppKit restored, which form the group. The others come back hidden, and their
     /// Tabs' shells start now. A hidden Workspace none of whose Tabs comes back is gone.
     func restore(_ saved: WorkspacesRestorableState.Window, ghostty: Ghostty.App) {
@@ -528,7 +528,7 @@ final class WorkspaceStore: ObservableObject {
     }
 
     /// Brings back a Window's Workspaces in bar order, `id` shown, around the shown Tabs already
-    /// in its group: on relaunch and by Undo Close Window (SPEC §16, §17.2). The hidden ones'
+    /// in its group: on relaunch and by Undo Close Window. The hidden ones'
     /// Tabs are ordered out and adopt this store.
     func bringBack(_ restored: [Workspace], shown id: Workspace.ID) {
         for tab in restored.flatMap(\.hiddenTabs) { tab.workspaceStore = self }
@@ -539,7 +539,7 @@ final class WorkspaceStore: ObservableObject {
 
     // MARK: Hidden Tabs
 
-    /// `new_tab` aimed at hidden `parent` (SPEC §14): a Tab made from `baseConfig` joins
+    /// `new_tab` aimed at hidden `parent`: a Tab made from `baseConfig` joins
     /// `parent`'s Workspace out of sight, right after its remembered Tab, or at the end under
     /// `window-new-tab-position = end`, and becomes remembered, as a new Tab is selected. Its
     /// shell starts now. Nil if `parent` isn't hidden.
@@ -587,8 +587,7 @@ final class WorkspaceStore: ObservableObject {
 
     /// Drops `tab`, which closed or left, from its hidden Workspace; does nothing if it isn't
     /// in one. The remembered Tab passes on per `remembered(_:after:leaves:)`, and a Workspace
-    /// left without Tabs ends quietly while the Window keeps showing what it shows (SPEC §1.4,
-    /// §13.5).
+    /// left without Tabs ends quietly while the Window keeps showing what it shows.
     func removeHiddenTab(_ tab: TerminalController) {
         guard let index = hiddenIndex(of: tab) else { return }
         var workspace = workspaces[index]

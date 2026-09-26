@@ -497,7 +497,7 @@ class AppDelegate: NSObject,
         var config = Ghostty.SurfaceConfiguration()
 
         if isDirectory.boolValue {
-            // A directory's first Tab starts in it (SPEC §1.5). The configuration
+            // A directory's first Tab starts in it. The configuration
             // decides below whether it opens as a Workspace, a tab, or a window.
             config.workingDirectory = filename
         } else {
@@ -544,7 +544,7 @@ class AppDelegate: NSObject,
         }
 
         // A folder's Workspace is named after it wherever one is made from it. A file that
-        // opens a new Window gets "Workspace 1" (SPEC §1.2).
+        // opens a new Window gets "Workspace 1".
         let folderName = isDirectory.boolValue ? WorkspaceStore.name(ofFolder: filename) : nil
 
         switch (ghostty.config.macosDockDropBehavior, folderName) {
@@ -566,7 +566,7 @@ class AppDelegate: NSObject,
         return true
     }
 
-    /// A folder opened under `new-workspace` (SPEC §9.1): a new Workspace named `name` at the
+    /// A folder opened under `new-workspace`: a new Workspace named `name` at the
     /// end of the receiving Window, the front one, shown as the Window comes forward. Where
     /// that Window can't hold Tabs, or a sheet blocks switching, the folder opens as a new
     /// Window instead, with no alert, and so it does when no Window is open. Non-native
@@ -802,7 +802,7 @@ class AppDelegate: NSObject,
         let config = configAny as? Ghostty.SurfaceConfiguration
 
         // A Window opened from a Tab reads whether to start fullscreen from that Tab's
-        // Window, hidden Tabs included (SPEC §14).
+        // Window, hidden Tabs included.
         let parent = (notification.object as? Ghostty.SurfaceView)?.window
         _ = TerminalController.newWindow(
             ghostty,
@@ -1080,7 +1080,7 @@ class AppDelegate: NSObject,
         quickController.toggle()
     }
 
-    /// Jump to Agent (SPEC §15.2). App-scoped, so it runs whatever window is key.
+    /// Jump to Agent. App-scoped, so it runs whatever window is key.
     @IBAction func jumpToAgent(_ sender: Any?) {
         _ = JumpToAgent.perform()
     }
@@ -1180,7 +1180,7 @@ class AppDelegate: NSObject,
         }
 
         /// A captured Tab that a switch hid meanwhile gives way to its Window's shown Tab, so it
-        /// never surfaces as a stray window (SPEC §2.5).
+        /// never surfaces as a stray window.
         @MainActor private static func onScreen(_ window: NSWindow?) -> NSWindow? {
             guard let tab = window?.windowController as? TerminalController else { return window }
             return tab.onScreenTab?.window
@@ -1346,7 +1346,7 @@ extension AppDelegate {
 // MARK: Workspace menu
 
 extension AppDelegate: NSMenuDelegate {
-    /// Refills the Workspace menu's list from the key Window as the menu opens (SPEC §7.3).
+    /// Refills the Workspace menu's list from the key Window as the menu opens.
     /// Windows that can't hold Tabs, the Quick Terminal among them, list nothing.
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard let separator = menuWorkspaceListSeparator, separator.menu === menu else { return }
@@ -1482,7 +1482,7 @@ extension AppDelegate: NSMenuItemValidation {
 
 extension AppDelegate {
     /// Quit asks once per Window, on its shown Tab, when any of its Tabs would, hidden
-    /// Workspaces included, and nothing switches Workspaces (SPEC §13.3). The Quick Terminal
+    /// Workspaces included, and nothing switches Workspaces. The Quick Terminal
     /// asks on its own.
     func terminate() -> NSApplication.TerminateReply {
         var seen = Set<ObjectIdentifier>()

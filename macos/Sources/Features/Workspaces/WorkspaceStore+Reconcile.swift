@@ -3,7 +3,7 @@ import AppKit
 extension WorkspaceStore {
     // MARK: Membership
 
-    /// Brings membership in line with the tab group (SPEC §2.2). Every Tab in the group
+    /// Brings membership in line with the tab group. Every Tab in the group
     /// belongs to this store, so one that Cmd+T, AppKit, or the bar added adopts it and joins
     /// the shown Workspace. A shown Tab that left for another Window's group adopts that
     /// Window's store. One that left alone (torn off, Move Tab to New Window) is a new Window
@@ -11,7 +11,7 @@ extension WorkspaceStore {
     /// fullscreen Tab stays shown and keeps its store, whichever group it lands in.
     ///
     /// When the shown Workspace's last Tab left for another Window, the Workspace ends and
-    /// the Window re-forms around its neighbor (SPEC §11.5); with no neighbor it's gone.
+    /// the Window re-forms around its neighbor; with no neighbor it's gone.
     ///
     /// Commands call this before touching the group, and so do KVO on the group and the
     /// Window becoming key.
@@ -117,8 +117,7 @@ extension WorkspaceStore {
         group.windows.compactMap { $0.windowController as? TerminalController }
     }
 
-    /// Every Workspace change invalidates the shown Tabs' and the app's restorable state
-    /// (SPEC §17.4).
+    /// Every Workspace change invalidates the shown Tabs' and the app's restorable state.
     func invalidateRestorableState() {
         for window in tabGroup?.windows ?? [] {
             window.invalidateRestorableState()
@@ -127,7 +126,7 @@ extension WorkspaceStore {
         dropOrganizeUndoIfStale()
     }
 
-    /// Remembers the shown Tabs' frame, which a re-formed group takes (SPEC §2.3). The Tabs
+    /// Remembers the shown Tabs' frame, which a re-formed group takes. The Tabs
     /// call this whenever their frame changes.
     func recordShownFrame() {
         if let frame = tabGroup?.selectedWindow?.frame { shownFrame = frame }

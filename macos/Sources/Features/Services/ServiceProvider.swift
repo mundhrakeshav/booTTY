@@ -61,7 +61,7 @@ class ServiceProvider: NSObject {
             var config = Ghostty.SurfaceConfiguration()
             config.workingDirectory = url.pathWithoutTrailingSlash
 
-            // A new Window's one Workspace is named after the folder (SPEC §1.2, §9.2).
+            // A new Window's one Workspace is named after the folder.
             let name = WorkspaceStore.name(ofFolder: url.pathWithoutTrailingSlash)
             switch target {
             case .window:

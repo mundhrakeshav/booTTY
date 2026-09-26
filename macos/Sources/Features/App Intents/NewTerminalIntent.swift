@@ -101,7 +101,7 @@ struct NewTerminalIntent: AppIntent {
         }
 
         // A Tab or Split made beside a hidden Split lands out of sight, so booTTY isn't
-        // activated for it (SPEC §14).
+        // activated for it.
         let isOutOfSight = location != .window
             && (parent.flatMap(BaseTerminalController.controller(owning:))?.isHidden ?? false)
         defer {

@@ -3,17 +3,17 @@ import AppKit
 extension WorkspaceStore {
     // MARK: Moving Tabs
 
-    /// `move_tab_to_workspace:N` (SPEC §11.1): moves `tab` to the Nth Workspace in bar order,
-    /// or the last one when N is past the end. False for N < 1, and for the Tab's own
-    /// Workspace, which a Window with one Workspace always is.
+    /// `move_tab_to_workspace:N`: moves `tab` to the Nth Workspace in bar order, or the last
+    /// one when N is past the end. False for N < 1, and for the Tab's own Workspace, which a
+    /// Window with one Workspace always is.
     func moveTab(_ tab: TerminalController, toWorkspaceAt n: Int) -> Bool {
         reconcile()
         guard let index = index(of: .number(n)) else { return false }
         return moveTab(tab, to: workspaces[index].id)
     }
 
-    /// `move_tab_to_new_workspace` (SPEC §11.1): moves `tab` into a new "Workspace N" at the
-    /// end. A Workspace's only Tab is refused.
+    /// `move_tab_to_new_workspace`: moves `tab` into a new "Workspace N" at the end. A
+    /// Workspace's only Tab is refused.
     func moveTabToNewWorkspace(_ tab: TerminalController) -> Bool {
         reconcile()
         guard tabs(of: workspace(holding: tab).id).count > 1 else { return false }
@@ -25,15 +25,15 @@ extension WorkspaceStore {
     }
 
     /// Moves `tab` to the end of Workspace `id`'s Tabs, or to `index` among them. The Window
-    /// keeps showing what it shows, and the target keeps its remembered Tab (SPEC §11.2),
-    /// except that moving the shown Workspace's only Tab ends that Workspace and shows `id`
-    /// with `tab` selected (§11.3). A Tab moved into the shown Workspace joins its tab bar
-    /// unselected (§14). Registers Undo Move Tab (§11.4).
+    /// keeps showing what it shows, and the target keeps its remembered Tab, except that
+    /// moving the shown Workspace's only Tab ends that Workspace and shows `id` with `tab`
+    /// selected. A Tab moved into the shown Workspace joins its tab bar unselected. Registers
+    /// Undo Move Tab.
     ///
     /// Reports false with nothing moved when `id` is the Tab's own Workspace, the Tab has a
-    /// sheet up (§11.6), AppKit threw, or the move would touch the shown Workspace in
-    /// non-native fullscreen, which shows "Cannot Move Tab" for a shown Tab and refuses a
-    /// hidden one silently (§3). Moves between two hidden Workspaces run there.
+    /// sheet up, AppKit threw, or the move would touch the shown Workspace in non-native
+    /// fullscreen, which shows "Cannot Move Tab" for a shown Tab and refuses a hidden one
+    /// silently. Moves between two hidden Workspaces run there.
     func moveTab(_ tab: TerminalController, to id: Workspace.ID, at index: Int? = nil) -> Bool {
         reconcile()
         let source = workspace(holding: tab).id
@@ -94,8 +94,7 @@ extension WorkspaceStore {
 
         // The shown Workspace's only Tab: the target's Tabs join the group around it (in
         // front of it by default), so the Window is never empty, and the source Workspace
-        // ends. This is a switch not made by `show`, so it cancels a swipe in progress too
-        // (SPEC §6.3).
+        // ends. This is a switch not made by `show`, so it cancels a swipe in progress too.
         if tabs(of: shownID).count == 1 {
             guard let target = workspaces.firstIndex(where: { $0.id == id }) else { return false }
             isChanging = true
@@ -140,15 +139,14 @@ extension WorkspaceStore {
 
     // MARK: Moving Workspaces
 
-    /// Move Workspace to New Window (SPEC §12.2): Workspace `id` leaves for a new Window of
-    /// its own, with its id, name, original name, color, Tabs and Splits, and remembered Tab.
-    /// `tab` is the Tab of the request's target Split. Moving the shown Workspace first shows
-    /// its neighbor; moving a hidden one leaves the view as it is. No undo.
+    /// Move Workspace to New Window: Workspace `id` leaves for a new Window of its own, with
+    /// its id, name, original name, color, Tabs and Splits, and remembered Tab. `tab` is the
+    /// Tab of the request's target Split. Moving the shown Workspace first shows its
+    /// neighbor; moving a hidden one leaves the view as it is. No undo.
     ///
     /// Reports false, with nothing moved, when it's the Window's only Workspace; in
-    /// non-native fullscreen, with "Cannot Move Workspace" unless `tab` is hidden (§3, §14);
-    /// and for the shown Workspace while the shown Tab has a sheet, which comes forward
-    /// (§13.7).
+    /// non-native fullscreen, with "Cannot Move Workspace" unless `tab` is hidden; and for
+    /// the shown Workspace while the shown Tab has a sheet, which comes forward.
     @discardableResult
     func moveToNewWindow(_ id: Workspace.ID, requestedBy tab: TerminalController) -> Bool {
         reconcile()
@@ -172,11 +170,11 @@ extension WorkspaceStore {
         return true
     }
 
-    /// `move_tab_to_new_window` aimed at a hidden Split (SPEC §11.5, §14): the Tab opens by
-    /// Move Workspace to New Window's path, as a Window holding one Workspace, "Workspace 1".
-    /// Its Workspace ends quietly if it was the last Tab, and its Undo Move Tab comes off the
-    /// stack, since it left the Window alone (§11.4). Refused silently (false) for a shown
-    /// Tab and in non-native fullscreen.
+    /// `move_tab_to_new_window` aimed at a hidden Split: the Tab opens by Move Workspace to
+    /// New Window's path, as a Window holding one Workspace, "Workspace 1". Its Workspace ends
+    /// quietly if it was the last Tab, and its Undo Move Tab comes off the stack, since it
+    /// left the Window alone. Refused silently (false) for a shown Tab and in non-native
+    /// fullscreen.
     func moveHiddenTabToNewWindow(_ tab: TerminalController) -> Bool {
         reconcile()
         guard isHidden(tab), !isInNonNativeFullscreen,
@@ -190,14 +188,14 @@ extension WorkspaceStore {
         return true
     }
 
-    /// Merge All Windows (SPEC §12.1), picked in `tab`'s Window: every other Window that can
-    /// join hands over all its Workspaces, Window by Window from front to back, each Window's
-    /// in their own order. They arrive hidden at the end, with their id, name, original name,
-    /// color, Tabs and Splits, and remembered Tab, and their Tabs take this Window's store.
-    /// This Window keeps showing what it shows, and the other Windows go away. No undo.
+    /// Merge All Windows, picked in `tab`'s Window: every other Window that can join hands
+    /// over all its Workspaces, Window by Window from front to back, each Window's in their
+    /// own order. They arrive hidden at the end, with their id, name, original name, color,
+    /// Tabs and Splits, and remembered Tab, and their Tabs take this Window's store. This
+    /// Window keeps showing what it shows, and the other Windows go away. No undo.
     ///
     /// Reports false, with nothing merged, in non-native fullscreen, with "Cannot Merge
-    /// Windows" (§3), and when no Window can join.
+    /// Windows", and when no Window can join.
     @discardableResult
     func mergeAllWindows(requestedBy tab: TerminalController) -> Bool {
         reconcile()
@@ -215,8 +213,8 @@ extension WorkspaceStore {
     }
 
     /// The other Windows a merge into this one takes, front to back: each that can hold Tabs,
-    /// unless it's in non-native fullscreen or its shown Tab has a sheet (§3, §13.7). The
-    /// Quick Terminal is never one of them.
+    /// unless it's in non-native fullscreen or its shown Tab has a sheet. The Quick Terminal
+    /// is never one of them.
     var windowsJoiningMerge: [WorkspaceStore] {
         var seen: Set<ObjectIdentifier> = [ObjectIdentifier(self)]
         return NSApp.orderedWindows.compactMap { window in
@@ -237,10 +235,10 @@ extension WorkspaceStore {
         }
     }
 
-    /// Hands this Window's Workspaces to a merge into another Window (SPEC §12.1), in bar
-    /// order and all hidden: the shown Workspace's Tabs order out, and it remembers the
-    /// selected one. The store is left with one empty Workspace, so the Window goes away. A
-    /// Tab that failed to order out stays in it and keeps the Window open.
+    /// Hands this Window's Workspaces to a merge into another Window, in bar order and all
+    /// hidden: the shown Workspace's Tabs order out, and it remembers the selected one. The
+    /// store is left with one empty Workspace, so the Window goes away. A Tab that failed to
+    /// order out stays in it and keeps the Window open.
     private func handOver() -> [Workspace] {
         guard let group = tabGroup else { return [] }
         invalidateRestorableState()
@@ -250,7 +248,7 @@ extension WorkspaceStore {
         let tabs = Self.orderOut(group).compactMap { $0.windowController as? TerminalController }
         isChanging = false
 
-        // A switcher open in an outgoing Tab closes (SPEC §8.1).
+        // A switcher open in an outgoing Tab closes.
         for tab in tabs { tab.workspaceSwitcherIsShowing = false }
 
         var handed = workspaces

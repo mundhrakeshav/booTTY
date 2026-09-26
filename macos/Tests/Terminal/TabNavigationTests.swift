@@ -2,7 +2,7 @@ import Testing
 import GhosttyKit
 @testable import Ghostty
 
-/// `goto_tab` and `move_tab` count over a Workspace's Tabs, shown or hidden (SPEC §14).
+/// `goto_tab` and `move_tab` count over a Workspace's Tabs, shown or hidden.
 @MainActor
 struct TabNavigationTests {
     @Test func gotoTabWrapsAndStopsAtTheLast() {

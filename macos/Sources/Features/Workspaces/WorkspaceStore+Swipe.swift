@@ -24,7 +24,7 @@ extension WorkspaceStore {
     }
 
     /// A claimed swipe. Its targets are fixed by id when it starts: nil past the first or
-    /// last Workspace, since a swipe never wraps (SPEC §6.3).
+    /// last Workspace, since a swipe never wraps.
     struct Swipe: Equatable {
         let generation: Int
         let previous: Workspace.ID?
@@ -36,7 +36,7 @@ extension WorkspaceStore {
         }
     }
 
-    /// Decides a scroll event in one of the Window's Tabs (SPEC §6.1, §6.2). A gesture whose
+    /// Decides a scroll event in one of the Window's Tabs. A gesture whose
     /// first movement is mostly horizontal, beginning where `startsSwipe` holds, is a swipe;
     /// anything else passes untouched. A claimed gesture's own events pass, because AppKit's
     /// tracker takes them and starves if they're swallowed. Its momentum is dropped.
@@ -81,7 +81,7 @@ extension WorkspaceStore {
         }
     }
 
-    /// Tracks the swipe `swipeAction` claimed on `event` (SPEC §6.2). AppKit dampens it past
+    /// Tracks the swipe `swipeAction` claimed on `event`. AppKit dampens it past
     /// a side with no neighbor, where it never completes.
     func trackSwipe(_ event: NSEvent) {
         let swipe = claimSwipe()
@@ -158,7 +158,7 @@ extension WorkspaceStore {
         return true
     }
 
-    /// Cancels a swipe in progress (SPEC §6.3): nothing switches, the rest of its gesture
+    /// Cancels a swipe in progress: nothing switches, the rest of its gesture
     /// and its momentum are dropped, and the bar shows the shown Workspace's page at once.
     func cancelSwipe() {
         swipeGeneration += 1

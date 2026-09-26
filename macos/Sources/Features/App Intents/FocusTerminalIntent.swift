@@ -17,7 +17,7 @@ struct FocusTerminalIntent: AppIntent {
     static var supportedModes: IntentModes = .background
 #endif
 
-    /// False when the terminal's hidden Workspace can't be shown now (SPEC §2.4).
+    /// False when the terminal's hidden Workspace can't be shown now.
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<Bool> {
         guard await requestIntentPermission() else {

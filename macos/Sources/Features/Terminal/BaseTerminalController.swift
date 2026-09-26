@@ -59,7 +59,7 @@ class BaseTerminalController: NSWindowController,
         didSet { if commandPaletteIsShowing { workspaceSwitcherIsShowing = false } }
     }
 
-    /// This can be set to show/hide the Workspace switcher (SPEC §8).
+    /// This can be set to show/hide the Workspace switcher.
     @Published var workspaceSwitcherIsShowing: Bool = false {
         didSet { if workspaceSwitcherIsShowing { commandPaletteIsShowing = false } }
     }
@@ -99,15 +99,15 @@ class BaseTerminalController: NSWindowController,
     }
 
     /// Whether this Tab is in one of its Window's hidden Workspaces: ordered out, yet still in
-    /// `NSApp.windows` and `NSApp.orderedWindows` (SPEC §2.5). Actions aimed at it run out of
-    /// sight or are refused, and never show it (SPEC §14).
+    /// `NSApp.windows` and `NSApp.orderedWindows`. Actions aimed at it run out of sight or are
+    /// refused, and never show it.
     var isHidden: Bool { false }
 
-    /// Runs before every Jump's usual focus (SPEC §2.4): shows this Tab's Workspace if it's
+    /// Runs before every Jump's usual focus: shows this Tab's Workspace if it's
     /// hidden. False means the jump stops here and reports false.
     func revealForJump() -> Bool { true }
 
-    /// Undo shows what it changes (SPEC §16): shows this Tab's Workspace if it's hidden,
+    /// Undo shows what it changes: shows this Tab's Workspace if it's hidden,
     /// unless the Window can't switch now. Every undo and redo that changes a Tab or Split
     /// calls it first.
     func showForUndo() {}
@@ -632,7 +632,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     /// Moves focus to `view` on the next turn. A hidden Tab also records `view` as its focused
-    /// Split now, so showing the Tab focuses it (SPEC §14).
+    /// Split now, so showing the Tab focuses it.
     private func moveFocus(to view: Ghostty.SurfaceView, from oldView: Ghostty.SurfaceView? = nil) {
         if isHidden { focusedSurfaceDidChange(to: view) }
         DispatchQueue.main.async {
@@ -805,7 +805,7 @@ class BaseTerminalController: NSWindowController,
 
         // Move focus to our window. Importantly this ensures that if we click the
         // reset zoom button in a tab bar of an unfocused tab that we become focused.
-        // A hidden Tab stays out of sight (SPEC §14).
+        // A hidden Tab stays out of sight.
         if !isHidden {
             window?.makeKeyAndOrderFront(nil)
         }
@@ -1503,7 +1503,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     // Workspace menu items run their keybind action on the focused Split, so they get the
-    // same checks and alerts as the keys (SPEC §7.3, §4.2).
+    // same checks and alerts as the keys.
 
     @IBAction func toggleWorkspaceSwitcher(_ sender: Any?) {
         guard let focusedSurface else { return }

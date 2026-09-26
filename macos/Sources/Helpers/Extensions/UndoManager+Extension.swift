@@ -21,8 +21,8 @@ extension UndoManager {
     /// Runs `handler`, which must register an undo, as an undo step of its own. With
     /// `groupsByEvent`, everything registered in one event undoes together, even inside
     /// explicit groups, so each folder of a multi-folder open would otherwise undo with the
-    /// rest (SPEC §9.1). Inside an open group, or while undoing or redoing, it just runs
-    /// `handler`. A handler that registers nothing leaves an empty step.
+    /// rest. Inside an open group, or while undoing or redoing, it just runs `handler`. A
+    /// handler that registers nothing leaves an empty step.
     func registerAsOwnStep(handler: () -> Void) {
         guard groupingLevel == 0, !isUndoingOrRedoing, groupsByEvent else { return handler() }
         groupsByEvent = false

@@ -135,7 +135,7 @@ final class ScriptWindow: NSObject {
     /// Resolves a previously generated tab ID back to a live controller. It also searches the
     /// Window's hidden Workspaces, so a stored reference keeps resolving and `select tab`
     /// reveals it. Such a Tab isn't in `controllers`, so it reports `index` 0 and `selected`
-    /// false (SPEC §18.2).
+    /// false.
     private func controller(tabID: String) -> BaseTerminalController? {
         let hidden = (primaryController as? TerminalController)?.workspaceStore.workspaces.flatMap(\.hiddenTabs) ?? []
         return controllers.first { ScriptTab.stableID(controller: $0) == tabID }

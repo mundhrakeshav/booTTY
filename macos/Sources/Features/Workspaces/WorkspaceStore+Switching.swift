@@ -3,10 +3,11 @@ import AppKit
 extension WorkspaceStore {
     // MARK: Switching
 
-    /// The one switch path (SPEC §2.3): shows Workspace `id`. Returns false, with the old
-    /// Workspace still shown, when AppKit throws while adding or selecting the incoming Tabs,
-    /// or when the Window can't switch now. Showing the shown Workspace changes nothing.
-    /// A switch by any other path than the swipe itself cancels a swipe in progress (§6.3).
+    /// Shows Workspace `id`, the switch requests, swipes, jumps, and most undos make. Returns
+    /// false, with the old Workspace still shown, when AppKit throws while adding or selecting
+    /// the incoming Tabs, or when the Window can't switch now. Showing the shown Workspace
+    /// changes nothing.
+    /// A switch by any other path than the swipe itself cancels a swipe in progress.
     ///
     /// `comingForward` is for a switch after which the Window comes forward (a jump, an undo,
     /// a folder opened into it): a minimized Window is deminiaturized first, and the incoming
@@ -53,7 +54,7 @@ extension WorkspaceStore {
         reconcile()
         invalidateRestorableState()
 
-        // A switcher open in the outgoing Tab closes (SPEC §8.1).
+        // A switcher open in the outgoing Tab closes.
         for tab in outgoingTabs { tab.workspaceSwitcherIsShowing = false }
 
         didShow(incoming)
@@ -138,8 +139,8 @@ extension WorkspaceStore {
         return old.filter { window in window !== target && perform(.orderOut) { window.orderOut(nil) } }
     }
 
-    /// Makes `group` hold `windows` in their order, with `target`, one of them, selected
-    /// (SPEC §10.6). `target` joins if it's out and is selected, all or nothing, as in `swap`,
+    /// Makes `group` hold `windows` in their order, with `target`, one of them, selected.
+    /// `target` joins if it's out and is selected, all or nothing, as in `swap`,
     /// which orders every other window out; then the rest of `windows` join around it, with
     /// animation off. False, with nothing changed, if `target` couldn't join or be selected.
     /// A window that fails to order out stays in the group, and one that fails to join stays
@@ -214,9 +215,9 @@ extension WorkspaceStore {
     }
 
     /// Shows Workspace `id` after the shown Workspace's last Tab left for another Window and
-    /// emptied the group (SPEC §2.3). The shown Workspace ends, and a swipe in progress is
-    /// cancelled (§6.3). `joined` is the Tab that left; its Window keeps key. Every Tab keeps
-    /// this store, but the new group gives AppleScript a new `window id` (§18.2).
+    /// emptied the group. The shown Workspace ends, and a swipe in progress is
+    /// cancelled. `joined` is the Tab that left; its Window keeps key. Every Tab keeps
+    /// this store, but the new group gives AppleScript a new `window id`.
     func reform(showing id: Workspace.ID, below joined: NSWindow) {
         guard let target = workspaces.firstIndex(where: { $0.id == id }),
               let remembered = (workspaces[target].rememberedTab ?? workspaces[target].hiddenTabs.first)?.window,
@@ -245,7 +246,7 @@ extension WorkspaceStore {
     }
 
     /// Takes `window` out of `group`, detaching it and ordering it out in one step with
-    /// animation off (SPEC §11.7). A selected `window` hands the selection to its right
+    /// animation off. A selected `window` hands the selection to its right
     /// neighbor, else its left, first, so ordering it out reveals nothing; `makeKey` selects
     /// by making that neighbor key. False, with the old selection back, when AppKit throws.
     static func detach(

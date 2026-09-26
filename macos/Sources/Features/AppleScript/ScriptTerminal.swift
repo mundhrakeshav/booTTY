@@ -132,7 +132,7 @@ final class ScriptTerminal: NSObject {
     }
 
     /// Handler for `focus <terminal>`. Returns a Bool to match the command's declared result:
-    /// false when a hidden Workspace can't be shown now (SPEC §2.4).
+    /// false when a hidden Workspace can't be shown now.
     @objc(handleFocusCommand:)
     func handleFocus(_ command: NSScriptCommand) -> NSNumber? {
         guard NSApp.validateScript(command: command) else { return nil }

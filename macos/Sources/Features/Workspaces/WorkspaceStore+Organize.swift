@@ -1,6 +1,6 @@
 import AppKit
 
-/// Organize (SPEC §10): how Tabs are keyed, grouped, and named. `organize(by:)` applies it.
+/// Organize: how Tabs are keyed, grouped, and named. `organize(by:)` applies it.
 extension WorkspaceStore {
     enum OrganizeMode { case repo, folder }
 
@@ -8,11 +8,11 @@ extension WorkspaceStore {
     struct OrganizeGroup<Tab: AnyObject> {
         let name: String
         let tabs: [Tab]
-        /// The Tab it remembers while hidden (SPEC §10.5).
+        /// The Tab it remembers while hidden.
         let rememberedTab: Tab
     }
 
-    /// The key of a Split whose last OSC 7 pwd is `pwd` (SPEC §10.2), or nil for no pwd.
+    /// The key of a Split whose last OSC 7 pwd is `pwd`, or nil for no pwd.
     /// By repo: the nearest folder at or above the pwd holding `.git`, a folder or a file,
     /// so each worktree and submodule is its own repo; else the pwd. By folder: the pwd.
     static func organizeKey(of pwd: String?, by mode: OrganizeMode) -> String? {
@@ -31,7 +31,7 @@ extension WorkspaceStore {
         }
     }
 
-    /// A Tab's Splits as Organize breaks them up (SPEC §10.3).
+    /// A Tab's Splits as Organize breaks them up.
     struct OrganizeSplit<View: NSView & Codable & Identifiable> {
         /// The Tab's key: its focused Split's.
         let key: String?
@@ -43,9 +43,9 @@ extension WorkspaceStore {
         let brokenOut: [(key: String, tree: SplitTree<View>)]
     }
 
-    /// Breaks `tree` up by `key` (SPEC §10.3). Splits sharing a key stay together in their
-    /// original layout, and the piece holding `focused` (else the first Split) keeps the Tab.
-    /// A Split with no key stays with that piece.
+    /// Breaks `tree` up by `key`. Splits sharing a key stay together in their original layout,
+    /// and the piece holding `focused` (else the first Split) keeps the Tab. A Split with no
+    /// key stays with that piece.
     static func organizeSplit<View>(
         _ tree: SplitTree<View>,
         focused: View?,
@@ -76,12 +76,12 @@ extension WorkspaceStore {
     }
 
     /// Regroups `tabs`, in the Window's order (Workspaces left to right, then Tabs top to
-    /// bottom), by `key` (SPEC §10.3). The Tabs `brokenOut` of a Tab take its place, right
-    /// after it, in split-tree order. Groups come in the order of their first Tab, with the
-    /// unplaced Tabs (nil key) last as "Other", and keep their Tabs' order. So when groups'
-    /// first Tabs share a place, the group holding the Tab itself comes first, then the ones
-    /// whose first Tab broke out of it. Each group remembers its first Tab found in
-    /// `remembering` (the shown Tab and the remembered Tabs), else its first Tab (§10.5).
+    /// bottom), by `key`. The Tabs `brokenOut` of a Tab take its place, right after it, in
+    /// split-tree order. Groups come in the order of their first Tab, with the unplaced Tabs
+    /// (nil key) last as "Other", and keep their Tabs' order. So when groups' first Tabs share
+    /// a place, the group holding the Tab itself comes first, then the ones whose first Tab
+    /// broke out of it. Each group remembers its first Tab found in `remembering` (the shown
+    /// Tab and the remembered Tabs), else its first Tab.
     static func organizeGroups<Tab: AnyObject>(
         _ tabs: [Tab],
         key: (Tab) -> String?,
@@ -106,9 +106,9 @@ extension WorkspaceStore {
         }
     }
 
-    /// The names of groups keyed by `keys` (SPEC §10.4): each key's basename (`~` for home,
-    /// `/` for the root, "Other" for nil). Groups sharing a name get parent-folder segments,
-    /// nearest first, until the names differ: "app (work)", "app (home/a)", "tmp (/)".
+    /// The names of groups keyed by `keys`: each key's basename (`~` for home, `/` for the
+    /// root, "Other" for nil). Groups sharing a name get parent-folder segments, nearest first,
+    /// until the names differ: "app (work)", "app (home/a)", "tmp (/)".
     static func organizeNames(_ keys: [String?], home: String = NSHomeDirectory()) -> [String] {
         let home = URL(fileURLWithPath: home).standardized.path
         let segments: [[String]] = keys.map { key in
@@ -153,12 +153,12 @@ extension WorkspaceStore {
 }
 
 extension WorkspaceStore {
-    /// Organize (SPEC §10): regroups every Tab of the Window, hidden ones included, into new,
-    /// uncolored Workspaces that replace the old ones, one per repo or folder of each Tab's
-    /// focused Split. Splits whose key differs break out as Tabs of their own (§10.3). The
-    /// Workspace holding the shown Tab is shown, and that Tab stays selected with its focused
-    /// Split. Registers Undo Organize (§10.6). Returns false with nothing changed when there's
-    /// no group or the Window is in non-native fullscreen; requests check `allowsRequest` first.
+    /// Organize: regroups every Tab of the Window, hidden ones included, into new, uncolored
+    /// Workspaces that replace the old ones, one per repo or folder of each Tab's focused
+    /// Split. Splits whose key differs break out as Tabs of their own. The Workspace holding
+    /// the shown Tab is shown, and that Tab stays selected with its focused Split. Registers
+    /// Undo Organize. Returns false with nothing changed when there's no group or the Window
+    /// is in non-native fullscreen; requests check `allowsRequest` first.
     @discardableResult
     func organize(by mode: OrganizeMode) -> Bool {
         reconcile()
@@ -222,15 +222,15 @@ extension WorkspaceStore {
     private typealias Trees = [(tab: TerminalController, tree: SplitTree<Ghostty.SurfaceView>)]
 
     /// A Window's whole arrangement, as Organize makes it and Undo and Redo Organize bring it
-    /// back (SPEC §10.6): its Workspaces in bar order, each listing all its Tabs in order in
-    /// `hiddenTabs` and remembering the Tab it selects, the shown one included.
+    /// back: its Workspaces in bar order, each listing all its Tabs in order in `hiddenTabs`
+    /// and remembering the Tab it selects, the shown one included.
     private struct Arrangement {
         var workspaces: [Workspace]
         var shownID: Workspace.ID
         /// The split trees it gives the Tabs Organize broke Splits out of, and the broken-out
-        /// Tabs (§10.3). Bringing it back folds a Window's Tab it doesn't hold, broken out
-        /// since, back into these trees; a Tab listed here that has folded back since breaks
-        /// out again as a new Tab.
+        /// Tabs. Bringing it back folds a Window's Tab it doesn't hold, broken out since, back
+        /// into these trees; a Tab listed here that has folded back since breaks out again as
+        /// a new Tab.
         var trees: Trees = []
     }
 
@@ -250,9 +250,9 @@ extension WorkspaceStore {
     /// Makes `arrangement` the Window's. It holds the Window's Tabs, but for broken-out Tabs
     /// about to fold back, which order out and leave the Workspaces. Its shown Workspace's
     /// Tabs become the live group, in order, around its remembered Tab, which is selected;
-    /// the rest order out. This doesn't go through `show`, so it cancels a swipe itself (SPEC
-    /// §6.3) and counts as no show toward recency: the shown Workspace is newest and the rest
-    /// follow bar order (§8.3). `comingForward` is `show(_:comingForward:)`'s.
+    /// the rest order out. This doesn't go through `show`, so it cancels a swipe itself and
+    /// counts as no show toward recency: the shown Workspace is newest and the rest follow
+    /// bar order. `comingForward` is `show(_:comingForward:)`'s.
     /// Returns false with nothing changed when there's no group, the Window is in non-native
     /// fullscreen, or AppKit threw while adding or selecting the remembered Tab.
     private func arrange(_ arrangement: Arrangement, comingForward: Bool) -> Bool {
@@ -280,7 +280,7 @@ extension WorkspaceStore {
 
         let grouped = Self.tabs(in: group)
 
-        // A switcher open in an outgoing Tab closes (SPEC §8.1).
+        // A switcher open in an outgoing Tab closes.
         for tab in outgoing where !grouped.contains(where: { $0 === tab }) { tab.workspaceSwitcherIsShowing = false }
 
         // A Tab that failed to order out stayed in the group, so it's shown. One that failed
@@ -308,11 +308,10 @@ extension WorkspaceStore {
         return true
     }
 
-    /// Registers Undo Organize, which brings back `arrangement`, the one Organize replaced
-    /// (SPEC §10.6). Undoing registers Redo Organize, which brings back the arrangement the
-    /// undo replaced, and so on. Both come off the stack once a Tab enters or leaves the
-    /// Window, or once bringing `arrangement` back would lose a Split
-    /// (`dropOrganizeUndoIfStale`).
+    /// Registers Undo Organize, which brings back `arrangement`, the one Organize replaced.
+    /// Undoing registers Redo Organize, which brings back the arrangement the undo replaced,
+    /// and so on. Both come off the stack once a Tab enters or leaves the Window, or once
+    /// bringing `arrangement` back would lose a Split (`dropOrganizeUndoIfStale`).
     private func registerUndoOrganize(restoring arrangement: Arrangement, from tab: TerminalController) {
         guard let undoManager = tab.undoManager else { return }
         let tabs = tabIDs
@@ -343,10 +342,10 @@ extension WorkspaceStore {
 
     /// Undo or Redo Organize: leaves non-native fullscreen, brings back `arrangement`, then
     /// registers the opposite entry. Tabs broken out since fold back, and Tabs folded back
-    /// since break out again (SPEC §10.3). Refused, with nothing changed, when `restoring`
-    /// is nil. With a sheet on the shown Tab, the Workspace holding that Tab is shown
-    /// instead, with the Tab still selected, and the Window comes forward with its sheet
-    /// (§16); a shown Tab with a sheet doesn't fold back, so that refuses.
+    /// since break out again. Refused, with nothing changed, when `restoring` is nil. With a
+    /// sheet on the shown Tab, the Workspace holding that Tab is shown instead, with the Tab
+    /// still selected, and the Window comes forward with its sheet; a shown Tab with a sheet
+    /// doesn't fold back, so that refuses.
     private func restoreArrangement(_ arrangement: Arrangement) {
         reconcile()
         guard let changes = restoring(arrangement) else { return }
@@ -394,11 +393,10 @@ extension WorkspaceStore {
         Set(trees.flatMap { $0.map(ObjectIdentifier.init) })
     }
 
-    /// Breaks Splits out into new Tabs (SPEC §10.3), as Move Split moves one into a new
-    /// window: each of `kept`'s Tabs takes its tree, giving up the Splits it lacks, then each
-    /// of `pieces` becomes a new Tab like its `tab`, holding `tree` and focused on its first
-    /// Split. The new Tabs are in no Workspace yet. Nil, with nothing changed, if one couldn't
-    /// be made.
+    /// Breaks Splits out into new Tabs, as Move Split moves one into a new window: each of
+    /// `kept`'s Tabs takes its tree, giving up the Splits it lacks, then each of `pieces`
+    /// becomes a new Tab like its `tab`, holding `tree` and focused on its first Split. The
+    /// new Tabs are in no Workspace yet. Nil, with nothing changed, if one couldn't be made.
     private func breakOut(keeping kept: Trees, into pieces: Trees) -> [TerminalController]? {
         let trees: Trees = kept.map { ($0.tab, $0.tab.surfaceTree) }
         for (tab, tree) in kept { tab.surfaceTree = tree }
@@ -414,8 +412,8 @@ extension WorkspaceStore {
         return made
     }
 
-    /// Folds broken-out Splits back (SPEC §10.6): `tabs`, in no Workspace, close, then each of
-    /// `trees`' Tabs takes its tree, and with it their Splits.
+    /// Folds broken-out Splits back: `tabs`, in no Workspace, close, then each of `trees`'
+    /// Tabs takes its tree, and with it their Splits.
     private func foldBack(_ tabs: [TerminalController], into trees: Trees) {
         // An emptied tree closes its Tab with no Undo Close Tab. `trees` keep its Splits.
         for tab in tabs { tab.surfaceTree = .init() }

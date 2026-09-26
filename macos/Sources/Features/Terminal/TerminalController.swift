@@ -10,8 +10,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// The Window's titlebar style and decorations, fixed when the Window is created. A Tab
     /// created into an existing Window takes that Window's, not a reloaded config's, so it
-    /// always joins the Window's group, and the Window keeps (or keeps lacking) Workspaces
-    /// (SPEC §4.2).
+    /// always joins the Window's group, and the Window keeps (or keeps lacking) Workspaces.
     struct WindowStyle: Equatable {
         let nibName: String
 
@@ -85,11 +84,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     /// The target of this Tab's Undo and Redo Move Tab entries, so they alone come off the
-    /// stack when the Tab leaves its Window (SPEC §11.4).
+    /// stack when the Tab leaves its Window.
     let moveTabUndoTarget = NSObject()
 
     /// Turns two-finger horizontal swipes over this Tab's vertical tab bar into Workspace
-    /// switches (SPEC §6.2).
+    /// switches.
     private var swipeMonitor: Any?
 
     /// `windowStyle` is the style of the Window this Tab is created into. Nil means a new
@@ -206,7 +205,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
-    /// Whether a scroll gesture beginning at `point` may become a swipe (SPEC §6.1): it's
+    /// Whether a scroll gesture beginning at `point` may become a swipe: it's
     /// over the vertical tab bar of a Window with Workspaces, and nothing else holds the bar
     /// or the Window.
     private func startsSwipe(at point: NSPoint) -> Bool {
@@ -336,7 +335,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     // The preferred parent terminal controller. It's never a hidden Tab: a hidden `lastMain`,
     // left behind by a switch made while booTTY was inactive, stands for its Window's shown
-    // Tab (SPEC §2.5). A hidden Tab is never main.
+    // Tab. A hidden Tab is never main.
     static var preferredParent: TerminalController? {
         all.first {
             $0.window?.isMainWindow ?? false
@@ -350,7 +349,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static private(set) weak var lastMain: TerminalController?
 
     /// The "new window" action. The Window's one Workspace is `workspaceName`, by default
-    /// "Workspace 1" (SPEC §1.2).
+    /// "Workspace 1".
     static func newWindow(
         _ ghostty: Ghostty.App,
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration? = nil,
@@ -369,7 +368,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // Whether the parent's Window is fullscreen is read from its shown Tab, since a
-        // hidden or unselected Tab's own window doesn't say (SPEC §2.6, §14).
+        // hidden or unselected Tab's own window doesn't say.
         let fullscreenParent = parentController?.workspaceStore.shownTab?.window ?? parent
         if let fullscreenParent, fullscreenParent.styleMask.contains(.fullScreen) {
             // If our previous window was fullscreen then we want our new window to
@@ -529,7 +528,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     /// A new Tab in `parent`'s shown Workspace. Without a `parent`, a new Window opens, and
-    /// its one Workspace is `workspaceName`, by default "Workspace 1" (SPEC §1.2).
+    /// its one Workspace is `workspaceName`, by default "Workspace 1".
     static func newTab(
         _ ghostty: Ghostty.App,
         from parent: NSWindow? = nil,
@@ -544,7 +543,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         // A Tab opened from a hidden Split joins its Workspace out of sight, and booTTY
-        // isn't activated (SPEC §14).
+        // isn't activated.
         if parentController.isHidden {
             let controller = parentController.workspaceStore.newHiddenTab(
                 beside: parentController, withBaseConfig: baseConfig)
@@ -685,7 +684,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ) { ghostty in
                 if let tab = parent.windowController as? TerminalController {
                     tab.showForUndo()
-                    // Joining the shown Workspace leaves non-native fullscreen first (SPEC §16).
+                    // Joining the shown Workspace leaves non-native fullscreen first.
                     if !tab.isHidden { tab.workspaceStore.leaveNonNativeFullscreen() }
                 }
                 _ = TerminalController.newTab(
@@ -839,7 +838,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// How many Tabs this one's Workspace holds: `groupedTabs`, except that in non-native
     /// fullscreen the shown Workspace's are the windowed group's plus the fullscreen Tab,
-    /// which has left that group (SPEC §3).
+    /// which has left that group.
     private var workspaceTabCount: Int {
         let store = workspaceStore
         store.reconcile()
@@ -848,7 +847,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     /// Whether this is the only Tab of its Window's only Workspace, so closing it closes
-    /// the Window (SPEC §13.2).
+    /// the Window.
     var isOnlyTabInWindow: Bool { workspaceTabCount <= 1 && workspaceStore.workspaces.count <= 1 }
 
     override var isHidden: Bool { workspaceStore.isHidden(self) }
@@ -858,14 +857,14 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     override func showForUndo() { workspaceStore.showForUndo(self) }
 
     /// The Tab that stands for this one on screen: itself, or, while it's hidden, its
-    /// Window's shown Tab (SPEC §2.5). Use it wherever a Tab is picked to order front or
+    /// Window's shown Tab. Use it wherever a Tab is picked to order front or
     /// to parent new Tabs, so a hidden Tab never surfaces as a stray window.
     var onScreenTab: TerminalController? {
         isHidden ? workspaceStore.shownTab : self
     }
 
     /// Asks whether to close something of this Tab's: on the Tab itself, or for a hidden Tab
-    /// on its Window's shown Tab (SPEC §2.5). It's this Tab's own question there, so one up
+    /// on its Window's shown Tab. It's this Tab's own question there, so one up
     /// about another Tab or a Workspace neither answers it nor is answered by it.
     private func confirmCloseOnScreen(messageText: String, informativeText: String, completion: @escaping () -> Void) {
         (onScreenTab ?? self).confirmClose(
@@ -876,7 +875,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     /// " in the hidden Workspace “api”" for a hidden Tab, else "". A confirmation names a
-    /// hidden Tab's Workspace right after its subject (SPEC §13.8).
+    /// hidden Tab's Workspace right after its subject.
     private var hiddenWorkspacePhrase: String {
         guard let name = workspaceStore.hiddenWorkspace(holding: self)?.name else { return "" }
         return " in the hidden Workspace “\(name)”"
@@ -935,7 +934,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let undoState = self.undoState
 
         // The shown Workspace's last Tab ends it. The next Workspace is shown first, so the
-        // live group never empties and the Window stays (SPEC §13). If that switch can't run,
+        // live group never empties and the Window stays. If that switch can't run,
         // nothing closes, as with Close Workspace: closing the Window instead would take its
         // hidden Workspaces along unasked.
         if workspaceTabCount <= 1, !isHidden, !workspaceStore.showNeighbor(preferring: neighbor) { return }
@@ -1054,7 +1053,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     /// Every Tab of this Window, by Workspace in bar order, hidden Workspaces included: what
-    /// Close Window checks, closes, and brings back (SPEC §13.2). The shown Workspace's are its
+    /// Close Window checks, closes, and brings back. The shown Workspace's are its
     /// live group's plus a Tab in non-native fullscreen, or this Tab alone while the store has
     /// no group, which only a Window without hidden Workspaces lacks.
     private var windowTabs: [(workspace: WorkspaceStore.Workspace, tabs: [TerminalController])] {
@@ -1067,13 +1066,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     /// This Tab's Window's shown Tab, where Close Window, Close All Windows, and Quit ask about
-    /// the whole Window (SPEC §13), or this Tab while the store has no group to find it in.
+    /// the whole Window, or this Tab while the store has no group to find it in.
     var windowShownTab: TerminalController {
         workspaceStore.reconcile()
         return workspaceStore.shownTab ?? self
     }
 
-    /// Close Window without asking (SPEC §13.2): closes every Tab of every Workspace of this
+    /// Close Window without asking: closes every Tab of every Workspace of this
     /// Window and registers Undo Close Window.
     func closeWindowImmediately() {
         guard window != nil else { return }
@@ -1099,7 +1098,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let selected: Int?
     }
 
-    /// Registers Undo Close Window (SPEC §16) for the Window's `workspaces`: it reopens the
+    /// Registers Undo Close Window for the Window's `workspaces`: it reopens the
     /// Window with its Window id and every Workspace, each with its id, name, original name,
     /// color, Tabs, and selected or remembered Tab, and the same one shown.
     private func registerUndoForCloseWindow(_ workspaces: [(workspace: WorkspaceStore.Workspace, tabs: [TerminalController])]) {
@@ -1177,7 +1176,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// Close all windows, asking for confirmation if necessary.
     static func closeAllWindows() {
-        // The alert goes on the shown Tab of the first Window that would ask (SPEC §13.4).
+        // The alert goes on the shown Tab of the first Window that would ask.
         guard let confirmWindow = all
             .first(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) })?
             .windowShownTab.window
@@ -1250,7 +1249,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let focusTarget = focusedSurface
 
         // Back into its Workspace wherever it is now, else into its last Window; once that has
-        // closed, it comes back with its Workspace as a Window of its own (SPEC §16).
+        // closed, it comes back with its Workspace as a Window of its own.
         if let saved = undoState.workspace {
             let placed = WorkspaceStore.live(saved).map { $0.returnTab(self, to: saved, at: undoState.tabIndex) }
                 ?? WorkspaceStore.reopen(saved, holding: [self])
@@ -1634,7 +1633,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         defaultSize.apply(to: window)
     }
 
-    /// Close Window (SPEC §13.2): asks once, on the shown Tab, when any Tab of any Workspace
+    /// Close Window: asks once, on the shown Tab, when any Tab of any Workspace
     /// would, naming the hidden Workspaces that would; else closes silently.
     @IBAction override func closeWindow(_ sender: Any?) {
         guard window != nil else { return }
@@ -1711,7 +1710,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let action = notification.userInfo?[Notification.Name.GhosttyMoveTabKey] as? Ghostty.Action.MoveTab else { return }
         guard action.amount != 0 else { return }
 
-        // A hidden Tab moves among its Workspace's Tabs, out of sight (SPEC §14).
+        // A hidden Tab moves among its Workspace's Tabs, out of sight.
         if isHidden {
             let tabs = groupedTabs
             guard let index = tabs.firstIndex(of: window) else { return }
@@ -1776,7 +1775,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         guard let tabEnum = tabEnumAny as? ghostty_action_goto_tab_e else { return }
 
         // A hidden Workspace's remembered Tab stands in for the selected Tab, and going to a
-        // Tab remembers it, out of sight (SPEC §14).
+        // Tab remembers it, out of sight.
         let hiddenWorkspace = workspaceStore.hiddenWorkspace(holding: self)
         let selectedWindow = hiddenWorkspace == nil
             ? window?.tabGroup?.selectedWindow
@@ -1907,8 +1906,8 @@ extension TerminalController {
             return tabs.indices.contains { $0 > currentIndex }
 
         case #selector(moveTabToNewWorkspace):
-            // A Workspace's only Tab can't move (SPEC §11.1). A Window that can't hold Tabs
-            // keeps the item and shows its alert (§7.3).
+            // A Workspace's only Tab can't move. A Window that can't hold Tabs keeps the
+            // item and shows its alert.
             let store = workspaceStore
             return !holdsWorkspaces || store.tabs(of: store.workspace(holding: self).id).count > 1
 
@@ -1930,7 +1929,7 @@ extension TerminalController {
             return defaultSize?.isChanged(for: window) ?? false
 
         case #selector(moveWorkspaceToNewWindow):
-            // Disabled for the Window's only Workspace (SPEC §7.3). A Window that can't hold
+            // Disabled for the Window's only Workspace. A Window that can't hold
             // Workspaces keeps it enabled, so it shows "Workspaces Unavailable".
             return !holdsWorkspaces || workspaceStore.workspaces.count > 1
 

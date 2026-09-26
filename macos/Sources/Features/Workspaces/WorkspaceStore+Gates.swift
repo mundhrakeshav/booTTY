@@ -5,10 +5,10 @@ extension WorkspaceStore {
 
     /// Whether a requested command that would change the shown Workspace may run now. `tab`
     /// is the Tab of the command's target Split. Otherwise the command reports false:
-    /// - aimed at a hidden Split, with nothing shown (SPEC §14);
-    /// - while the shown Tab has a sheet, bringing the Window and its sheet forward (§13.7);
+    /// - aimed at a hidden Split, with nothing shown;
+    /// - while the shown Tab has a sheet, bringing the Window and its sheet forward;
     /// - in non-native fullscreen, showing `alert` on `tab` when that's the windowed group's
-    ///   selected Tab, else on the fullscreen Tab (§3).
+    ///   selected Tab, else on the fullscreen Tab.
     ///
     /// The neighbor shown because the shown Workspace ended, and undo, aren't requests and
     /// don't come through here.
@@ -18,10 +18,10 @@ extension WorkspaceStore {
         return !refusesInFullscreen(tab, showing: alert)
     }
 
-    /// Whether the shown Tab has a sheet up, which blocks switching (SPEC §13.7).
+    /// Whether the shown Tab has a sheet up, which blocks switching.
     var shownTabHasSheet: Bool { shownTab?.window?.attachedSheet != nil }
 
-    /// True while the shown Tab has a sheet (SPEC §13.7), after bringing the Window and its
+    /// True while the shown Tab has a sheet, after bringing the Window and its
     /// sheet forward.
     func refusesUnderSheet() -> Bool {
         guard let window = shownTab?.window, window.attachedSheet != nil else { return false }
@@ -29,7 +29,7 @@ extension WorkspaceStore {
         return true
     }
 
-    /// True in non-native fullscreen (SPEC §3), after showing `alert` on `tab` when that's
+    /// True in non-native fullscreen, after showing `alert` on `tab` when that's
     /// the windowed group's selected Tab, else on the fullscreen Tab. A nil `alert` refuses
     /// silently.
     func refusesInFullscreen(_ tab: TerminalController, showing alert: WorkspaceAlert?) -> Bool {
@@ -40,15 +40,15 @@ extension WorkspaceStore {
     }
 
     /// Whether shown `tab` may leave for a new Window now, as AppKit's Move Tab to New Window
-    /// would take it. Not while its sheet is up (SPEC §11.6), and never in non-native
-    /// fullscreen, which shows "Cannot Move Tab" (SPEC §3).
+    /// would take it. Not while its sheet is up, and never in non-native
+    /// fullscreen, which shows "Cannot Move Tab".
     func allowsMoveToNewWindow(_ tab: TerminalController) -> Bool {
         reconcile()
         return tab.window?.attachedSheet == nil && !refusesInFullscreen(tab, showing: .cannotMoveTab)
     }
 
     /// Leaves non-native fullscreen, for an undo or a close that changes the shown Workspace's
-    /// Tabs (SPEC §13.6, §16): the fullscreen Tab exits and rejoins the windowed group behind
+    /// Tabs: the fullscreen Tab exits and rejoins the windowed group behind
     /// it, or, with that group empty, forms the Window's group itself, and the store binds to
     /// it. Does nothing outside non-native fullscreen.
     func leaveNonNativeFullscreen() {
@@ -58,12 +58,12 @@ extension WorkspaceStore {
         reconcile()
     }
 
-    /// A Jump into `tab` (SPEC §2.4): shows its hidden Workspace with `tab` selected and the
+    /// A Jump into `tab`: shows its hidden Workspace with `tab` selected and the
     /// Window coming forward, so the caller's usual focus can run. A shown Tab needs nothing.
     /// Otherwise the jump reports false with nothing switched and never brings `tab` front:
-    /// - while the shown Tab has a sheet, the Window and its sheet come forward (§13.7);
+    /// - while the shown Tab has a sheet, the Window and its sheet come forward;
     /// - in non-native fullscreen, the fullscreen Tab comes forward with "Cannot Switch
-    ///   Workspace" (§3).
+    ///   Workspace".
     func reveal(_ tab: TerminalController) -> Bool {
         reconcile()
         guard let target = hiddenIndex(of: tab) else { return true }

@@ -1,6 +1,6 @@
 import AppKit
 
-/// The app-level half of the Workspaces' restorable state (SPEC §17.3), saved beside the
+/// The app-level half of the Workspaces' restorable state, saved beside the
 /// Quick Terminal's under its own key. AppKit restores each Window's shown Tabs, and each
 /// encodes its Window id. This entry holds the rest: every Window's Workspaces, with each
 /// hidden Workspace's Tabs archived.
@@ -68,7 +68,7 @@ extension WorkspacesRestorableState.Window {
 }
 
 /// Matches the two halves of each restored Window by Window id, in whichever order they
-/// arrive (SPEC §17.3): the app-level entry, and the shown Tabs AppKit restores. Hidden Tabs
+/// arrive: the app-level entry, and the shown Tabs AppKit restores. Hidden Tabs
 /// stay archived until their Window claims them, because decoding one starts its shells.
 @MainActor
 enum WorkspaceRestoration {

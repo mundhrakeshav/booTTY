@@ -1,9 +1,9 @@
 import AppKit
 
-/// The alerts Workspace commands show when they can't run (SPEC §7.6). Each is a warning
+/// The alerts Workspace commands show when they can't run. Each is a warning
 /// with one OK button, and the command that shows one reports false.
 enum WorkspaceAlert {
-    // Non-native fullscreen (SPEC §3).
+    // Non-native fullscreen.
     case cannotSwitch
     case cannotCreate
     case cannotClose
@@ -12,7 +12,7 @@ enum WorkspaceAlert {
     case cannotMoveWorkspace
     case cannotMergeWindows
 
-    // Windows that can't hold Tabs (SPEC §4.2).
+    // Windows that can't hold Tabs.
     case unavailableInQuickTerminal
     case unavailableUndecorated
     case unavailableHiddenTitlebar
@@ -69,7 +69,7 @@ enum WorkspaceAlert {
 @MainActor
 extension BaseTerminalController {
     /// The "Workspaces Unavailable" alert for a Window that can't hold Tabs, or nil when it
-    /// holds Workspaces. Read from the Window, never the live config (SPEC §4.2): the Quick
+    /// holds Workspaces. Read from the Window, never the live config: the Quick
     /// Terminal, a hidden titlebar, or a Window created without decorations. With both of
     /// the latter the window counts as undecorated, since it loaded the plain nib.
     var workspacesUnavailableAlert: WorkspaceAlert? {

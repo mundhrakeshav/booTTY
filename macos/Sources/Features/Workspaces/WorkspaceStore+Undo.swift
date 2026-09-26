@@ -3,8 +3,7 @@ import AppKit
 extension WorkspaceStore {
     // MARK: Undo
 
-    /// What undo keeps of a Workspace to find it again, or to recreate it once it has ended
-    /// (SPEC §16).
+    /// What undo keeps of a Workspace to find it again, or to recreate it once it has ended.
     struct UndoState {
         /// The Window id of the Window it was in when the entry was made.
         let windowID: UUID
@@ -28,7 +27,7 @@ extension WorkspaceStore {
             position: position)
     }
 
-    /// Where an undo entry acts on Workspace `saved` (SPEC §16): the Window holding it now,
+    /// Where an undo entry acts on Workspace `saved`: the Window holding it now,
     /// wherever it has moved, else, once it has ended, its last Window while that still shows
     /// a Tab. Nil once that Window has closed.
     static func live(_ saved: UndoState) -> WorkspaceStore? {
@@ -44,7 +43,7 @@ extension WorkspaceStore {
 
     /// Brings back an ended Workspace holding `tabs`, hidden, with its id, name, original
     /// name, color, and `remembered` Tab (else its first), at its old position, or at the
-    /// end if the Window now has fewer Workspaces (SPEC §16).
+    /// end if the Window now has fewer Workspaces.
     func recreate(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController? = nil) {
         workspaces.insert(Self.workspace(saved, holding: tabs, remembering: remembered), at: min(saved.position, workspaces.count))
         invalidateRestorableState()
@@ -52,7 +51,7 @@ extension WorkspaceStore {
 
     /// Brings back an ended Workspace whose last Window has closed as a Window of its own,
     /// holding `tabs`, which are ordered out and in no Workspace, by Move Workspace to New
-    /// Window's path (SPEC §16). It keeps its id, name, original name, and color, and shows
+    /// Window's path. It keeps its id, name, original name, and color, and shows
     /// `remembered`, else its first Tab. The Tabs' window style is their old Window's. False,
     /// with nothing changed, if the Tab couldn't come on screen.
     static func reopen(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController? = nil) -> Bool {
@@ -69,14 +68,14 @@ extension WorkspaceStore {
             rememberedTab: remembered)
     }
 
-    /// Whether an undo or redo may switch Workspaces now (SPEC §16). Not while the shown Tab
+    /// Whether an undo or redo may switch Workspaces now. Not while the shown Tab
     /// has a sheet, and then the Window comes forward with its sheet; not in non-native
     /// fullscreen. Neither shows an alert: the undo applies without switching.
     func allowsUndoSwitch() -> Bool {
         !refusesUnderSheet() && !isInNonNativeFullscreen
     }
 
-    /// Undo shows what it changes (SPEC §16): before an undo or redo changes `tab`, shows the
+    /// Undo shows what it changes: before an undo or redo changes `tab`, shows the
     /// hidden Workspace holding it, with `tab` selected and the Window coming forward. When
     /// `allowsUndoSwitch()` refuses, nothing switches.
     func showForUndo(_ tab: TerminalController) {
@@ -86,7 +85,7 @@ extension WorkspaceStore {
         show(workspaces[index].id, comingForward: true)
     }
 
-    /// Undo Close Tab (SPEC §16): puts `tab`, ordered out and in no Workspace, back in its
+    /// Undo Close Tab: puts `tab`, ordered out and in no Workspace, back in its
     /// Workspace at `index`, recreating the Workspace if it ended, then shows that Workspace
     /// with `tab` selected, coming forward. When `allowsUndoSwitch()` refuses, or without
     /// `showing` (Redo Move Tab from another Window), nothing switches: a recreated Workspace
@@ -127,7 +126,7 @@ extension WorkspaceStore {
         return true
     }
 
-    /// Registers Undo New Workspace for `tab`, the Tab New Workspace made (SPEC §16). Undo
+    /// Registers Undo New Workspace for `tab`, the Tab New Workspace made. Undo
     /// closes it as Undo New Tab does, so the Workspace ends if that leaves it empty, and
     /// shows `previous`, the Workspace shown before. Redo brings the Workspace back with the
     /// same id, name, and position.
@@ -137,7 +136,7 @@ extension WorkspaceStore {
         withBaseConfig baseConfig: Ghostty.SurfaceConfiguration?
     ) {
         guard let undoManager = tab.undoManager else { return }
-        // Its own step, so each folder of a multi-folder open undoes on its own (SPEC §9.1).
+        // Its own step, so each folder of a multi-folder open undoes on its own.
         undoManager.registerAsOwnStep {
             undoManager.setActionName("New Workspace")
             undoManager.registerUndo(withTarget: tab, expiresAfter: tab.undoExpiration) { tab in
@@ -184,8 +183,8 @@ extension WorkspaceStore {
     }
 
     /// Registers Undo Move Tab for `tab`, which just left the Workspace `saved` describes,
-    /// where it was at `index` (SPEC §11.4). Undo moves it back there and shows it; the redo
-    /// that move registers in turn moves it again under a move's view rules (§11.2, §11.3).
+    /// where it was at `index`. Undo moves it back there and shows it; the redo that move
+    /// registers in turn moves it again, with the view following the move as any move's does.
     /// Both come off the stack when the Tab alone leaves the Window (`dropUndoMoveTab(of:)`).
     func registerUndoMoveTab(_ tab: TerminalController, from saved: UndoState, at index: Int) {
         guard let undoManager = tab.undoManager else { return }
@@ -199,7 +198,7 @@ extension WorkspaceStore {
     /// Undo or Redo Move Tab: moves `tab` to Workspace `saved.id` at `index`, recreating that
     /// Workspace hidden if it has ended; a new Workspace the move made ends if this leaves it
     /// empty. A Tab going into or out of the shown Workspace leaves non-native fullscreen
-    /// first (SPEC §16). `showing` (undo) then shows the Workspace with `tab` selected and
+    /// first. `showing` (undo) then shows the Workspace with `tab` selected and
     /// focused, unless `allowsUndoSwitch()` refuses. Otherwise (redo) the view follows the move.
     /// The Workspace may be in another Window now, or gone with its last Window (`moveAcross`).
     private func moveBack(_ tab: TerminalController, to saved: UndoState, at index: Int, showing: Bool) {
@@ -232,12 +231,12 @@ extension WorkspaceStore {
     }
 
     /// Undo or Redo Move Tab when Workspace `saved` is in `target`, another Window, now, or
-    /// has ended there, or has ended and its last Window has closed (nil) (SPEC §11.4, §16):
+    /// has ended there, or has ended and its last Window has closed (nil):
     /// `tab` leaves this Window and goes back as Undo Close Tab puts a Tab back (`showing` as
     /// in `moveBack`), or with its Workspace as a Window of its own. Then registers the
     /// opposite entry. Nothing moves while the Tab has a sheet up. A Tab going into `target`'s
     /// shown Workspace makes that Window leave non-native fullscreen first, as `moveBack` did
-    /// here for a Tab leaving this Window's shown Workspace (SPEC §16).
+    /// here for a Tab leaving this Window's shown Workspace.
     private func moveAcross(_ tab: TerminalController, to saved: UndoState, in target: WorkspaceStore?, at index: Int, showing: Bool) {
         if let target, saved.id == target.shownID { target.leaveNonNativeFullscreen() }
         let source = workspace(holding: tab).id
@@ -283,13 +282,13 @@ extension WorkspaceStore {
     }
 
     /// Takes `tab`'s Undo and Redo Move Tab entries off the stack, once it has left the
-    /// Window alone: torn off, sent to a new Window, or dragged to another (SPEC §11.4).
+    /// Window alone: torn off, sent to a new Window, or dragged to another.
     static func dropUndoMoveTab(of tab: TerminalController) {
         tab.undoManager?.removeAllActions(withTarget: tab.moveTabUndoTarget)
     }
 
     /// Registers Undo Close Workspace for the closing Workspace `saved`, holding `tabs` and
-    /// remembering `remembered` (SPEC §16). Undo brings it back whole in its last Window and
+    /// remembering `remembered`. Undo brings it back whole in its last Window and
     /// shows it unless `allowsUndoSwitch()` refuses, or, with that Window closed, as a Window
     /// of its own; redo closes it again, wherever it is.
     func registerUndoForCloseWorkspace(

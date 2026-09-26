@@ -56,7 +56,7 @@ final class TabBarSettings: ObservableObject {
 
     private init() {
         let defaults = UserDefaults.ghostty
-        // Left by default so the Workspace dots show (SPEC §4.1); a stored position wins.
+        // Left by default so the Workspace dots show; a stored position wins.
         position = defaults.string(forKey: Self.positionKey)
             .flatMap(TabBarPosition.init(rawValue:)) ?? .left
         isCollapsed = defaults.bool(forKey: Self.collapsedKey)
@@ -96,12 +96,12 @@ final class VerticalTabBarModel: ObservableObject {
         let isShown: Bool
         /// The Workspace's agent status roll-up, and its date. The shown Workspace's capsule
         /// hides it, and its ring fades in as the mark gives up its share of the capsule, so
-        /// a swipe or switch shows no pop (SPEC §5.6, §6.5).
+        /// a swipe or switch shows no pop.
         let status: Ghostty.AgentStatus?
         let statusDate: Date
     }
 
-    /// The bar as it looks with a Workspace shown: its name header and its Tabs (SPEC §6.3).
+    /// The bar as it looks with a Workspace shown: its name header and its Tabs.
     struct Page: Equatable {
         let workspace: Workspace
         let tabs: [Tab]
@@ -109,8 +109,8 @@ final class VerticalTabBarModel: ObservableObject {
 
     @Published private(set) var tabs: [Tab] = []
 
-    /// The Window's Workspaces in bar order. Empty when the Window can't hold them
-    /// (SPEC §4.2), so the bar draws no dots.
+    /// The Window's Workspaces in bar order. Empty when the Window can't hold them (it's
+    /// undecorated, has a hidden titlebar, or is the Quick Terminal), so the bar draws no dots.
     @Published private(set) var workspaces: [Workspace] = []
 
     /// The tab being renamed inline.
@@ -363,7 +363,7 @@ final class VerticalTabBarModel: ObservableObject {
 
     // MARK: Workspaces
 
-    /// This bar's Tab, when its Window holds Workspaces (SPEC §4.2).
+    /// This bar's Tab, when its Window holds Workspaces.
     private var workspaceTab: TerminalController? {
         guard let tab = window?.windowController as? TerminalController,
               tab.holdsWorkspaces
@@ -387,7 +387,7 @@ final class VerticalTabBarModel: ObservableObject {
         tab.performAction("new_workspace", on: surface)
     }
 
-    /// Double-clicking the header renames the shown Workspace in place (SPEC §5.2).
+    /// Double-clicking the header renames the shown Workspace in place.
     func beginWorkspaceRename() {
         renamingWorkspace = workspaces.first(where: \.isShown)?.id
     }
@@ -404,7 +404,7 @@ final class VerticalTabBarModel: ObservableObject {
         focusTerminal()
     }
 
-    // The dot menu (SPEC §5.3) aims at its dot's Workspace, shown or hidden.
+    // The dot menu aims at its dot's Workspace, shown or hidden.
 
     /// Rename Workspace…: in the header for the shown Workspace of an expanded bar, else
     /// with the rename prompt.
@@ -437,11 +437,11 @@ final class VerticalTabBarModel: ObservableObject {
         DraggedWorkspace(window: workspaceTab?.workspaceStore.id ?? UUID(), workspace: id)
     }
 
-    /// Something dropped on the dot of Workspace `target`, or on "+" when `target` is nil
-    /// (SPEC §5.5). A dot moves its Workspace to the target's place, and "+" refuses it. A
-    /// Tab row moves its Tab to the end of the target (§11.1), or into a new Workspace on
-    /// "+", which refuses a Workspace's only Tab; the capsule takes no Tab. Both payloads
-    /// from another Window are refused.
+    /// Something dropped on the dot of Workspace `target`, or on "+" when `target` is nil.
+    /// A dot moves its Workspace to the target's place, and "+" refuses it. A Tab row moves
+    /// its Tab to the end of the target, or into a new Workspace on "+", which refuses a
+    /// Workspace's only Tab; the capsule takes no Tab. Both payloads from another Window are
+    /// refused.
     func drop(_ item: WorkspaceDrop, on target: Workspace.ID?) -> Bool {
         guard let store = workspaceTab?.workspaceStore else { return false }
 
@@ -457,7 +457,7 @@ final class VerticalTabBarModel: ObservableObject {
                   let tab = draggedWindow(dragged)?.windowController as? TerminalController,
                   tab.workspaceStore === store,
                   // A row's Tab is shown, so in non-native fullscreen its drop would change
-                  // the shown Workspace's Tabs, and a drop is refused silently (SPEC §3).
+                  // the shown Workspace's Tabs, and a drop is refused silently.
                   !store.isInNonNativeFullscreen || store.isHidden(tab)
             else { return false }
             guard let target else { return store.moveTabToNewWorkspace(tab) }
@@ -470,9 +470,9 @@ final class VerticalTabBarModel: ObservableObject {
     static let dotPitch: CGFloat = 14
     static let newWorkspacePitch: CGFloat = 22
 
-    /// The expanded bar's rows of dots (SPEC §5.1): indices of `count` dots, then "+" as
-    /// index `count`, broken greedily into rows no wider than `width`. A row breaks before
-    /// the item that doesn't fit and is never empty.
+    /// The expanded bar's rows of dots: indices of `count` dots, then "+" as index `count`,
+    /// broken greedily into rows no wider than `width`. A row breaks before the item that
+    /// doesn't fit and is never empty.
     static func dotRows(count: Int, width: CGFloat) -> [[Int]] {
         var rows: [[Int]] = [[]]
         var x: CGFloat = 0
@@ -488,10 +488,10 @@ final class VerticalTabBarModel: ObservableObject {
         return rows
     }
 
-    /// Where a page sits mid-swipe (SPEC §6.3, §6.4): an x offset in bar widths, and an
-    /// opacity. The shown page moves by the swipe's amount, stretching past an end, and the
-    /// neighbor's comes in beside it. Under Reduce Motion the pages stay in place and
-    /// crossfade, and nothing changes past an end.
+    /// Where a page sits mid-swipe: an x offset in bar widths, and an opacity. The shown page
+    /// moves by the swipe's amount, stretching past an end, and the neighbor's comes in beside
+    /// it. Under Reduce Motion the pages stay in place and crossfade, and nothing changes past
+    /// an end.
     static func pagePlacement(
         amount: CGFloat,
         isNeighbor: Bool,
@@ -507,9 +507,9 @@ final class VerticalTabBarModel: ObservableObject {
         return (amount < 0 ? amount + 1 : amount - 1, 1)
     }
 
-    /// How much of the capsule Workspace `id`'s mark holds (SPEC §6.5). Mid-swipe the shown
-    /// mark hands the neighbor's the swipe's share. A rubber band, and Reduce Motion, leave
-    /// it whole on the shown mark until the switch.
+    /// How much of the capsule Workspace `id`'s mark holds. Mid-swipe the shown mark hands the
+    /// neighbor's the swipe's share. A rubber band, and Reduce Motion, leave it whole on the
+    /// shown mark until the switch.
     static func capsuleShare(
         of id: Workspace.ID,
         shown: Workspace.ID?,
@@ -522,9 +522,8 @@ final class VerticalTabBarModel: ObservableObject {
         return id == neighbor ? t : 0
     }
 
-    /// A mark holding `share` of the capsule (SPEC §6.5): its long side, from the 6 pt dot
-    /// to the 12 pt capsule, and its status ring's opacity, which fades as it becomes the
-    /// capsule.
+    /// A mark holding `share` of the capsule: its long side, from the 6 pt dot to the 12 pt
+    /// capsule, and its status ring's opacity, which fades as it becomes the capsule.
     static func mark(share: CGFloat) -> (length: CGFloat, ringOpacity: Double) {
         (6 + 6 * share, Double(1 - share))
     }
@@ -591,7 +590,7 @@ final class VerticalTabBarModel: ObservableObject {
         guard !tabsBlocked(window), !tabsBlocked(dragged) else { return false }
 
         // Nor can a Tab cross into or out of a Window in non-native fullscreen through the
-        // windowed group behind its fullscreen Tab (SPEC §3).
+        // windowed group behind its fullscreen Tab.
         func windowInFullscreen(_ candidate: NSWindow) -> Bool {
             (candidate.windowController as? TerminalController)?.workspaceStore.isInNonNativeFullscreen ?? false
         }
@@ -729,8 +728,8 @@ private struct VerticalTabBar: View {
         model.tabs.first(where: \.isSelected)?.id
     }
 
-    /// The shown Workspace's name (SPEC §5.2), which the collapsed bar leaves out. Mid-swipe
-    /// the neighbor's name comes in beside it, as part of its page.
+    /// The shown Workspace's name, which the collapsed bar leaves out. Mid-swipe the neighbor's
+    /// name comes in beside it, as part of its page.
     @ViewBuilder
     private var header: some View {
         if !settings.isCollapsed, let workspace = model.workspaces.first(where: \.isShown) {
@@ -760,8 +759,8 @@ private struct VerticalTabBar: View {
         .padding(.bottom, 8)
     }
 
-    /// Places part of a page mid-swipe (SPEC §6.3, §6.4). The neighbor's page is only
-    /// drawn: it takes no clicks and VoiceOver skips it.
+    /// Places part of a page mid-swipe. The neighbor's page is only drawn: it takes no clicks
+    /// and VoiceOver skips it.
     private func swipePage(_ page: some View, isNeighbor: Bool) -> some View {
         let placement = VerticalTabBarModel.pagePlacement(
             amount: model.swipeAmount,
@@ -1061,8 +1060,8 @@ private struct NewTabRow: View {
     }
 }
 
-/// The Window's Workspaces as page dots, then "+" (SPEC §5.1). Expanded they run in rows
-/// that wrap, leading-aligned on either side; collapsed they stack in one column.
+/// The Window's Workspaces as page dots, then "+". Expanded they run in rows that wrap,
+/// leading-aligned on either side; collapsed they stack in one column.
 private struct WorkspaceDots: View {
     @ObservedObject var model: VerticalTabBarModel
     @ObservedObject var settings: TabBarSettings
@@ -1108,8 +1107,8 @@ private struct WorkspaceDots: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Workspaces")
-        // Every switch morphs the capsule from the old mark to the new (SPEC §6.5), and so
-        // does a cancelled swipe, from wherever the marks stand back to the shown mark.
+        // Every switch morphs the capsule from the old mark to the new, and so does a
+        // cancelled swipe, from wherever the marks stand back to the shown mark.
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.workspaces.first(where: \.isShown)?.id)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.swipeCancels)
     }
@@ -1130,8 +1129,7 @@ private struct WorkspaceDots: View {
             hovered: $hovered)
     }
 
-    /// "+" takes only Tab rows, and not a Workspace's only Tab (SPEC §5.5), so it lights up
-    /// only for those.
+    /// "+" takes only Tab rows, and not a Workspace's only Tab, so it lights up only for those.
     private var newWorkspaceButton: some View {
         IconButton(systemImage: "plus", pointSize: 10, weight: .medium, size: 20, help: "New Workspace") {
             model.newWorkspace()
@@ -1227,7 +1225,7 @@ private struct WorkspaceDot: View {
             .dropDestination(for: WorkspaceDrop.self) { items, _ in
                 items.first.map { model.drop($0, on: workspace.id) } ?? false
             } isTargeted: {
-                // The capsule takes no Tab (SPEC §11.1), so it doesn't light up for one.
+                // The capsule takes no Tab, so it doesn't light up for one.
                 isDropTarget = $0 && !(workspace.isShown && DraggedTab.isDragging)
             }
             .help(collapsed ? workspace.name : "")
@@ -1242,7 +1240,7 @@ private struct WorkspaceDot: View {
             .accessibilityAddTraits(workspace.isShown ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// The dot menu (SPEC §5.3). The last group acts on the bar, not on this Workspace.
+    /// The dot menu. The last group acts on the bar, not on this Workspace.
     @ViewBuilder
     private var menu: some View {
         Button("Rename Workspace…") { model.renameWorkspace(workspace.id) }
@@ -1262,8 +1260,8 @@ private struct WorkspaceDot: View {
     }
 }
 
-/// The shown Workspace's name atop the expanded bar (SPEC §5.2, §5.8), led by a dot of
-/// its color when it has one. Double-clicking renames it in place, as with a Tab row.
+/// The shown Workspace's name atop the expanded bar, led by a dot of its color when it has
+/// one. Double-clicking renames it in place, as with a Tab row.
 private struct WorkspaceHeader: View {
     @ObservedObject var model: VerticalTabBarModel
     let workspace: VerticalTabBarModel.Workspace

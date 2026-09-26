@@ -146,7 +146,7 @@ struct TerminalCommandPaletteView: View {
     }
 
     /// Commands for jumping to other terminal surfaces, hidden Workspaces' included. Picking
-    /// one reveals its Split (SPEC §7.4).
+    /// one reveals its Split.
     private var jumpOptions: [CommandOption] {
         TerminalController.all.flatMap { controller -> [CommandOption] in
             guard let window = controller.window else { return [] }
