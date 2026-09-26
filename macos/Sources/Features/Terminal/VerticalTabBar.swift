@@ -94,8 +94,9 @@ final class VerticalTabBarModel: ObservableObject {
         let name: String
         let color: TerminalTabColor
         let isShown: Bool
-        /// A hidden Workspace's agent status roll-up, and its date. None for the shown
-        /// Workspace: its Tabs show theirs right above (SPEC §5.6).
+        /// The Workspace's agent status roll-up, and its date. The shown Workspace's capsule
+        /// hides it, and its ring fades in as the mark gives up its share of the capsule, so
+        /// a swipe or switch shows no pop (SPEC §5.6, §6.5).
         let status: Ghostty.AgentStatus?
         let statusDate: Date
     }
@@ -223,10 +224,10 @@ final class VerticalTabBarModel: ObservableObject {
         if store !== observedStore { observe(store: store) }
         let workspaces = store.map { store in
             store.workspaces.map { workspace -> Workspace in
-                let isShown = workspace.id == store.shownID
-                let rollUp = isShown ? (nil, .distantPast) : store.agentStatus(of: workspace.id)
+                let rollUp = store.agentStatus(of: workspace.id)
                 return Workspace(
-                    id: workspace.id, name: workspace.name, color: workspace.color, isShown: isShown,
+                    id: workspace.id, name: workspace.name, color: workspace.color,
+                    isShown: workspace.id == store.shownID,
                     status: rollUp.status, statusDate: rollUp.since)
             }
         } ?? []
@@ -365,7 +366,7 @@ final class VerticalTabBarModel: ObservableObject {
     /// This bar's Tab, when its Window holds Workspaces (SPEC §4.2).
     private var workspaceTab: TerminalController? {
         guard let tab = window?.windowController as? TerminalController,
-              tab.workspacesUnavailableAlert == nil
+              tab.holdsWorkspaces
         else { return nil }
         return tab
     }
@@ -464,14 +465,19 @@ final class VerticalTabBarModel: ObservableObject {
         }
     }
 
-    /// The expanded bar's rows of dots (SPEC §5.1): indices of `count` 14 pt dots, then
-    /// "+" (22 pt) as index `count`, broken greedily into rows no wider than `width`. A row
-    /// breaks before the item that doesn't fit and is never empty.
+    /// The room a dot and "+" each take along the expanded bar's row of dots, and a dot down
+    /// the collapsed bar's column.
+    static let dotPitch: CGFloat = 14
+    static let newWorkspacePitch: CGFloat = 22
+
+    /// The expanded bar's rows of dots (SPEC §5.1): indices of `count` dots, then "+" as
+    /// index `count`, broken greedily into rows no wider than `width`. A row breaks before
+    /// the item that doesn't fit and is never empty.
     static func dotRows(count: Int, width: CGFloat) -> [[Int]] {
         var rows: [[Int]] = [[]]
         var x: CGFloat = 0
         for i in 0...count {
-            let itemWidth: CGFloat = i == count ? 22 : 14
+            let itemWidth = i == count ? newWorkspacePitch : dotPitch
             if x + itemWidth > width, !rows[rows.count - 1].isEmpty {
                 rows.append([])
                 x = 0
@@ -583,6 +589,13 @@ final class VerticalTabBarModel: ObservableObject {
             return style.isFullscreen && !style.supportsTabs
         }
         guard !tabsBlocked(window), !tabsBlocked(dragged) else { return false }
+
+        // Nor can a Tab cross into or out of a Window in non-native fullscreen through the
+        // windowed group behind its fullscreen Tab (SPEC §3).
+        func windowInFullscreen(_ candidate: NSWindow) -> Bool {
+            (candidate.windowController as? TerminalController)?.workspaceStore.isInNonNativeFullscreen ?? false
+        }
+        if from == nil, windowInFullscreen(window) || windowInFullscreen(dragged) { return false }
 
         // Moving down lands after the target so the tab ends up at `index`.
         let target: NSWindow
@@ -1123,7 +1136,7 @@ private struct WorkspaceDots: View {
         IconButton(systemImage: "plus", pointSize: 10, weight: .medium, size: 20, help: "New Workspace") {
             model.newWorkspace()
         }
-        .frame(width: collapsed ? 32 : 22, height: 22)
+        .frame(width: collapsed ? 32 : VerticalTabBarModel.newWorkspacePitch, height: 22)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
             .fill(isNewWorkspaceDropTarget ? Color.accentColor.opacity(0.25) : .clear))
         .contentShape(Rectangle())
@@ -1195,7 +1208,9 @@ private struct WorkspaceDot: View {
                     dimming: hovered == workspace.id ? 0.8 : 0.35)
                     .opacity(mark.ringOpacity)
             }
-            .frame(width: collapsed ? 32 : 14, height: collapsed ? 14 : 22)
+            .frame(
+                width: collapsed ? 32 : VerticalTabBarModel.dotPitch,
+                height: collapsed ? VerticalTabBarModel.dotPitch : 22)
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(isDropTarget ? Color.accentColor.opacity(0.25) : .clear))
             .contentShape(Rectangle())
@@ -1219,7 +1234,9 @@ private struct WorkspaceDot: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(workspace.name)
             .accessibilityValue(
-                ["Workspace \(index + 1) of \(model.workspaces.count)", workspace.status?.accessibilityDescription]
+                // The shown Workspace's Tabs read their own status right above.
+                ["Workspace \(index + 1) of \(model.workspaces.count)",
+                 workspace.isShown ? nil : workspace.status?.accessibilityDescription]
                     .compactMap { $0 }
                     .joined(separator: ", "))
             .accessibilityAddTraits(workspace.isShown ? [.isButton, .isSelected] : .isButton)

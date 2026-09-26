@@ -32,27 +32,18 @@ enum WorkspaceAlert {
     }
 
     var text: String {
-        switch self {
-        case .cannotSwitch:
-            "Switching Workspaces is unsupported while in non-native fullscreen. Exit fullscreen and try again."
-        case .cannotCreate:
-            "New Workspaces are unsupported while in non-native fullscreen. Exit fullscreen and try again."
-        case .cannotClose:
-            "Closing the shown Workspace is unsupported while in non-native fullscreen. Exit fullscreen and try again."
-        case .cannotOrganize:
-            "Organizing Workspaces is unsupported while in non-native fullscreen. Exit fullscreen and try again."
-        case .cannotMoveTab:
-            "Moving tabs between Workspaces is unsupported while in non-native fullscreen. Exit fullscreen and try again."
-        case .cannotMoveWorkspace:
-            "Moving Workspaces to a new window is unsupported while in non-native fullscreen. Exit fullscreen and try again."
-        case .cannotMergeWindows:
-            "Merging windows is unsupported while in non-native fullscreen. Exit fullscreen and try again."
-        case .unavailableInQuickTerminal:
-            "Workspaces aren't supported in the Quick Terminal."
-        case .unavailableUndecorated:
-            "Enable window decorations to use Workspaces."
-        case .unavailableHiddenTitlebar:
-            "Windows with a hidden titlebar can't have tabs, so they can't have Workspaces."
+        let fullscreen = "unsupported while in non-native fullscreen. Exit fullscreen and try again."
+        return switch self {
+        case .cannotSwitch: "Switching Workspaces is \(fullscreen)"
+        case .cannotCreate: "New Workspaces are \(fullscreen)"
+        case .cannotClose: "Closing the shown Workspace is \(fullscreen)"
+        case .cannotOrganize: "Organizing Workspaces is \(fullscreen)"
+        case .cannotMoveTab: "Moving tabs between Workspaces is \(fullscreen)"
+        case .cannotMoveWorkspace: "Moving Workspaces to a new window is \(fullscreen)"
+        case .cannotMergeWindows: "Merging windows is \(fullscreen)"
+        case .unavailableInQuickTerminal: "Workspaces aren't supported in the Quick Terminal."
+        case .unavailableUndecorated: "Enable window decorations to use Workspaces."
+        case .unavailableHiddenTitlebar: "Windows with a hidden titlebar can't have tabs, so they can't have Workspaces."
         }
     }
 
@@ -89,6 +80,9 @@ extension BaseTerminalController {
         default: nil
         }
     }
+
+    /// Whether this Window holds Workspaces: it can hold Tabs.
+    var holdsWorkspaces: Bool { workspacesUnavailableAlert == nil }
 
     /// The one check where Workspace apprt actions arrive, before anything touches a tab
     /// group: the Tab whose Window's store the command acts on, or nil when the command

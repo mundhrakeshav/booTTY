@@ -212,7 +212,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     private func startsSwipe(at point: NSPoint) -> Bool {
         guard let window = window as? TerminalWindow,
               window.showsVerticalTabBar,
-              workspacesUnavailableAlert == nil,
+              holdsWorkspaces,
               NSEvent.pressedMouseButtons == 0,
               window.attachedSheet == nil,
               window.verticalTabBar.renamingTab == nil,
@@ -263,7 +263,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // we want to invalidate our state.
         invalidateRestorableState()
         // Only the app-level Workspaces entry saves a hidden Tab.
-        if workspaceStore.isHidden(self) { NSApp.invalidateRestorableState() }
+        if isHidden { NSApp.invalidateRestorableState() }
+        // A Split opening or closing can leave Undo Organize unable to run.
+        workspaceStore.dropOrganizeUndoIfStale()
 
         // Update our zoom state
         if let window = window as? TerminalWindow {
@@ -338,7 +340,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     static var preferredParent: TerminalController? {
         all.first {
             $0.window?.isMainWindow ?? false
-        } ?? lastMain?.onScreenTab ?? all.last { !$0.isInHiddenWorkspace }
+        } ?? lastMain?.onScreenTab ?? all.last { !$0.isHidden }
     }
 
     // The last controller to be main. We use this when paired with "preferredParent"
@@ -851,10 +853,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     override var isHidden: Bool { workspaceStore.isHidden(self) }
 
-    /// Where a sheet about this Tab goes: the Tab itself, or for a hidden Tab its Window's
-    /// shown Tab (SPEC §2.5).
-    private var sheetTab: TerminalController {
-        isHidden ? workspaceStore.shownTab ?? self : self
+    override func revealForJump() -> Bool { workspaceStore.reveal(self) }
+
+    override func showForUndo() { workspaceStore.showForUndo(self) }
+
+    /// The Tab that stands for this one on screen: itself, or, while it's hidden, its
+    /// Window's shown Tab (SPEC §2.5). Use it wherever a Tab is picked to order front or
+    /// to parent new Tabs, so a hidden Tab never surfaces as a stray window.
+    var onScreenTab: TerminalController? {
+        isHidden ? workspaceStore.shownTab : self
+    }
+
+    /// Asks whether to close something of this Tab's: on the Tab itself, or for a hidden Tab
+    /// on its Window's shown Tab (SPEC §2.5). It's this Tab's own question there, so one up
+    /// about another Tab or a Workspace neither answers it nor is answered by it.
+    private func confirmCloseOnScreen(messageText: String, informativeText: String, completion: @escaping () -> Void) {
+        (onScreenTab ?? self).confirmClose(
+            messageText: messageText,
+            informativeText: informativeText,
+            about: ObjectIdentifier(self),
+            completion: completion)
     }
 
     /// " in the hidden Workspace “api”" for a hidden Tab, else "". A confirmation names a
@@ -877,7 +895,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 return
             }
 
-            sheetTab.confirmClose(
+            confirmCloseOnScreen(
                 messageText: "Close Terminal?",
                 informativeText: "The terminal\(hiddenWorkspacePhrase) still has a running process. If you close the terminal the process will be killed."
             ) { [weak self] in
@@ -916,21 +934,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Captured while the Tab is still where it was, before a switch hides it.
         let undoState = self.undoState
 
-        // The shown Workspace's last Tab ends it. The neighbor is shown first, so the live
-        // group never empties and the Window stays (SPEC §13); non-native fullscreen has no
-        // group to switch, so the Window leaves it before that (§13.6). If that switch can't
-        // run, the Window closes, as for a lone Tab.
-        if workspaceTabCount <= 1, !isHidden {
-            let store = workspaceStore
-            let next = neighbor.flatMap { id in
-                id != store.shownID && store.workspaces.contains { $0.id == id } ? id : nil
-            } ?? store.neighborID
-            store.leaveNonNativeFullscreen()
-            guard let next, store.show(next) else {
-                closeWindowImmediately()
-                return
-            }
-        }
+        // The shown Workspace's last Tab ends it. The next Workspace is shown first, so the
+        // live group never empties and the Window stays (SPEC §13). If that switch can't run,
+        // nothing closes, as with Close Workspace: closing the Window instead would take its
+        // hidden Workspaces along unasked.
+        if workspaceTabCount <= 1, !isHidden, !workspaceStore.showNeighbor(preferring: neighbor) { return }
 
         // Undo
         if let undoManager, let undoState {
@@ -1152,13 +1160,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         store.bringBack(closed.enumerated().map { index, entry in
             let tabs = index == shown ? [] : entry.tabs.map { TerminalController(ghostty, rebuilding: $0) }
-            var workspace = WorkspaceStore.Workspace(id: entry.saved.id, name: entry.saved.name, hiddenTabs: tabs)
-            workspace.originalName = entry.saved.originalName
-            workspace.color = entry.saved.color
-            if let selected = entry.selected, tabs.indices.contains(selected) {
-                workspace.rememberedTab = tabs[selected]
-            }
-            return workspace
+            return WorkspaceStore.Workspace(
+                id: entry.saved.id,
+                name: entry.saved.name,
+                originalName: entry.saved.originalName,
+                color: entry.saved.color,
+                hiddenTabs: tabs,
+                rememberedTab: entry.selected.flatMap { tabs.indices.contains($0) ? tabs[$0] : nil })
         }, shown: closed[shown].saved.id)
 
         let selected = closed[shown].selected.map { controllers[$0] } ?? controllers.last
@@ -1555,7 +1563,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        sheetTab.confirmClose(
+        confirmCloseOnScreen(
             messageText: "Close Tab?",
             informativeText: "The terminal\(hiddenWorkspacePhrase) still has a running process. If you close the tab the process will be killed."
         ) {
@@ -1584,7 +1592,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        sheetTab.confirmClose(
+        confirmCloseOnScreen(
             messageText: "Close Other Tabs?",
             informativeText: "At least one other tab\(hiddenWorkspacePhrase) still has a running process. If you close the tab the process will be killed."
         ) {
@@ -1613,7 +1621,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             return
         }
 
-        sheetTab.confirmClose(
+        confirmCloseOnScreen(
             messageText: "Close Tabs on the Right?",
             informativeText: "At least one tab to the right\(hiddenWorkspacePhrase) still has a running process. If you close the tab the process will be killed."
         ) {
@@ -1638,9 +1646,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
 
         let hidden = WorkspaceStore.hiddenWorkspacesPhrase(naming: workspaceStore.hiddenNames(where: asks))
+        // The Window's own question, so one up about a Tab doesn't answer it.
         windowShownTab.confirmClose(
             messageText: "Close Window?",
             informativeText: "All terminal sessions in this window will be terminated\(hidden.map { ", including those in \($0)" } ?? "").",
+            about: workspaceStore.id
         ) {
             self.closeWindowImmediately()
         }
@@ -1900,7 +1910,7 @@ extension TerminalController {
             // A Workspace's only Tab can't move (SPEC §11.1). A Window that can't hold Tabs
             // keeps the item and shows its alert (§7.3).
             let store = workspaceStore
-            return workspacesUnavailableAlert != nil || store.tabs(of: store.workspace(holding: self).id).count > 1
+            return !holdsWorkspaces || store.tabs(of: store.workspace(holding: self).id).count > 1
 
         case #selector(returnToDefaultSize):
             guard let window else { return false }
@@ -1922,7 +1932,7 @@ extension TerminalController {
         case #selector(moveWorkspaceToNewWindow):
             // Disabled for the Window's only Workspace (SPEC §7.3). A Window that can't hold
             // Workspaces keeps it enabled, so it shows "Workspaces Unavailable".
-            return workspacesUnavailableAlert != nil || workspaceStore.workspaces.count > 1
+            return !holdsWorkspaces || workspaceStore.workspaces.count > 1
 
         default:
             return super.validateMenuItem(item)

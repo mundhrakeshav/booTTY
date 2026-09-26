@@ -74,7 +74,7 @@ extension WorkspaceStore {
         }
 
         if changed { invalidateRestorableState() }
-        dropOrganizeUndoIfTabsChanged() // a Tab Cmd+T added or one that closed changes nothing above
+        dropOrganizeUndoIfStale() // a Tab Cmd+T added or one that closed changes nothing above
     }
 
     /// The group holding the shown Workspace's Tabs: the bound one while it holds any of this
@@ -124,7 +124,7 @@ extension WorkspaceStore {
             window.invalidateRestorableState()
         }
         NSApp.invalidateRestorableState()
-        dropOrganizeUndoIfTabsChanged()
+        dropOrganizeUndoIfStale()
     }
 
     /// Remembers the shown Tabs' frame, which a re-formed group takes (SPEC §2.3). The Tabs

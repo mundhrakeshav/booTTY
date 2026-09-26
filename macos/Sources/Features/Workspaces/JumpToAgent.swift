@@ -11,7 +11,7 @@ enum JumpToAgent {
         guard let (tab, split) = target() else { return false }
 
         // A minimized Window comes back. The reveal does that for a hidden Tab.
-        if !tab.isInHiddenWorkspace, let window = tab.window, window.isMiniaturized {
+        if !tab.isHidden, let window = tab.window, window.isMiniaturized {
             window.deminiaturize(nil)
         }
         return tab.focusSurface(split)

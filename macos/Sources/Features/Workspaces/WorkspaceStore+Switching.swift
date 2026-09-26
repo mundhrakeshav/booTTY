@@ -44,10 +44,7 @@ extension WorkspaceStore {
         let outgoingTabs = orderedOut.compactMap { $0.windowController as? TerminalController }
         workspaces[outgoing].hiddenTabs = outgoingTabs
         workspaces[outgoing].rememberedTab = outgoingTabs.first { $0.window === oldSelected } ?? outgoingTabs.first
-        workspaces[target].hiddenTabs = []
-        workspaces[target].rememberedTab = nil
-        markShown(id)
-        shownID = id
+        promoteToShown(at: target)
 
         // A Tab that failed to order out stayed in the group, so it joined the shown
         // Workspace. If none ordered out, the outgoing Workspace has no Tabs and ends.
@@ -78,6 +75,16 @@ extension WorkspaceStore {
                     .priority: NSAccessibilityPriorityLevel.high.rawValue,
                 ])
         }
+    }
+
+    /// Makes the Workspace at `index` the shown one and newest in recency. Its Tabs are the
+    /// live group's by now, so it holds none itself. Every switch but Organize's ends here.
+    func promoteToShown(at index: Int) {
+        let id = workspaces[index].id
+        workspaces[index].hiddenTabs = []
+        workspaces[index].rememberedTab = nil
+        markShown(id)
+        shownID = id
     }
 
     /// The AppKit steps of a switch, each run through `perform`.
@@ -222,10 +229,7 @@ extension WorkspaceStore {
         cancelSwipe()
 
         let ended = shownID
-        workspaces[target].hiddenTabs = []
-        workspaces[target].rememberedTab = nil
-        markShown(id)
-        shownID = id
+        promoteToShown(at: target)
         workspaces.removeAll { $0.id == ended }
 
         // A Tab that failed to join stays hidden in a Workspace of its own, so it isn't lost.

@@ -52,10 +52,11 @@ struct WorkspaceSwitcherView: View {
             if isPresented { tabChanges += 1 }
         }
         .onChange(of: isPresented) { newValue in
-            // Focus returns to the focused Split, unless the palette took over.
+            // Focus returns to the focused Split, unless the palette took over or the choice
+            // hid this Tab, whose Split mustn't take focus beside the incoming Tab's.
             guard !newValue else { return }
             DispatchQueue.main.async {
-                guard !tab.paletteOrSwitcherIsShowing else { return }
+                guard !tab.paletteOrSwitcherIsShowing, !tab.isHidden else { return }
                 surfaceView.window?.makeFirstResponder(surfaceView)
             }
         }

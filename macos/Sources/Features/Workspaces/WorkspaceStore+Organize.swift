@@ -131,8 +131,10 @@ extension WorkspaceStore {
             return "\(base) (\(joined))"
         }
 
+        // The unplaced group is "Other" whatever it's up against, so a folder named Other
+        // takes its parent instead.
         var names = segments.map { name($0, parents: 0) }
-        let clashes = Dictionary(grouping: keys.indices.filter { keys[$0] != nil }) { names[$0] }
+        let clashes = Dictionary(grouping: keys.indices) { names[$0] }
         for indices in clashes.values where indices.count > 1 {
             let deepest = indices.map { segments[$0].count - 1 }.max() ?? 0
             var count = 1
@@ -164,7 +166,7 @@ extension WorkspaceStore {
 
         var before = arrangement
         let ordered = workspaces.flatMap { tabs(of: $0.id) }
-        var keys: [ObjectIdentifier: String?] = [:]
+        var keys: [ObjectIdentifier: String] = [:] // no entry: no pwd
         var kept: Trees = []
         var pieces: Trees = [] // with the Tab each breaks out of
         var pieceKeys: [String] = []
@@ -181,9 +183,9 @@ extension WorkspaceStore {
         }
 
         // The Tabs Organize makes don't take earlier Organize entries off the stack.
-        let undoTabs = organizeUndoTabs
-        organizeUndoTabs = nil
-        defer { if organizeUndoTabs == nil { organizeUndoTabs = undoTabs } }
+        let undoCanRun = organizeUndoCanRun
+        organizeUndoCanRun = nil
+        defer { if organizeUndoCanRun == nil { organizeUndoCanRun = undoCanRun } }
 
         guard let made = breakOut(keeping: kept, into: pieces) else { return false }
         var brokenOut: [ObjectIdentifier: [TerminalController]] = [:]
@@ -194,13 +196,14 @@ extension WorkspaceStore {
 
         let groups = Self.organizeGroups(
             ordered,
-            key: { keys[ObjectIdentifier($0)] ?? nil },
+            key: { keys[ObjectIdentifier($0)] },
             brokenOut: { brokenOut[ObjectIdentifier($0)] ?? [] },
             remembering: [selected] + workspaces.compactMap(\.rememberedTab))
         let organized = groups.map { group in
-            var workspace = Workspace(name: group.name, hiddenTabs: group.tabs)
-            workspace.rememberedTab = group.tabs.contains { $0 === selected } ? selected : group.rememberedTab
-            return workspace
+            Workspace(
+                name: group.name,
+                hiddenTabs: group.tabs,
+                rememberedTab: group.tabs.contains { $0 === selected } ? selected : group.rememberedTab)
         }
         guard let shown = organized.first(where: { $0.rememberedTab === selected }),
               arrange(Arrangement(workspaces: organized, shownID: shown.id), comingForward: false)
@@ -308,25 +311,23 @@ extension WorkspaceStore {
     /// Registers Undo Organize, which brings back `arrangement`, the one Organize replaced
     /// (SPEC §10.6). Undoing registers Redo Organize, which brings back the arrangement the
     /// undo replaced, and so on. Both come off the stack once a Tab enters or leaves the
-    /// Window (`dropOrganizeUndoIfTabsChanged`).
+    /// Window, or once bringing `arrangement` back would lose a Split
+    /// (`dropOrganizeUndoIfStale`).
     private func registerUndoOrganize(restoring arrangement: Arrangement, from tab: TerminalController) {
         guard let undoManager = tab.undoManager else { return }
-        organizeUndoTabs = tabIDs
+        let tabs = tabIDs
+        organizeUndoCanRun = { [unowned self] in self.tabIDs == tabs && self.restoring(arrangement) != nil }
         undoManager.setActionName("Organize")
         undoManager.registerUndo(withTarget: organizeUndoTarget, expiresAfter: tab.undoExpiration) { [weak self] _ in
             self?.restoreArrangement(arrangement)
         }
     }
 
-    /// Undo or Redo Organize: leaves non-native fullscreen, brings back `arrangement`, then
-    /// registers the opposite entry. Tabs broken out since fold back, and Tabs folded back
-    /// since break out again (SPEC §10.3). Refused, with nothing changed, unless every Split
-    /// is where the entry left it, so none is lost. With a sheet on the shown Tab, the
-    /// Workspace holding that Tab is shown instead, with the Tab still selected, and the
-    /// Window comes forward with its sheet (§16); a shown Tab with a sheet doesn't fold back,
-    /// so that refuses.
-    private func restoreArrangement(_ arrangement: Arrangement) {
-        reconcile()
+    /// What bringing back `arrangement` changes, or nil unless every Split is where the entry
+    /// left it, so none is lost: the Window's Tabs it doesn't hold (`extras`, broken out
+    /// since), which fold back into its trees; its trees whose Tab is in the Window (`kept`);
+    /// and its trees whose Tab has folded back since (`missing`), which break out again.
+    private func restoring(_ arrangement: Arrangement) -> (extras: [TerminalController], kept: Trees, missing: Trees)? {
         let windowTabs = tabIDs
         let held = Set(arrangement.workspaces.flatMap(\.hiddenTabs).map(ObjectIdentifier.init))
         let extras = workspaces.flatMap { tabs(of: $0.id) }.filter { !held.contains(ObjectIdentifier($0)) }
@@ -336,7 +337,20 @@ extension WorkspaceStore {
               held.subtracting(windowTabs) == Set(missing.map { ObjectIdentifier($0.tab) }),
               Self.splits(of: (kept.map(\.tab) + extras).map(\.surfaceTree))
                 == Self.splits(of: arrangement.trees.map(\.tree))
-        else { return }
+        else { return nil }
+        return (extras, kept, missing)
+    }
+
+    /// Undo or Redo Organize: leaves non-native fullscreen, brings back `arrangement`, then
+    /// registers the opposite entry. Tabs broken out since fold back, and Tabs folded back
+    /// since break out again (SPEC §10.3). Refused, with nothing changed, when `restoring`
+    /// is nil. With a sheet on the shown Tab, the Workspace holding that Tab is shown
+    /// instead, with the Tab still selected, and the Window comes forward with its sheet
+    /// (§16); a shown Tab with a sheet doesn't fold back, so that refuses.
+    private func restoreArrangement(_ arrangement: Arrangement) {
+        reconcile()
+        guard let changes = restoring(arrangement) else { return }
+        let (extras, kept, missing) = changes
         leaveNonNativeFullscreen()
         guard let tab = shownTab else { return }
 
@@ -351,9 +365,9 @@ extension WorkspaceStore {
         }
 
         // The Tabs this makes and closes don't take the other Organize entries off the stack.
-        let undoTabs = organizeUndoTabs
-        organizeUndoTabs = nil
-        defer { if organizeUndoTabs == nil { organizeUndoTabs = undoTabs } }
+        let undoCanRun = organizeUndoCanRun
+        organizeUndoCanRun = nil
+        defer { if organizeUndoCanRun == nil { organizeUndoCanRun = undoCanRun } }
 
         if missing.isEmpty {
             guard arrange(arrangement, comingForward: true) else { return }
@@ -408,12 +422,13 @@ extension WorkspaceStore {
         for (tab, tree) in trees { tab.surfaceTree = tree }
     }
 
-    /// Takes Undo and Redo Organize off the stack once a Tab has entered or left the Window
-    /// since they were registered (SPEC §10.6). Every change to the Window's Tabs ends in
-    /// `reconcile()` or `invalidateRestorableState()`, and both call this.
-    func dropOrganizeUndoIfTabsChanged() {
-        guard let tabs = organizeUndoTabs, tabs != tabIDs else { return }
-        organizeUndoTabs = nil
+    /// Takes Undo and Redo Organize off the stack once the last one registered can't run
+    /// (`organizeUndoCanRun`). Every change to the Window's Tabs ends in `reconcile()` or
+    /// `invalidateRestorableState()`, and both call this, as does every Tab whose Splits
+    /// change.
+    func dropOrganizeUndoIfStale() {
+        guard let canRun = organizeUndoCanRun, !canRun() else { return }
+        organizeUndoCanRun = nil
         (NSApp.delegate as? AppDelegate)?.undoManager.removeAllActions(withTarget: organizeUndoTarget)
     }
 }

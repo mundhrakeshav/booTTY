@@ -64,9 +64,10 @@ struct TerminalCommandPaletteView: View {
                 // Has to be on queue because onChange happens on a user-interactive
                 // thread and Xcode is mad about this call on that.
                 DispatchQueue.main.async {
-                    // The Workspace switcher that replaced the palette keeps the keyboard.
+                    // The Workspace switcher that replaced the palette keeps the keyboard, and
+                    // a Tab the chosen command hid (a Focus row or New Workspace) takes none.
                     let controller = surfaceView.window?.windowController as? BaseTerminalController
-                    guard controller?.paletteOrSwitcherIsShowing != true else { return }
+                    guard controller?.paletteOrSwitcherIsShowing != true, controller?.isHidden != true else { return }
                     surfaceView.window?.makeFirstResponder(surfaceView)
                 }
             }
@@ -152,7 +153,10 @@ struct TerminalCommandPaletteView: View {
 
             let color = (window as? TerminalWindow)?.tabColor
             let displayColor = color != TerminalTabColor.none ? color : nil
-            let workspaceName = controller.workspaceStore.workspace(holding: controller).name
+            // A Window that can't hold Tabs holds no Workspace, so its rows show no name.
+            let workspaceName = controller.holdsWorkspaces
+                ? controller.workspaceStore.workspace(holding: controller).name
+                : nil
 
             return controller.surfaceTree.map { surface in
                 let terminalTitle = surface.title.isEmpty ? window.title : surface.title
@@ -165,16 +169,13 @@ struct TerminalCommandPaletteView: View {
                     displayTitle = "Untitled"
                 }
                 let pwd = surface.pwd?.abbreviatedPath
-                // "api · ~/code/app", or "api" alone when there's no folder to show.
-                let subtitle = if let pwd, !displayTitle.contains(pwd) {
-                    "\(workspaceName) · \(pwd)"
-                } else {
-                    workspaceName
-                }
+                let folder = pwd.flatMap { displayTitle.contains($0) ? nil : $0 }
+                // "api · ~/code/app", or either one alone.
+                let details = [workspaceName, folder].compactMap { $0 }
 
                 return CommandOption(
                     title: "Focus: \(displayTitle)",
-                    subtitle: subtitle,
+                    subtitle: details.isEmpty ? nil : details.joined(separator: " · "),
                     leadingIcon: "rectangle.on.rectangle",
                     leadingColor: displayColor?.displayColor.map { Color($0) },
                     sortKey: ObjectIdentifier(surface)

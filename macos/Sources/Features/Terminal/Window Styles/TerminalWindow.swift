@@ -301,15 +301,23 @@ class TerminalWindow: NSWindow {
     /// Tabs, which would orphan hidden Workspaces, so it never runs. A Window that can't hold
     /// Tabs never receives a merge.
     override func mergeAllWindows(_ sender: Any?) {
-        guard let tab = terminalController, tab.workspacesUnavailableAlert == nil else { return }
+        guard let tab = terminalController, tab.holdsWorkspaces else { return }
         tab.workspaceStore.mergeAllWindows(requestedBy: tab)
+    }
+
+    /// A Tab doesn't leave for a new Window with its sheet up, nor in non-native fullscreen,
+    /// which shows "Cannot Move Tab" (SPEC §3, §11.6), whichever menu, tab bar, or keybind
+    /// asks.
+    override func moveTabToNewWindow(_ sender: Any?) {
+        if let tab = terminalController, !tab.workspaceStore.allowsMoveToNewWindow(tab) { return }
+        super.moveTabToNewWindow(sender)
     }
 
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard item.action == #selector(mergeAllWindows(_:)) else { return super.validateMenuItem(item) }
 
         // Enabled only when another Window can join, counting Windows rather than NSWindows.
-        guard let tab = terminalController, tab.workspacesUnavailableAlert == nil else { return false }
+        guard let tab = terminalController, tab.holdsWorkspaces else { return false }
         return !tab.workspaceStore.windowsJoiningMerge.isEmpty
     }
 

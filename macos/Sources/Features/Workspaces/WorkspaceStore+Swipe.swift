@@ -136,7 +136,7 @@ extension WorkspaceStore {
         }
 
         let target = swipe.target(amount)
-        if let target, !workspaces.contains(where: { $0.id == target }) || shownTab?.window?.attachedSheet != nil {
+        if let target, !workspaces.contains(where: { $0.id == target }) || shownTabHasSheet {
             cancelSwipe()
             return false
         }

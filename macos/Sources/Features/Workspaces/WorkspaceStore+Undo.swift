@@ -60,22 +60,20 @@ extension WorkspaceStore {
     }
 
     private static func workspace(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController?) -> Workspace {
-        var workspace = Workspace(id: saved.id, name: saved.name, hiddenTabs: tabs)
-        workspace.rememberedTab = remembered ?? tabs.first
-        workspace.originalName = saved.originalName
-        workspace.color = saved.color
-        return workspace
+        Workspace(
+            id: saved.id,
+            name: saved.name,
+            originalName: saved.originalName,
+            color: saved.color,
+            hiddenTabs: tabs,
+            rememberedTab: remembered)
     }
 
     /// Whether an undo or redo may switch Workspaces now (SPEC §16). Not while the shown Tab
     /// has a sheet, and then the Window comes forward with its sheet; not in non-native
     /// fullscreen. Neither shows an alert: the undo applies without switching.
     func allowsUndoSwitch() -> Bool {
-        if let window = shownTab?.window, window.attachedSheet != nil {
-            Self.bringForward(window)
-            return false
-        }
-        return !isInNonNativeFullscreen
+        !refusesUnderSheet() && !isInNonNativeFullscreen
     }
 
     /// Undo shows what it changes (SPEC §16): before an undo or redo changes `tab`, shows the

@@ -583,7 +583,7 @@ class AppDelegate: NSObject,
 
             let store = parent.workspaceStore
             store.reconcile()
-            if parent.workspacesUnavailableAlert == nil, store.shownTab?.window?.attachedSheet == nil {
+            if parent.holdsWorkspaces, !store.shownTabHasSheet {
                 guard store.allowsRequest(from: parent, orShow: .cannotCreate) else { return }
                 if store.newWorkspace(from: parent, withBaseConfig: config, named: name, comingForward: true) {
                     NSApp.activate(ignoringOtherApps: true)
@@ -1355,7 +1355,7 @@ extension AppDelegate: NSMenuDelegate {
         while menu.numberOfItems > start { menu.removeItem(at: start) }
 
         let tab = NSApp.keyWindow?.windowController as? TerminalController
-        let store = tab.flatMap { $0.workspacesUnavailableAlert == nil ? $0.workspaceStore : nil }
+        let store = tab.flatMap { $0.holdsWorkspaces ? $0.workspaceStore : nil }
         let rows = store?.menuItems(config: ghostty.config) ?? []
         rows.forEach(menu.addItem)
         separator.isHidden = rows.isEmpty

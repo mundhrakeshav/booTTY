@@ -14,14 +14,19 @@ extension WorkspaceStore {
     /// don't come through here.
     func allowsRequest(from tab: TerminalController, orShow alert: WorkspaceAlert) -> Bool {
         reconcile()
-        guard !isHidden(tab) else { return false }
-
-        if let window = shownTab?.window, window.attachedSheet != nil {
-            Self.bringForward(window)
-            return false
-        }
-
+        guard !isHidden(tab), !refusesUnderSheet() else { return false }
         return !refusesInFullscreen(tab, showing: alert)
+    }
+
+    /// Whether the shown Tab has a sheet up, which blocks switching (SPEC §13.7).
+    var shownTabHasSheet: Bool { shownTab?.window?.attachedSheet != nil }
+
+    /// True while the shown Tab has a sheet (SPEC §13.7), after bringing the Window and its
+    /// sheet forward.
+    func refusesUnderSheet() -> Bool {
+        guard let window = shownTab?.window, window.attachedSheet != nil else { return false }
+        Self.bringForward(window)
+        return true
     }
 
     /// True in non-native fullscreen (SPEC §3), after showing `alert` on `tab` when that's
@@ -32,6 +37,14 @@ extension WorkspaceStore {
         let isWindowedSelection = tab.window != nil && tab.window === tabGroup?.selectedWindow
         alert?.show(on: isWindowedSelection ? tab.window : fullscreen.window)
         return true
+    }
+
+    /// Whether shown `tab` may leave for a new Window now, as AppKit's Move Tab to New Window
+    /// would take it. Not while its sheet is up (SPEC §11.6), and never in non-native
+    /// fullscreen, which shows "Cannot Move Tab" (SPEC §3).
+    func allowsMoveToNewWindow(_ tab: TerminalController) -> Bool {
+        reconcile()
+        return tab.window?.attachedSheet == nil && !refusesInFullscreen(tab, showing: .cannotMoveTab)
     }
 
     /// Leaves non-native fullscreen, for an undo or a close that changes the shown Workspace's
@@ -55,10 +68,7 @@ extension WorkspaceStore {
         reconcile()
         guard let target = hiddenIndex(of: tab) else { return true }
 
-        if let window = shownTab?.window, window.attachedSheet != nil {
-            Self.bringForward(window)
-            return false
-        }
+        guard !refusesUnderSheet() else { return false }
 
         if let fullscreen = tabs(of: shownID).first(where: { $0.isInNonNativeFullscreen })?.window {
             Self.bringForward(fullscreen)

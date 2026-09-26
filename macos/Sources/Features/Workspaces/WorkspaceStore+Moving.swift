@@ -106,10 +106,7 @@ extension WorkspaceStore {
             cancelSwipe()
 
             let outgoing = shownIndex
-            workspaces[target].hiddenTabs = []
-            workspaces[target].rememberedTab = nil
-            markShown(id)
-            shownID = id
+            promoteToShown(at: target)
             workspaces.remove(at: outgoing)
 
             reconcile()
@@ -161,11 +158,7 @@ extension WorkspaceStore {
 
         let source = shownTab?.window
         if id == shownID {
-            if let source, source.attachedSheet != nil {
-                Self.bringForward(source)
-                return false
-            }
-            guard let neighbor = neighborID, show(neighbor) else { return false }
+            guard !refusesUnderSheet(), showNeighbor() else { return false }
         }
 
         // A switch whose old Tabs all failed to order out keeps them shown.
@@ -229,16 +222,16 @@ extension WorkspaceStore {
         return NSApp.orderedWindows.compactMap { window in
             // A hidden Tab's place in the order says nothing about its Window's.
             guard let tab = window.windowController as? TerminalController,
-                  !tab.isInHiddenWorkspace,
+                  !tab.isHidden,
                   seen.insert(ObjectIdentifier(tab.workspaceStore)).inserted
             else { return nil }
 
             let store = tab.workspaceStore
             store.reconcile()
             guard let shown = store.shownTab,
-                  shown.workspacesUnavailableAlert == nil,
+                  shown.holdsWorkspaces,
                   !store.isInNonNativeFullscreen,
-                  shown.window?.attachedSheet == nil
+                  !store.shownTabHasSheet
             else { return nil }
             return store
         }
@@ -270,7 +263,7 @@ extension WorkspaceStore {
         // Only the Tabs that stayed: AppKit sometimes still lists a lone ordered-out window in
         // its group, and this store would drop that Tab's Undo Move Tab, which follows it.
         knownShownTabs = Self.tabs(in: group).filter { tab in !tabs.contains { $0 === tab } }.map { Weak($0) }
-        dropOrganizeUndoIfTabsChanged() // its Tabs left the Window
+        dropOrganizeUndoIfStale() // its Tabs left the Window
         return handed.filter { !$0.hiddenTabs.isEmpty }
     }
 
