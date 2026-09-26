@@ -508,6 +508,7 @@ fn actionCommands(action: Action.Key) []const Command {
                 .description = i18n.N_("Regroup this window's tabs into one Workspace per folder."),
             },
         },
+
         .jump_to_agent => comptime &.{.{
             .action = .jump_to_agent,
             .title = i18n.N_("Jump to Agent"),

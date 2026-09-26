@@ -6976,52 +6976,14 @@ pub const Keybinds = struct {
                 .{ .alt = true };
 
             // Cmd/Alt+N for goto tab N
-            const start: u21 = '1';
-            const end: u21 = '8';
-            comptime var i: u21 = start;
-            inline while (i <= end) : (i += 1) {
-                // We register BOTH the physical `digit_N` key and the unicode
-                // `N` key. This allows most keyboard layouts to work with
-                // this shortcut. Namely, AZERTY doesn't produce unicode `N`
-                // for their digit keys (they're on shifted keys on the same
-                // physical keys).
-
-                try self.set.putFlags(
-                    alloc,
-                    .{
-                        .key = .{ .physical = @field(
-                            inputpkg.Key,
-                            std.fmt.comptimePrint("digit_{u}", .{i}),
-                        ) },
-                        .mods = mods,
-                    },
-                    .{ .goto_tab = (i - start) + 1 },
-                    .{
-                        // On macOS we keep this not performable so that the
-                        // keyboard shortcuts in tabs work. In the future the
-                        // correct fix is to fix the reverse mapping lookup
-                        // to allow us to lookup performable keybinds
-                        // conditionally.
-                        .performable = !builtin.target.os.tag.isDarwin(),
-                    },
-                );
-
-                // Important: this must be the LAST binding set so that the
-                // libghostty trigger API returns this one for the action,
-                // so that things like the macOS tab bar key equivalent label
-                // work properly.
-                try self.set.putFlags(
-                    alloc,
-                    .{
-                        .key = .{ .unicode = i },
-                        .mods = mods,
-                    },
-                    .{ .goto_tab = (i - start) + 1 },
-                    .{
-                        .performable = !builtin.target.os.tag.isDarwin(),
-                    },
-                );
-            }
+            try self.putDigits(alloc, mods, '8', .goto_tab, .{
+                // On macOS we keep this not performable so that the
+                // keyboard shortcuts in tabs work. In the future the
+                // correct fix is to fix the reverse mapping lookup
+                // to allow us to lookup performable keybinds
+                // conditionally.
+                .performable = !builtin.target.os.tag.isDarwin(),
+            });
             try self.set.putFlags(
                 alloc,
                 .{
@@ -7199,33 +7161,8 @@ pub const Keybinds = struct {
                 .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true } },
                 .{ .toggle_workspace_switcher = {} },
             );
-            {
-                // Cmd+Option+N for goto Workspace N. As with goto_tab, both the
-                // physical digit and the unicode digit are bound so layouts like
-                // AZERTY work, and unicode goes last so the trigger API returns it.
-                const mods: inputpkg.Mods = .{ .super = true, .alt = true };
-                const start: u21 = '1';
-                const end: u21 = '9';
-                comptime var i: u21 = start;
-                inline while (i <= end) : (i += 1) {
-                    try self.set.put(
-                        alloc,
-                        .{
-                            .key = .{ .physical = @field(
-                                inputpkg.Key,
-                                std.fmt.comptimePrint("digit_{u}", .{i}),
-                            ) },
-                            .mods = mods,
-                        },
-                        .{ .goto_workspace = (i - start) + 1 },
-                    );
-                    try self.set.put(
-                        alloc,
-                        .{ .key = .{ .unicode = i }, .mods = mods },
-                        .{ .goto_workspace = (i - start) + 1 },
-                    );
-                }
-            }
+            // Cmd+Option+N for goto Workspace N.
+            try self.putDigits(alloc, .{ .super = true, .alt = true }, '9', .goto_workspace, .{});
             try self.set.put(
                 alloc,
                 .{ .key = .{ .unicode = 'a' }, .mods = .{ .super = true, .alt = true } },
@@ -7398,6 +7335,46 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .arrow_right }, .mods = .{ .alt = true } },
                 .{ .esc = "f" },
             );
+        }
+    }
+
+    /// Bind `mods`+1 through `mods`+`last` to `tag` with the digit as its
+    /// argument.
+    fn putDigits(
+        self: *Keybinds,
+        alloc: Allocator,
+        mods: inputpkg.Mods,
+        comptime last: u21,
+        comptime tag: inputpkg.Binding.Action.Key,
+        flags: inputpkg.Binding.Flags,
+    ) !void {
+        comptime var i: u21 = '1';
+        inline while (i <= last) : (i += 1) {
+            const action = @unionInit(inputpkg.Binding.Action, @tagName(tag), i - '0');
+
+            // We register BOTH the physical `digit_N` key and the unicode
+            // `N` key. This allows most keyboard layouts to work with
+            // this shortcut. Namely, AZERTY doesn't produce unicode `N`
+            // for their digit keys (they're on shifted keys on the same
+            // physical keys).
+            try self.set.putFlags(
+                alloc,
+                .{
+                    .key = .{ .physical = @field(
+                        inputpkg.Key,
+                        std.fmt.comptimePrint("digit_{u}", .{i}),
+                    ) },
+                    .mods = mods,
+                },
+                action,
+                flags,
+            );
+
+            // Important: this must be the LAST binding set so that the
+            // libghostty trigger API returns this one for the action,
+            // so that things like the macOS tab bar key equivalent label
+            // work properly.
+            try self.set.putFlags(alloc, .{ .key = .{ .unicode = i }, .mods = mods }, action, flags);
         }
     }
 

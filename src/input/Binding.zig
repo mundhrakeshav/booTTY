@@ -692,6 +692,7 @@ pub const Action = union(enum) {
     ///
     /// Only implemented on macOS.
     organize_workspaces: OrganizeWorkspaces,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
