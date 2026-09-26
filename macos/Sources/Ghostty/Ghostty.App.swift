@@ -582,11 +582,27 @@ extension Ghostty {
             return Unmanaged<SurfaceView>.fromOpaque(surface_ud).takeUnretainedValue()
         }
 
-        /// Whether `surfaceView` is a hidden Split: its Tab is in a hidden Workspace. Actions on
-        /// its Window, or that open UI on it, are refused there: they report false and show
-        /// nothing (SPEC §14).
-        static private func isHiddenSplit(_ surfaceView: SurfaceView) -> Bool {
-            BaseTerminalController.controller(owning: surfaceView)?.isHidden ?? false
+        /// The actions a hidden Split refuses, since they act on its Window or open UI on it:
+        /// they report false and show nothing. Each op of a Workspace command has
+        /// its own rule, so those check for themselves.
+        private static let refusedByHiddenSplits: Set<ghostty_action_tag_e> = [
+            GHOSTTY_ACTION_CLOSE_WINDOW,
+            GHOSTTY_ACTION_TOGGLE_FULLSCREEN,
+            GHOSTTY_ACTION_TOGGLE_MAXIMIZE,
+            GHOSTTY_ACTION_FLOAT_WINDOW,
+            GHOSTTY_ACTION_TOGGLE_BACKGROUND_OPACITY,
+            GHOSTTY_ACTION_RESET_WINDOW_SIZE,
+            GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE,
+            GHOSTTY_ACTION_PROMPT_TITLE,
+        ]
+
+        /// Whether `target` is a hidden Split: its Tab is in a hidden Workspace.
+        static private func isHiddenSplit(_ target: ghostty_target_s) -> Bool {
+            guard target.tag == GHOSTTY_TARGET_SURFACE,
+                  let surface = target.target.surface,
+                  let surfaceView = self.surfaceView(from: surface)
+            else { return false }
+            return BaseTerminalController.controller(owning: surfaceView)?.isHidden ?? false
         }
 
         // MARK: Actions (macOS)
@@ -601,6 +617,8 @@ extension Ghostty {
                 Ghostty.logger.warning("unknown action target=\(target.tag.rawValue, privacy: .public)")
                 return false
             }
+
+            if refusedByHiddenSplits.contains(action.tag), isHiddenSplit(target) { return false }
 
             // Action dispatch
             switch action.tag {
@@ -983,7 +1001,7 @@ extension Ghostty {
                 guard let surfaceView = self.surfaceView(from: surface) else { return }
                 guard let appState = self.appState(fromView: surfaceView) else { return }
 
-                // A terminal Window keeps the decorations it was created with (SPEC §4.2).
+                // A terminal Window keeps the decorations it was created with.
                 let controller = BaseTerminalController.controller(owning: surfaceView) as? TerminalController
                 guard controller?.windowStyle.isDecorated ?? appState.config.windowDecorations else {
                     let alert = NSAlert()
@@ -1110,7 +1128,6 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard !isHiddenSplit(surfaceView) else { return false }
 
                 NotificationCenter.default.post(
                     name: .ghosttyCloseWindow,
@@ -1141,7 +1158,6 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard !isHiddenSplit(surfaceView) else { return false }
                 guard let mode = FullscreenMode.from(ghostty: raw) else {
                     Ghostty.logger.warning("unknown fullscreen mode raw=\(raw.rawValue, privacy: .public)")
                     return false
@@ -1172,7 +1188,6 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard !isHiddenSplit(surfaceView) else { return false }
                 NotificationCenter.default.post(
                     name: .ghosttyCommandPaletteDidToggle,
                     object: surfaceView
@@ -1197,7 +1212,6 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard !isHiddenSplit(surfaceView) else { return false }
                 NotificationCenter.default.post(
                     name: .ghosttyMaximizeDidToggle,
                     object: surfaceView
@@ -1336,16 +1350,19 @@ extension Ghostty {
                     else { return false }
 
                     // A hidden Tab is ordered out, so AppKit can't move it; it opens by Move
-                    // Workspace to New Window's path (SPEC §11.5, §14).
+                    // Workspace to New Window's path.
                     if controller.isHidden {
                         return MainActor.assumeIsolated {
                             controller.workspaceStore.moveHiddenTabToNewWindow(controller)
                         }
                     }
 
+                    // A shown Tab doesn't move with its sheet up or in non-native fullscreen.
                     // The shown Workspace's only Tab can't move to a new Window; Move Workspace
-                    // to New Window covers that (SPEC §11.5).
-                    guard controller.groupedTabs.count > 1 else { return false }
+                    // to New Window covers that.
+                    guard MainActor.assumeIsolated({ controller.workspaceStore.allowsMoveToNewWindow(controller) }),
+                          controller.groupedTabs.count > 1
+                    else { return false }
 
                     surfaceView.window?.moveTabToNewWindow(nil)
 
@@ -1371,7 +1388,7 @@ extension Ghostty {
 
                     // Similar to goto_split (see comment there) about our performability,
                     // we should make this more accurate later. This counts the Workspace's
-                    // Tabs; in a hidden Workspace, going to one remembers it (SPEC §14).
+                    // Tabs; in a hidden Workspace, going to one remembers it.
                     guard let controller = surfaceView.window?.windowController as? TerminalController,
                           controller.groupedTabs.count > 1 else { return false }
 
@@ -1390,160 +1407,147 @@ extension Ghostty {
                 return true
         }
 
+        /// Runs a Workspace command aimed at `target` on the main thread, where actions arrive,
+        /// with the Tab it acts from and its target surface. False for an app target, and from
+        /// a window that can't hold Workspaces, which shows "Workspaces Unavailable".
+        private static func workspaceCommand(
+            _ name: String,
+            target: ghostty_target_s,
+            _ body: @MainActor (TerminalController, ghostty_surface_t) -> Bool
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("\(name, privacy: .public) does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface,
+                      let surfaceView = self.surfaceView(from: surface),
+                      let controller = BaseTerminalController.controller(owning: surfaceView)
+                else { return false }
+
+                return MainActor.assumeIsolated {
+                    guard let tab = controller.tabForWorkspaceCommand() else { return false }
+                    return body(tab, surface)
+                }
+
+            default:
+                assertionFailure()
+                return false
+            }
+        }
+
         private static func workspace(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_workspace_s) -> Bool {
-                switch target.tag {
-                case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("workspace does nothing with an app target")
-                    return false
+            workspaceCommand("workspace", target: target) { tab, surface in
+                let store = tab.workspaceStore
 
-                case GHOSTTY_TARGET_SURFACE:
-                    guard let surface = target.target.surface,
-                          let surfaceView = self.surfaceView(from: surface),
-                          let controller = BaseTerminalController.controller(owning: surfaceView)
-                    else { return false }
+                @MainActor func show(_ target: WorkspaceStore.Target) -> Bool {
+                    // A hidden Split refuses it, since it would change what the Window shows.
+                    // With nothing to switch to, false and no alert; naming the shown Workspace
+                    // changes nothing, so it reports true even where a switch would be refused.
+                    guard !store.isHidden(tab), let index = store.index(of: target) else { return false }
+                    guard index != store.shownIndex else { return true }
+                    return store.allowsRequest(from: tab, orShow: .cannotSwitch) && store.show(target)
+                }
 
-                    // Actions arrive on the main thread.
-                    return MainActor.assumeIsolated {
-                        guard let tab = controller.tabForWorkspaceCommand() else { return false }
-                        let store = tab.workspaceStore
+                @MainActor func organize(by mode: WorkspaceStore.OrganizeMode) -> Bool {
+                    store.allowsRequest(from: tab, orShow: .cannotOrganize) && store.organize(by: mode)
+                }
 
-                        switch v.op {
-                        case GHOSTTY_ACTION_WORKSPACE_GOTO,
-                             GHOSTTY_ACTION_WORKSPACE_PREVIOUS,
-                             GHOSTTY_ACTION_WORKSPACE_NEXT:
-                            let target: WorkspaceStore.Target = switch v.op {
-                            case GHOSTTY_ACTION_WORKSPACE_GOTO: .number(v.n)
-                            case GHOSTTY_ACTION_WORKSPACE_PREVIOUS: .previous
-                            default: .next
-                            }
+                switch v.op {
+                case GHOSTTY_ACTION_WORKSPACE_GOTO:
+                    return show(.number(v.n))
 
-                            // With nothing to switch to, false and no alert (SPEC §7.1).
-                            guard store.index(of: target) != nil,
-                                  store.allowsRequest(from: tab, orShow: .cannotSwitch)
-                            else { return false }
-                            return store.show(target)
+                case GHOSTTY_ACTION_WORKSPACE_PREVIOUS:
+                    return show(.previous)
 
-                        case GHOSTTY_ACTION_WORKSPACE_NEW:
-                            guard store.allowsRequest(from: tab, orShow: .cannotCreate) else { return false }
+                case GHOSTTY_ACTION_WORKSPACE_NEXT:
+                    return show(.next)
 
-                            // A new Workspace's first Tab counts as a new window, so it follows
-                            // window-inherit-working-directory from the Tab just left (SPEC §1.5).
-                            let config = SurfaceConfiguration(
-                                from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
-                            return store.newWorkspace(from: tab, withBaseConfig: config)
+                case GHOSTTY_ACTION_WORKSPACE_NEW:
+                    guard store.allowsRequest(from: tab, orShow: .cannotCreate) else { return false }
 
-                        case GHOSTTY_ACTION_WORKSPACE_CLOSE:
-                            // Aimed at a hidden Split, it closes that Split's own Workspace (SPEC §14).
-                            return store.closeWorkspace(store.workspace(holding: tab).id, from: tab)
+                    // A new Workspace's first Tab counts as a new window, so it follows
+                    // window-inherit-working-directory from the Tab just left.
+                    let config = SurfaceConfiguration(
+                        from: ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_WINDOW))
+                    return store.newWorkspace(from: tab, withBaseConfig: config)
 
-                        case GHOSTTY_ACTION_WORKSPACE_PROMPT_NAME:
-                            // Aimed at a hidden Split, it's refused with nothing shown (SPEC §14).
-                            guard !store.isHidden(tab) else { return false }
-                            return store.promptName(for: store.shownID)
+                case GHOSTTY_ACTION_WORKSPACE_CLOSE:
+                    // Aimed at a hidden Split, it closes that Split's own Workspace.
+                    return store.closeWorkspace(store.workspace(holding: tab).id, from: tab)
 
-                        case GHOSTTY_ACTION_WORKSPACE_MOVE:
-                            // The target Split's own Workspace, even a hidden one, which moves
-                            // out of sight (SPEC §14). Nothing is shown or refused, so it also
-                            // runs in non-native fullscreen.
-                            let id = store.workspace(holding: tab).id
-                            guard let from = store.workspaces.firstIndex(where: { $0.id == id }) else { return false }
-                            let count = store.workspaces.count
-                            return store.moveWorkspace(id, to: from + min(max(v.n, -count), count))
+                case GHOSTTY_ACTION_WORKSPACE_PROMPT_NAME:
+                    // Aimed at a hidden Split, it's refused with nothing shown.
+                    guard !store.isHidden(tab) else { return false }
+                    return store.promptName(for: store.shownID)
 
-                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TO_NEW_WINDOW:
-                            // A hidden Split moves its own Workspace (SPEC §14).
-                            return store.moveToNewWindow(store.workspace(holding: tab).id, requestedBy: tab)
+                case GHOSTTY_ACTION_WORKSPACE_MOVE:
+                    // The target Split's own Workspace, even a hidden one, which moves
+                    // out of sight. Nothing is shown or refused, so it also
+                    // runs in non-native fullscreen.
+                    let id = store.workspace(holding: tab).id
+                    guard let from = store.workspaces.firstIndex(where: { $0.id == id }) else { return false }
+                    let count = store.workspaces.count
+                    return store.moveWorkspace(id, to: from + min(max(v.n, -count), count))
 
-                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO:
-                            return store.moveTab(tab, toWorkspaceAt: v.n)
+                case GHOSTTY_ACTION_WORKSPACE_MOVE_TO_NEW_WINDOW:
+                    // A hidden Split moves its own Workspace.
+                    return store.moveToNewWindow(store.workspace(holding: tab).id, requestedBy: tab)
 
-                        case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO_NEW:
-                            return store.moveTabToNewWorkspace(tab)
+                case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO:
+                    return store.moveTab(tab, toWorkspaceAt: v.n)
 
-                        case GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO,
-                             GHOSTTY_ACTION_WORKSPACE_ORGANIZE_FOLDER:
-                            guard store.allowsRequest(from: tab, orShow: .cannotOrganize) else { return false }
-                            return store.organize(by: v.op == GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO ? .repo : .folder)
-                        default:
-                            return false
-                        }
-                    }
+                case GHOSTTY_ACTION_WORKSPACE_MOVE_TAB_TO_NEW:
+                    return store.moveTabToNewWorkspace(tab)
+
+                case GHOSTTY_ACTION_WORKSPACE_ORGANIZE_REPO:
+                    return organize(by: .repo)
+
+                case GHOSTTY_ACTION_WORKSPACE_ORGANIZE_FOLDER:
+                    return organize(by: .folder)
 
                 default:
-                    assertionFailure()
                     return false
                 }
+            }
         }
 
         private static func setWorkspaceName(
             _ app: ghostty_app_t,
             target: ghostty_target_s,
             v: ghostty_action_set_title_s) -> Bool {
-                switch target.tag {
-                case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("set workspace name does nothing with an app target")
-                    return false
+            guard let name = String(cString: v.title!, encoding: .utf8) else { return false }
+            return workspaceCommand("set workspace name", target: target) { tab, _ in
+                let store = tab.workspaceStore
 
-                case GHOSTTY_TARGET_SURFACE:
-                    guard let name = String(cString: v.title!, encoding: .utf8),
-                          let surface = target.target.surface,
-                          let surfaceView = self.surfaceView(from: surface),
-                          let controller = BaseTerminalController.controller(owning: surfaceView)
-                    else { return false }
-
-                    return MainActor.assumeIsolated {
-                        guard let tab = controller.tabForWorkspaceCommand() else { return false }
-                        let store = tab.workspaceStore
-
-                        // A hidden Split's own Workspace is renamed out of sight (SPEC §14).
-                        store.rename(store.hiddenWorkspace(holding: tab)?.id ?? store.shownID, to: name)
-                        return true
-                    }
-
-                default:
-                    assertionFailure()
-                    return false
-                }
+                // A hidden Split's own Workspace is renamed out of sight.
+                store.rename(store.hiddenWorkspace(holding: tab)?.id ?? store.shownID, to: name)
+                return true
+            }
         }
 
         private static func toggleWorkspaceSwitcher(
             _ app: ghostty_app_t,
             target: ghostty_target_s) -> Bool {
-                switch target.tag {
-                case GHOSTTY_TARGET_APP:
-                    Ghostty.logger.warning("toggle workspace switcher does nothing with an app target")
-                    return false
-
-                case GHOSTTY_TARGET_SURFACE:
-                    guard let surface = target.target.surface,
-                          let surfaceView = self.surfaceView(from: surface),
-                          let controller = BaseTerminalController.controller(owning: surfaceView)
-                    else { return false }
-
-                    return MainActor.assumeIsolated {
-                        guard let tab = controller.tabForWorkspaceCommand() else { return false }
-                        if tab.workspaceSwitcherIsShowing {
-                            tab.workspaceSwitcherIsShowing = false
-                            return true
-                        }
-
-                        // Opening is refused where switching is: aimed at a hidden Split,
-                        // behind a sheet, or in non-native fullscreen (SPEC §8.1, §14).
-                        guard tab.workspaceStore.allowsRequest(from: tab, orShow: .cannotSwitch) else { return false }
-                        tab.workspaceSwitcherIsShowing = true
-                        // As with the command palette, so a surface that is losing first
-                        // responder doesn't take the switcher's key equivalents.
-                        _ = tab.focusedSurface?.resignFirstResponder()
-                        return true
-                    }
-
-                default:
-                    assertionFailure()
-                    return false
+            workspaceCommand("toggle workspace switcher", target: target) { tab, _ in
+                if tab.workspaceSwitcherIsShowing {
+                    tab.workspaceSwitcherIsShowing = false
+                    return true
                 }
+
+                // Opening is refused where switching is: aimed at a hidden Split,
+                // behind a sheet, or in non-native fullscreen.
+                guard tab.workspaceStore.allowsRequest(from: tab, orShow: .cannotSwitch) else { return false }
+                tab.workspaceSwitcherIsShowing = true
+                // As with the command palette, so a surface that is losing first
+                // responder doesn't take the switcher's key equivalents.
+                _ = tab.focusedSurface?.resignFirstResponder()
+                return true
+            }
         }
 
         private static func gotoSplit(
@@ -1928,7 +1932,6 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard !isHiddenSplit(surfaceView) else { return false }
                 guard let window = surfaceView.window as? TerminalWindow else { return false }
 
                 switch mode {
@@ -1965,8 +1968,7 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface,
                     let surfaceView = self.surfaceView(from: surface),
-                    let controller = surfaceView.window?.windowController as? BaseTerminalController,
-                    !controller.isHidden else { return false }
+                    let controller = surfaceView.window?.windowController as? BaseTerminalController else { return false }
 
                 controller.toggleBackgroundOpacity()
                 return true
@@ -2120,7 +2122,6 @@ extension Ghostty {
                 case GHOSTTY_TARGET_SURFACE:
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                    guard !isHiddenSplit(surfaceView) else { return false }
                     surfaceView.promptTitle()
                     return true
 
@@ -2142,8 +2143,7 @@ extension Ghostty {
                     guard let surface = target.target.surface else { return false }
                     guard let surfaceView = self.surfaceView(from: surface) else { return false }
                     guard let window = surfaceView.window,
-                          let controller = window.windowController as? BaseTerminalController,
-                          !controller.isHidden
+                          let controller = window.windowController as? BaseTerminalController
                     else { return false }
                     controller.promptTabTitle()
                     return true
@@ -2277,7 +2277,6 @@ extension Ghostty {
             case GHOSTTY_TARGET_SURFACE:
                 guard let surface = target.target.surface else { return false }
                 guard let surfaceView = self.surfaceView(from: surface) else { return false }
-                guard !isHiddenSplit(surfaceView) else { return false }
                 NotificationCenter.default.post(
                     name: .ghosttyResetWindowSize,
                     object: surfaceView

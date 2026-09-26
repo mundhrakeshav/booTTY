@@ -115,7 +115,7 @@ final class ScriptTab: NSObject {
     }
 
     /// Handler for `select tab <tab>`. A Jump: a Tab in a hidden Workspace is revealed first,
-    /// and the command reports false when that Workspace can't be shown now (SPEC §2.4).
+    /// and the command reports false when that Workspace can't be shown now.
     @objc(handleSelectTabCommand:)
     func handleSelectTab(_ command: NSScriptCommand) -> NSNumber? {
         guard NSApp.validateScript(command: command) else { return nil }

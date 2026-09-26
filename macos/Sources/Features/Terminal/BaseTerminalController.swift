@@ -59,7 +59,7 @@ class BaseTerminalController: NSWindowController,
         didSet { if commandPaletteIsShowing { workspaceSwitcherIsShowing = false } }
     }
 
-    /// This can be set to show/hide the Workspace switcher (SPEC §8).
+    /// This can be set to show/hide the Workspace switcher.
     @Published var workspaceSwitcherIsShowing: Bool = false {
         didSet { if workspaceSwitcherIsShowing { commandPaletteIsShowing = false } }
     }
@@ -81,8 +81,10 @@ class BaseTerminalController: NSWindowController,
         self.derivedConfig.focusFollowsMouse
     }
 
-    /// Non-nil when an alert is active so we don't overlap multiple.
-    private var alert: NSAlert?
+    /// What each close confirmation up or queued on this window asks about: this controller
+    /// itself, or a hidden Tab or a Workspace asking here. Each subject asks once at a time,
+    /// and a question about one subject never answers another's.
+    private var confirmingClose: Set<AnyHashable> = []
 
     /// The clipboard confirmation window, if shown.
     private var clipboardConfirmation: ClipboardConfirmationController?
@@ -96,9 +98,19 @@ class BaseTerminalController: NSWindowController,
         return fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs
     }
 
-    /// Whether this Tab is in one of its Window's hidden Workspaces. Actions aimed at it run
-    /// out of sight or are refused, and never show it (SPEC §14).
+    /// Whether this Tab is in one of its Window's hidden Workspaces: ordered out, yet still in
+    /// `NSApp.windows` and `NSApp.orderedWindows`. Actions aimed at it run out of sight or are
+    /// refused, and never show it.
     var isHidden: Bool { false }
+
+    /// Runs before every Jump's usual focus: shows this Tab's Workspace if it's
+    /// hidden. False means the jump stops here and reports false.
+    func revealForJump() -> Bool { true }
+
+    /// Undo shows what it changes: shows this Tab's Workspace if it's hidden,
+    /// unless the Window can't switch now. Every undo and redo that changes a Tab or Split
+    /// calls it first.
+    func showForUndo() {}
 
     /// Event monitor (see individual events for why)
     private var eventMonitor: Any?
@@ -399,13 +411,19 @@ class BaseTerminalController: NSWindowController,
         savedFrame = .init(window: window.frame, screen: screen.visibleFrame)
     }
 
+    /// Asks on this window whether to close `subject`, by default this controller. A question
+    /// about another subject already up here doesn't answer this one: AppKit queues this
+    /// sheet behind it. Nil while a question about `subject` is already up.
     func confirmCloseAsync(
         messageText: String,
         informativeText: String,
         confirmButtonTitle: String = "Close",
+        about subject: AnyHashable? = nil
     ) async -> NSApplication.ModalResponse? {
+        let subject = subject ?? AnyHashable(ObjectIdentifier(self))
+
         // If we already have an alert, we need to wait for that one.
-        guard alert == nil else { return nil }
+        guard !confirmingClose.contains(subject) else { return nil }
 
         // If there is no window to attach the modal then we assume success
         // since we'll never be able to show the modal.
@@ -421,13 +439,13 @@ class BaseTerminalController: NSWindowController,
         alert.addButton(withTitle: confirmButtonTitle)
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
-        // Store our alert so we only ever show one.
-        self.alert = alert
+        // Remember the subject so we only ever ask about it once at a time.
+        confirmingClose.insert(subject)
         defer {
             // This is important so that we avoid losing focus when Stage
             // Manager is used (#8336)
             alert.window.orderOut(nil)
-            self.alert = nil
+            confirmingClose.remove(subject)
         }
         return await alert.beginSheetModal(for: window)
     }
@@ -436,13 +454,18 @@ class BaseTerminalController: NSWindowController,
         messageText: String,
         informativeText: String,
         confirmButtonTitle: String = "Close",
+        about subject: AnyHashable? = nil,
         completion: @escaping () -> Void
     ) {
         Task {
-            guard let response = await confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle) else {
-                completion()
-                return
-            }
+            // Nil means a question about `subject` is already up. Its answer decides, so a
+            // repeated request never closes without asking.
+            guard let response = await confirmCloseAsync(
+                messageText: messageText,
+                informativeText: informativeText,
+                confirmButtonTitle: confirmButtonTitle,
+                about: subject
+            ) else { return }
             if [.alertFirstButtonReturn, .OK].contains(response) {
                 completion()
             }
@@ -609,7 +632,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     /// Moves focus to `view` on the next turn. A hidden Tab also records `view` as its focused
-    /// Split now, so showing the Tab focuses it (SPEC §14).
+    /// Split now, so showing the Tab focuses it.
     private func moveFocus(to view: Ghostty.SurfaceView, from oldView: Ghostty.SurfaceView? = nil) {
         if isHidden { focusedSurfaceDidChange(to: view) }
         DispatchQueue.main.async {
@@ -782,7 +805,7 @@ class BaseTerminalController: NSWindowController,
 
         // Move focus to our window. Importantly this ensures that if we click the
         // reset zoom button in a tab bar of an unfocused tab that we become focused.
-        // A hidden Tab stays out of sight (SPEC §14).
+        // A hidden Tab stays out of sight.
         if !isHidden {
             window?.makeKeyAndOrderFront(nil)
         }
@@ -1236,7 +1259,7 @@ class BaseTerminalController: NSWindowController,
         if surfaceTree.isEmpty { return true }
 
         // If we already have an alert, continue with it
-        guard alert == nil else { return false }
+        guard !confirmingClose.contains(ObjectIdentifier(self)) else { return false }
 
         // If our surfaces don't require confirmation, close.
         if !surfaceTree.contains(where: { $0.needsConfirmQuit }) { return true }
@@ -1480,7 +1503,7 @@ class BaseTerminalController: NSWindowController,
     }
 
     // Workspace menu items run their keybind action on the focused Split, so they get the
-    // same checks and alerts as the keys (SPEC §7.3, §4.2).
+    // same checks and alerts as the keys.
 
     @IBAction func toggleWorkspaceSwitcher(_ sender: Any?) {
         guard let focusedSurface else { return }

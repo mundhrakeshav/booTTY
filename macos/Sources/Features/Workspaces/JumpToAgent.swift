@@ -1,17 +1,17 @@
 import AppKit
 
-/// Jump to Agent (SPEC §15.2): `jump_to_agent`, the Workspace menu item, and the palette
+/// Jump to Agent: `jump_to_agent`, the Workspace menu item, and the palette
 /// entry focus the next Split whose agent needs the user, in any Workspace of any Window.
 /// It isn't a Workspace command, so it runs from windows without Workspaces too.
 @MainActor
 enum JumpToAgent {
-    /// Focuses the next Split to visit through the Jump's reveal (SPEC §2.4). False when
+    /// Focuses the next Split to visit through the Jump's reveal. False when
     /// there's nothing to visit or the reveal refuses.
     static func perform() -> Bool {
         guard let (tab, split) = target() else { return false }
 
         // A minimized Window comes back. The reveal does that for a hidden Tab.
-        if !tab.isInHiddenWorkspace, let window = tab.window, window.isMiniaturized {
+        if !tab.isHidden, let window = tab.window, window.isMiniaturized {
             window.deminiaturize(nil)
         }
         return tab.focusSurface(split)

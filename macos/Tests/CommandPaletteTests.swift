@@ -40,9 +40,9 @@ struct CommandPaletteFilterTests {
         #expect(results == [byTitle, bySubtitle, byDescription])
     }
 
-    /// Workspace rows (SPEC §8.4): name matches rank above Tab matches, which match on a
-    /// Tab's title or any of its folders; ties keep the given (recency) order. The subtitle
-    /// ("N tabs · …") doesn't match, and a Tab match shows that Tab as the subtitle.
+    /// Workspace rows: name matches rank above Tab matches, which match on a Tab's title or
+    /// any of its folders; ties keep the given (recency) order. The subtitle ("N tabs · …")
+    /// doesn't match, and a Tab match shows that Tab as the subtitle.
     @Test func workspaceNameMatchesRankAboveTabMatches() {
         func workspace(_ name: String, _ tabs: [CommandOption.Tab]) -> CommandOption {
             CommandOption(title: name, subtitle: "\(tabs.count) tabs · \(tabs.first?.title ?? "")", tabs: tabs) {}

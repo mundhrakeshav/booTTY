@@ -3,8 +3,8 @@ import Testing
 
 struct WindowStyleTests {
     @Test func decorationsWinOverAHiddenTitlebar() throws {
-        // With both settings the window counts as undecorated (SPEC §4.2), so it gets the
-        // plain nib and "Enable window decorations to use Workspaces.".
+        // With both settings `window-decoration` wins, so the window counts as undecorated and
+        // gets the plain nib and "Enable window decorations to use Workspaces.".
         let style = TerminalController.WindowStyle(try TemporaryConfig("""
             window-decoration = none
             macos-titlebar-style = hidden

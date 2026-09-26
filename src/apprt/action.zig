@@ -595,7 +595,7 @@ pub const MoveTab = extern struct {
 /// Sync with: ghostty_action_workspace_s
 pub const Workspace = extern struct {
     op: Op,
-    n: isize,
+    n: isize = 0,
 
     /// Sync with: ghostty_action_workspace_op_e
     pub const Op = enum(c_int) {

@@ -23,9 +23,8 @@ struct VerticalTabBarModelTests {
         #expect(model.tabs.map(\.title) == ["after"])
     }
 
-    /// SPEC §5.1: a row holds 11 Workspaces and "+" at the default 200 pt width and 5 at
-    /// the 120 pt minimum (rows get the bar's width less 16 pt of padding). "+" is the
-    /// last index.
+    /// A row holds 11 Workspaces and "+" at the default 200 pt width and 5 at the 120 pt
+    /// minimum (rows get the bar's width less 16 pt of padding). "+" is the last index.
     @Test func dotRowsWrapWhenFull() {
         #expect(VerticalTabBarModel.dotRows(count: 11, width: 184) == [Array(0...11)])
         #expect(VerticalTabBarModel.dotRows(count: 12, width: 184) == [Array(0..<12), [12]])
@@ -40,7 +39,7 @@ struct VerticalTabBarModelTests {
         #expect(VerticalTabBarModel.dotRows(count: 2, width: 10) == [[0], [1], [2]])
     }
 
-    /// SPEC §5.5: the one drop type of a dot and "+" tells a Tab row from a dot.
+    /// The one drop type of a dot and "+" tells a Tab row from a dot.
     @Test func workspaceDropTellsTabRowsFromDots() async throws {
         func drop(_ provider: NSItemProvider) async throws -> WorkspaceDrop {
             try await withCheckedThrowingContinuation { continuation in
@@ -68,9 +67,9 @@ struct VerticalTabBarModelTests {
 
     // MARK: Swiping
 
-    /// SPEC §6.3: fingers left move the shown page left and bring the next one in from the
-    /// right; fingers right bring the previous one in from the left. Past an end the shown
-    /// page stretches by the dampened amount.
+    /// Fingers left move the shown page left and bring the next one in from the right;
+    /// fingers right bring the previous one in from the left. Past an end the shown page
+    /// stretches by the dampened amount.
     @Test func pagesFollowTheSwipe() {
         func place(_ amount: CGFloat, neighbor: Bool) -> (offset: CGFloat, opacity: Double) {
             VerticalTabBarModel.pagePlacement(
@@ -87,8 +86,7 @@ struct VerticalTabBarModelTests {
         #expect(band == (0.08, 1))
     }
 
-    /// SPEC §6.4: under Reduce Motion the pages crossfade in place, and nothing changes
-    /// past an end.
+    /// Under Reduce Motion the pages crossfade in place, and nothing changes past an end.
     @Test func reduceMotionCrossfadesThePages() {
         func place(_ amount: CGFloat, neighbor: Bool, hasNeighbor: Bool = true) -> (offset: CGFloat, opacity: Double) {
             VerticalTabBarModel.pagePlacement(
@@ -99,8 +97,8 @@ struct VerticalTabBarModelTests {
         #expect(place(0.08, neighbor: false, hasNeighbor: false) == (0, 1))
     }
 
-    /// SPEC §6.5: the shown mark hands the neighbor's the swipe's share of the capsule;
-    /// other marks, a rubber band, and Reduce Motion leave it whole on the shown mark.
+    /// The shown mark hands the neighbor's the swipe's share of the capsule; other marks,
+    /// a rubber band, and Reduce Motion leave it whole on the shown mark.
     @Test func capsuleSharePassesFromTheShownMarkToTheNeighbor() {
         let (shown, neighbor, other) = (UUID(), UUID(), UUID())
         func share(_ id: UUID, _ amount: CGFloat, neighbor n: UUID? = neighbor, reduceMotion: Bool = false) -> CGFloat {
@@ -115,8 +113,8 @@ struct VerticalTabBarModelTests {
         #expect(share(neighbor, -0.5, reduceMotion: true) == 0)
     }
 
-    /// SPEC §6.5: a mark grows from the 6 pt dot to the 12 pt capsule by its share, and its
-    /// status ring fades by the same share.
+    /// A mark grows from the 6 pt dot to the 12 pt capsule by its share, and its status
+    /// ring fades by the same share.
     @Test func markGrowsAndItsRingFadesByItsShare() {
         #expect(VerticalTabBarModel.mark(share: 0) == (6, 1))
         #expect(VerticalTabBarModel.mark(share: 0.25) == (7.5, 0.75))

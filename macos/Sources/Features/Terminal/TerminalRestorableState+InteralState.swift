@@ -17,7 +17,7 @@ extension TerminalRestorableState {
         let titleOverride: String?
 
         // MARK: - Version 8
-        /// The Window id, which matches this Tab to its Window's Workspaces (SPEC §17.3).
+        /// The Window id, which matches this Tab to its Window's Workspaces.
         let windowID: UUID?
     }
 }

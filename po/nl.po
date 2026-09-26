@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: com.mitchellh.ghostty\n"
 "Report-Msgid-Bugs-To: m@mitchellh.com\n"
-"POT-Creation-Date: 2026-08-10 10:06-0500\n"
+"POT-Creation-Date: 2026-09-26 07:20+0530\n"
 "PO-Revision-Date: 2026-08-14 18:30+0200\n"
 "Last-Translator: Kris van der Ven <306806+kjvdven@users.noreply.github.com>\n"
 "Language-Team: Dutch <vertaling@vrijschrift.org>\n"
@@ -50,7 +50,7 @@ msgstr "Herlaad de configuratie om deze prompt opnieuw weer te geven"
 
 #: src/apprt/gtk/ui/1.2/close-confirmation-dialog.blp:7
 #: src/apprt/gtk/ui/1.5/title-dialog.blp:8
-#: src/apprt/gtk/class/application.zig:2263
+#: src/apprt/gtk/class/application.zig:2189
 msgid "Cancel"
 msgstr "Annuleren"
 
@@ -77,7 +77,7 @@ msgid "Ignore"
 msgstr "Negeer"
 
 #: src/apprt/gtk/ui/1.2/config-errors-dialog.blp:13
-#: src/apprt/gtk/ui/1.2/surface.blp:439 src/apprt/gtk/ui/1.5/window.blp:318
+#: src/apprt/gtk/ui/1.2/surface.blp:434 src/apprt/gtk/ui/1.5/window.blp:318
 msgid "Reload Configuration"
 msgstr "Herlaad configuratie"
 
@@ -105,15 +105,15 @@ msgstr "Vorige resultaat"
 msgid "Next Match"
 msgstr "Volgende resultaat"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:7
+#: src/apprt/gtk/ui/1.2/surface.blp:6
 msgid "Oh, no."
 msgstr "Oh, nee."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:8
+#: src/apprt/gtk/ui/1.2/surface.blp:7
 msgid "Unable to acquire an OpenGL context for rendering."
 msgstr "OpenGL-context voor rendering aanmaken mislukt."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:101
+#: src/apprt/gtk/ui/1.2/surface.blp:96
 msgid ""
 "This terminal is in read-only mode. You can still view, select, and scroll "
 "through the content, but no input events will be sent to the running "
@@ -123,109 +123,109 @@ msgstr ""
 "bekijken en selecteren, maar er wordt geen invoer naar de applicatie "
 "verzonden."
 
-#: src/apprt/gtk/ui/1.2/surface.blp:112
+#: src/apprt/gtk/ui/1.2/surface.blp:107
 msgid "Read-only"
 msgstr "Alleen-lezen"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:203
+#: src/apprt/gtk/ui/1.2/surface.blp:311 src/apprt/gtk/ui/1.5/window.blp:203
 msgid "Copy"
 msgstr "Kopiëren"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:321 src/apprt/gtk/ui/1.5/window.blp:208
+#: src/apprt/gtk/ui/1.2/surface.blp:316 src/apprt/gtk/ui/1.5/window.blp:208
 msgid "Paste"
 msgstr "Plakken"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:326
+#: src/apprt/gtk/ui/1.2/surface.blp:321
 msgid "Notify on Next Command Finish"
 msgstr "Meld wanneer het volgende commando is afgerond"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:281
+#: src/apprt/gtk/ui/1.2/surface.blp:328 src/apprt/gtk/ui/1.5/window.blp:281
 msgid "Clear"
 msgstr "Leegmaken"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:338 src/apprt/gtk/ui/1.5/window.blp:286
+#: src/apprt/gtk/ui/1.2/surface.blp:333 src/apprt/gtk/ui/1.5/window.blp:286
 msgid "Reset"
 msgstr "Herstellen"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:345 src/apprt/gtk/ui/1.5/window.blp:250
+#: src/apprt/gtk/ui/1.2/surface.blp:340 src/apprt/gtk/ui/1.5/window.blp:250
 msgid "Split"
 msgstr "Splitsen"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:253
+#: src/apprt/gtk/ui/1.2/surface.blp:343 src/apprt/gtk/ui/1.5/window.blp:253
 msgid "Change Title…"
 msgstr "Wijzig titel…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:353 src/apprt/gtk/ui/1.5/window.blp:180
-#: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:487
+#: src/apprt/gtk/ui/1.2/surface.blp:348 src/apprt/gtk/ui/1.5/window.blp:180
+#: src/apprt/gtk/ui/1.5/window.blp:258 src/input/command.zig:549
 msgid "Split Up"
 msgstr "Splits naar boven"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:359 src/apprt/gtk/ui/1.5/window.blp:185
-#: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:492
+#: src/apprt/gtk/ui/1.2/surface.blp:354 src/apprt/gtk/ui/1.5/window.blp:185
+#: src/apprt/gtk/ui/1.5/window.blp:263 src/input/command.zig:554
 msgid "Split Down"
 msgstr "Splits naar beneden"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:365 src/apprt/gtk/ui/1.5/window.blp:190
-#: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:477
+#: src/apprt/gtk/ui/1.2/surface.blp:360 src/apprt/gtk/ui/1.5/window.blp:190
+#: src/apprt/gtk/ui/1.5/window.blp:268 src/input/command.zig:539
 msgid "Split Left"
 msgstr "Splits naar links"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:371 src/apprt/gtk/ui/1.5/window.blp:195
-#: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:482
+#: src/apprt/gtk/ui/1.2/surface.blp:366 src/apprt/gtk/ui/1.5/window.blp:195
+#: src/apprt/gtk/ui/1.5/window.blp:273 src/input/command.zig:544
 msgid "Split Right"
 msgstr "Splits naar rechts"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:377
+#: src/apprt/gtk/ui/1.2/surface.blp:372
 msgid "Close Split"
 msgstr "Sluit splitsing"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:383
+#: src/apprt/gtk/ui/1.2/surface.blp:378
 msgid "Tab"
 msgstr "Tabblad"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:232
-#: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:464
+#: src/apprt/gtk/ui/1.2/surface.blp:381 src/apprt/gtk/ui/1.5/window.blp:232
+#: src/apprt/gtk/ui/1.5/window.blp:339 src/input/command.zig:526
 msgid "Change Tab Title…"
 msgstr "Wijzig tabbladtitel…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:60
+#: src/apprt/gtk/ui/1.2/surface.blp:386 src/apprt/gtk/ui/1.5/window.blp:60
 #: src/apprt/gtk/ui/1.5/window.blp:110 src/apprt/gtk/ui/1.5/window.blp:237
 #: src/input/command.zig:427
 msgid "New Tab"
 msgstr "Nieuw tabblad"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:396 src/apprt/gtk/ui/1.5/window.blp:242
-#: src/input/command.zig:613
+#: src/apprt/gtk/ui/1.2/surface.blp:391 src/apprt/gtk/ui/1.5/window.blp:242
+#: src/input/command.zig:675
 msgid "Close Tab"
 msgstr "Sluit tabblad"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:403
+#: src/apprt/gtk/ui/1.2/surface.blp:398
 msgid "Window"
 msgstr "Venster"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:215
+#: src/apprt/gtk/ui/1.2/surface.blp:401 src/apprt/gtk/ui/1.5/window.blp:215
 msgid "Change Window Title…"
 msgstr "Wijzig venstertitel…"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:220
+#: src/apprt/gtk/ui/1.2/surface.blp:406 src/apprt/gtk/ui/1.5/window.blp:220
 #: src/input/command.zig:421
 msgid "New Window"
 msgstr "Nieuw venster"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:416 src/apprt/gtk/ui/1.5/window.blp:225
-#: src/input/command.zig:630
+#: src/apprt/gtk/ui/1.2/surface.blp:411 src/apprt/gtk/ui/1.5/window.blp:225
+#: src/input/command.zig:692
 msgid "Close Window"
 msgstr "Sluit venster"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:424 src/apprt/gtk/ui/1.5/window.blp:303
+#: src/apprt/gtk/ui/1.2/surface.blp:419 src/apprt/gtk/ui/1.5/window.blp:303
 msgid "Config"
 msgstr "Configuratie"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:427 src/apprt/gtk/ui/1.5/window.blp:306
+#: src/apprt/gtk/ui/1.2/surface.blp:422 src/apprt/gtk/ui/1.5/window.blp:306
 msgid "Open Configuration in OS Editor"
 msgstr "Open configuratie in standaardeditor"
 
-#: src/apprt/gtk/ui/1.2/surface.blp:433 src/apprt/gtk/ui/1.5/window.blp:312
+#: src/apprt/gtk/ui/1.2/surface.blp:428 src/apprt/gtk/ui/1.5/window.blp:312
 msgid "Open Configuration in New Window"
 msgstr "Open configuratie in nieuw venster"
 
@@ -257,11 +257,11 @@ msgstr "Opdrachtpalet"
 msgid "Terminal Inspector"
 msgstr "Terminalinspecteur"
 
-#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1991
+#: src/apprt/gtk/ui/1.5/window.blp:326 src/apprt/gtk/class/window.zig:1973
 msgid "About Ghostty"
 msgstr "Over Ghostty"
 
-#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:702
+#: src/apprt/gtk/ui/1.5/window.blp:331 src/input/command.zig:764
 msgid "Quit"
 msgstr "Afsluiten"
 
@@ -269,27 +269,27 @@ msgstr "Afsluiten"
 msgid "Execute a command…"
 msgstr "Voer een commando uit…"
 
-#: src/apprt/gtk/class/application.zig:1767
+#: src/apprt/gtk/class/application.zig:1774
 msgid "The keybind was revoked by the system."
 msgstr "De sneltoets is door het systeem ingetrokken."
 
-#: src/apprt/gtk/class/application.zig:1769
+#: src/apprt/gtk/class/application.zig:1776
 msgid "The keybind was denied by the system."
 msgstr "De sneltoets is door het systeem geweigerd."
 
-#: src/apprt/gtk/class/application.zig:1780
+#: src/apprt/gtk/class/application.zig:1787
 msgid "Global keybind unavailable"
 msgstr "Globale sneltoets niet beschikbaar"
 
-#: src/apprt/gtk/class/application.zig:2259
+#: src/apprt/gtk/class/application.zig:2185
 msgid "Export Terminal IO Events"
 msgstr "Terminal-IO-gebeurtenissen exporteren"
 
-#: src/apprt/gtk/class/application.zig:2262
+#: src/apprt/gtk/class/application.zig:2188
 msgid "Export"
 msgstr "Exporteren"
 
-#: src/apprt/gtk/class/application.zig:2783
+#: src/apprt/gtk/class/application.zig:2687
 msgid "Editing configuration file"
 msgstr "Configuratiebestand bewerken"
 
@@ -353,16 +353,16 @@ msgstr "Alle terminalsessies binnen dit venster zullen worden beëindigd."
 msgid "The currently running process in this split will be terminated."
 msgstr "Alle processen in deze splitsing zullen worden beëindigd."
 
-#: src/apprt/gtk/class/surface.zig:1181
+#: src/apprt/gtk/class/surface.zig:1185
 msgid "Command Finished"
 msgstr "Commando afgerond"
 
-#: src/apprt/gtk/class/surface.zig:1182
+#: src/apprt/gtk/class/surface.zig:1186
 #: src/apprt/gtk/class/surface_child_exited.zig:109
 msgid "Command Succeeded"
 msgstr "Commando succesvol afgerond"
 
-#: src/apprt/gtk/class/surface.zig:1183
+#: src/apprt/gtk/class/surface.zig:1187
 #: src/apprt/gtk/class/surface_child_exited.zig:113
 msgid "Command Failed"
 msgstr "Commando onsuccesvol afgerond"
@@ -379,19 +379,19 @@ msgstr "Wijzig tabbladtitel"
 msgid "Change Window Title"
 msgstr "Venstertitel wijzigen"
 
-#: src/apprt/gtk/class/window.zig:1153
+#: src/apprt/gtk/class/window.zig:1135
 msgid "Reloaded the configuration"
 msgstr "De configuratie is herladen"
 
-#: src/apprt/gtk/class/window.zig:1830
+#: src/apprt/gtk/class/window.zig:1812
 msgid "Copied to clipboard"
 msgstr "Gekopieerd naar klembord"
 
-#: src/apprt/gtk/class/window.zig:1832
+#: src/apprt/gtk/class/window.zig:1814
 msgid "Cleared clipboard"
 msgstr "Klembord geleegd"
 
-#: src/apprt/gtk/class/window.zig:1972
+#: src/apprt/gtk/class/window.zig:1954
 msgid "Ghostty Developers"
 msgstr "Ghostty-ontwikkelaars"
 
@@ -844,310 +844,390 @@ msgid "Toggle the tab overview."
 msgstr "Schakel het tabbladoverzicht in of uit."
 
 #: src/input/command.zig:458
+msgid "New Workspace"
+msgstr ""
+
+#: src/input/command.zig:459
+msgid "Open a new Workspace in this window."
+msgstr ""
+
+#: src/input/command.zig:464
+msgid "Close Workspace"
+msgstr ""
+
+#: src/input/command.zig:465
+msgid "Close the current Workspace and all its tabs."
+msgstr ""
+
+#: src/input/command.zig:470
+msgid "Rename Workspace…"
+msgstr ""
+
+#: src/input/command.zig:471
+msgid "Prompt for a new name for the current Workspace."
+msgstr ""
+
+#: src/input/command.zig:477
+msgid "Move Workspace Left"
+msgstr ""
+
+#: src/input/command.zig:478
+msgid "Move the current Workspace to the left."
+msgstr ""
+
+#: src/input/command.zig:482
+msgid "Move Workspace Right"
+msgstr ""
+
+#: src/input/command.zig:483
+msgid "Move the current Workspace to the right."
+msgstr ""
+
+#: src/input/command.zig:489
+msgid "Move Workspace to New Window"
+msgstr ""
+
+#: src/input/command.zig:490
+msgid "Move the current Workspace to a new window."
+msgstr ""
+
+#: src/input/command.zig:495
+msgid "Move Tab to New Workspace"
+msgstr ""
+
+#: src/input/command.zig:496
+msgid "Move the current tab to a new Workspace."
+msgstr ""
+
+#: src/input/command.zig:502
+msgid "Organize Workspaces by Repo"
+msgstr ""
+
+#: src/input/command.zig:503
+msgid "Regroup this window's tabs into one Workspace per repository."
+msgstr ""
+
+#: src/input/command.zig:507
+msgid "Organize Workspaces by Folder"
+msgstr ""
+
+#: src/input/command.zig:508
+msgid "Regroup this window's tabs into one Workspace per folder."
+msgstr ""
+
+#: src/input/command.zig:514
+msgid "Jump to Agent"
+msgstr ""
+
+#: src/input/command.zig:515
+msgid "Focus the next agent waiting for you, then the next that finished."
+msgstr ""
+
+#: src/input/command.zig:520
 msgid "Change Terminal Title…"
 msgstr "Wijzig terminaltitel…"
 
-#: src/input/command.zig:459
+#: src/input/command.zig:521
 msgid "Prompt for a new title for the current terminal."
 msgstr "Vraag om een nieuwe titel voor de huidige terminal."
 
-#: src/input/command.zig:465
+#: src/input/command.zig:527
 msgid "Prompt for a new title for the current tab."
 msgstr "Vraag om een nieuwe titel voor het huidige tabblad."
 
-#: src/input/command.zig:478
+#: src/input/command.zig:540
 msgid "Split the terminal to the left."
 msgstr "Splits de terminal naar links."
 
-#: src/input/command.zig:483
+#: src/input/command.zig:545
 msgid "Split the terminal to the right."
 msgstr "Splits de terminal naar rechts."
 
-#: src/input/command.zig:488
+#: src/input/command.zig:550
 msgid "Split the terminal up."
 msgstr "Splits de terminal naar boven."
 
-#: src/input/command.zig:493
+#: src/input/command.zig:555
 msgid "Split the terminal down."
 msgstr "Splits de terminal naar beneden."
 
-#: src/input/command.zig:500
+#: src/input/command.zig:562
 msgid "Focus Split: Previous"
 msgstr "Focus splitsing: vorige"
 
-#: src/input/command.zig:501
+#: src/input/command.zig:563
 msgid "Focus the previous split, if any."
 msgstr "Focus op de vorige splitsing, als die er is."
 
-#: src/input/command.zig:505
+#: src/input/command.zig:567
 msgid "Focus Split: Next"
 msgstr "Focus splitsing: volgende"
 
-#: src/input/command.zig:506
+#: src/input/command.zig:568
 msgid "Focus the next split, if any."
 msgstr "Focus op de volgende splitsing, als die er is."
 
-#: src/input/command.zig:510
+#: src/input/command.zig:572
 msgid "Focus Split: Left"
 msgstr "Focus splitsing: links"
 
-#: src/input/command.zig:511
+#: src/input/command.zig:573
 msgid "Focus the split to the left, if it exists."
 msgstr "Focus op de splitsing links, als die er is."
 
-#: src/input/command.zig:515
+#: src/input/command.zig:577
 msgid "Focus Split: Right"
 msgstr "Focus splitsing: rechts"
 
-#: src/input/command.zig:516
+#: src/input/command.zig:578
 msgid "Focus the split to the right, if it exists."
 msgstr "Focus op de splitsing rechts, als die er is."
 
-#: src/input/command.zig:520
+#: src/input/command.zig:582
 msgid "Focus Split: Up"
 msgstr "Focus splitsing: boven"
 
-#: src/input/command.zig:521
+#: src/input/command.zig:583
 msgid "Focus the split above, if it exists."
 msgstr "Focus op de splitsing boven, als die er is."
 
-#: src/input/command.zig:525
+#: src/input/command.zig:587
 msgid "Focus Split: Down"
 msgstr "Focus splitsing: onder"
 
-#: src/input/command.zig:526
+#: src/input/command.zig:588
 msgid "Focus the split below, if it exists."
 msgstr "Focus op de splitsing onder, als die er is."
 
-#: src/input/command.zig:533
+#: src/input/command.zig:595
 msgid "Focus Window: Previous"
 msgstr "Focus venster: vorige"
 
-#: src/input/command.zig:534
+#: src/input/command.zig:596
 msgid "Focus the previous window, if any."
 msgstr "Focus op het vorige venster, als dat er is."
 
-#: src/input/command.zig:538
+#: src/input/command.zig:600
 msgid "Focus Window: Next"
 msgstr "Focus venster: volgende"
 
-#: src/input/command.zig:539
+#: src/input/command.zig:601
 msgid "Focus the next window, if any."
 msgstr "Focus op het volgende venster, als dat er is."
 
-#: src/input/command.zig:545
+#: src/input/command.zig:607
 msgid "Toggle Split Zoom"
 msgstr "Splitsing zoomen aan/uit"
 
-#: src/input/command.zig:546
+#: src/input/command.zig:608
 msgid "Toggle the zoom state of the current split."
 msgstr "Schakel het zoomen van de huidige splitsing in of uit."
 
-#: src/input/command.zig:551
+#: src/input/command.zig:613
 msgid "Toggle Read-Only Mode"
 msgstr "Alleen-lezenmodus aan/uit"
 
-#: src/input/command.zig:552
+#: src/input/command.zig:614
 msgid "Toggle read-only mode for the current surface."
 msgstr "Schakel de alleen-lezenmodus voor de huidige terminal in of uit."
 
-#: src/input/command.zig:557
+#: src/input/command.zig:619
 msgid "Equalize Splits"
 msgstr "Verdeel splitsingen gelijkmatig"
 
-#: src/input/command.zig:558
+#: src/input/command.zig:620
 msgid "Equalize the size of all splits."
 msgstr "Verdeel de ruimte gelijkmatig over alle splitsingen."
 
-#: src/input/command.zig:563
+#: src/input/command.zig:625
 msgid "Reset Window Size"
 msgstr "Herstel venstergrootte"
 
-#: src/input/command.zig:564
+#: src/input/command.zig:626
 msgid "Reset the window size to the default."
 msgstr "Herstel de venstergrootte naar de standaardwaarde."
 
-#: src/input/command.zig:569
+#: src/input/command.zig:631
 msgid "Toggle Inspector"
 msgstr "Inspecteur aan/uit"
 
-#: src/input/command.zig:570
+#: src/input/command.zig:632
 msgid "Toggle the inspector."
 msgstr "Schakel de inspecteur in of uit."
 
-#: src/input/command.zig:575
+#: src/input/command.zig:637
 msgid "Show the GTK Inspector"
 msgstr "Toon de GTK-inspecteur"
 
-#: src/input/command.zig:576
+#: src/input/command.zig:638
 msgid "Show the GTK inspector."
 msgstr "Toon de GTK-inspecteur."
 
-#: src/input/command.zig:581
+#: src/input/command.zig:643
 msgid "Show On-Screen Keyboard"
 msgstr "Toon schermtoetsenbord"
 
-#: src/input/command.zig:582
+#: src/input/command.zig:644
 msgid "Show the on-screen keyboard if present."
 msgstr "Toon het schermtoetsenbord, als dat aanwezig is."
 
-#: src/input/command.zig:588
+#: src/input/command.zig:650
 msgid "Open Config Using OS editor"
 msgstr "Open configuratie in standaardeditor"
 
-#: src/input/command.zig:589
+#: src/input/command.zig:651
 msgid "Open the config file with the OS's default editor."
 msgstr "Open het configuratiebestand met de standaardeditor van het systeem."
 
-#: src/input/command.zig:593
+#: src/input/command.zig:655
 msgid "Open Config in New Terminal Window"
 msgstr "Open configuratie in nieuw terminalvenster"
 
-#: src/input/command.zig:594
+#: src/input/command.zig:656
 msgid "Open the config file in a new window using $EDITOR or $VISUAL."
 msgstr ""
 "Open het configuratiebestand in een nieuw venster met $EDITOR of $VISUAL."
 
-#: src/input/command.zig:600
+#: src/input/command.zig:662
 msgid "Reload Config"
 msgstr "Herlaad configuratie"
 
-#: src/input/command.zig:601
+#: src/input/command.zig:663
 msgid "Reload the config file."
 msgstr "Herlaad het configuratiebestand."
 
-#: src/input/command.zig:606
+#: src/input/command.zig:668
 msgid "Close Terminal"
 msgstr "Sluit terminal"
 
-#: src/input/command.zig:607
+#: src/input/command.zig:669
 msgid "Close the current terminal."
 msgstr "Sluit de huidige terminal."
 
-#: src/input/command.zig:614
+#: src/input/command.zig:676
 msgid "Close the current tab."
 msgstr "Sluit het huidige tabblad."
 
-#: src/input/command.zig:618
+#: src/input/command.zig:680
 msgid "Close Other Tabs"
 msgstr "Sluit andere tabbladen"
 
-#: src/input/command.zig:619
+#: src/input/command.zig:681
 msgid "Close all tabs in this window except the current one."
 msgstr "Sluit alle tabbladen in dit venster behalve het huidige."
 
-#: src/input/command.zig:623
+#: src/input/command.zig:685
 msgid "Close Tabs to the Right"
 msgstr "Sluit tabbladen aan de rechterkant"
 
-#: src/input/command.zig:624
+#: src/input/command.zig:686
 msgid "Close all tabs to the right of the current one."
 msgstr "Sluit alle tabbladen rechts van het huidige."
 
-#: src/input/command.zig:631
+#: src/input/command.zig:693
 msgid "Close the current window."
 msgstr "Sluit het huidige venster."
 
-#: src/input/command.zig:636
+#: src/input/command.zig:698
 msgid "Close All Windows"
 msgstr "Sluit alle vensters"
 
-#: src/input/command.zig:637
+#: src/input/command.zig:699
 msgid "Close all windows."
 msgstr "Sluit alle vensters."
 
-#: src/input/command.zig:642
+#: src/input/command.zig:704
 msgid "Toggle Maximize"
 msgstr "Maximaliseren aan/uit"
 
-#: src/input/command.zig:643
+#: src/input/command.zig:705
 msgid "Toggle the maximized state of the current window."
 msgstr "Schakel het maximaliseren van het huidige venster in of uit."
 
-#: src/input/command.zig:648
+#: src/input/command.zig:710
 msgid "Toggle Fullscreen"
 msgstr "Volledig scherm aan/uit"
 
-#: src/input/command.zig:649
+#: src/input/command.zig:711
 msgid "Toggle the fullscreen state of the current window."
 msgstr "Schakel volledig scherm voor het huidige venster in of uit."
 
-#: src/input/command.zig:654
+#: src/input/command.zig:716
 msgid "Toggle Window Decorations"
 msgstr "Vensterdecoraties aan/uit"
 
-#: src/input/command.zig:655
+#: src/input/command.zig:717
 msgid "Toggle the window decorations."
 msgstr "Schakel de vensterdecoraties in of uit."
 
-#: src/input/command.zig:660
+#: src/input/command.zig:722
 msgid "Toggle Float on Top"
 msgstr "Altijd op voorgrond aan/uit"
 
-#: src/input/command.zig:661
+#: src/input/command.zig:723
 msgid "Toggle the float on top state of the current window."
 msgstr "Schakel altijd-op-voorgrond voor het huidige venster in of uit."
 
-#: src/input/command.zig:666
+#: src/input/command.zig:728
 msgid "Toggle Secure Input"
 msgstr "Veilige invoer aan/uit"
 
-#: src/input/command.zig:667
+#: src/input/command.zig:729
 msgid "Toggle secure input mode."
 msgstr "Schakel de veilige-invoermodus in of uit."
 
-#: src/input/command.zig:672
+#: src/input/command.zig:734
 msgid "Toggle Mouse Reporting"
 msgstr "Muisrapportage aan/uit"
 
-#: src/input/command.zig:673
+#: src/input/command.zig:735
 msgid "Toggle whether mouse events are reported to terminal applications."
 msgstr ""
 "Schakel het doorgeven van muisgebeurtenissen aan terminalapplicaties in of "
 "uit."
 
-#: src/input/command.zig:678
+#: src/input/command.zig:740
 msgid "Toggle Background Opacity"
 msgstr "Achtergrondtransparantie aan/uit"
 
-#: src/input/command.zig:679
+#: src/input/command.zig:741
 msgid "Toggle the background opacity of a window that started transparent."
 msgstr ""
 "Schakel de achtergrondtransparantie in of uit voor een venster dat "
 "transparant is gestart."
 
-#: src/input/command.zig:684
+#: src/input/command.zig:746
 msgid "Check for Updates"
 msgstr "Controleer op updates"
 
-#: src/input/command.zig:685
+#: src/input/command.zig:747
 msgid "Check for updates to the application."
 msgstr "Controleer of er updates voor de applicatie zijn."
 
-#: src/input/command.zig:690
+#: src/input/command.zig:752
 msgid "Undo"
 msgstr "Ongedaan maken"
 
-#: src/input/command.zig:691
+#: src/input/command.zig:753
 msgid "Undo the last action."
 msgstr "Maak de laatste actie ongedaan."
 
-#: src/input/command.zig:696
+#: src/input/command.zig:758
 msgid "Redo"
 msgstr "Opnieuw uitvoeren"
 
-#: src/input/command.zig:697
+#: src/input/command.zig:759
 msgid "Redo the last undone action."
 msgstr "Voer de laatst ongedaan gemaakte actie opnieuw uit."
 
-#: src/input/command.zig:703
+#: src/input/command.zig:765
 msgid "Quit the application."
 msgstr "Sluit de applicatie af."
 
-#: src/input/command.zig:708
+#: src/input/command.zig:770
 msgid "Ghostty"
 msgstr "Ghostty"
 
-#: src/input/command.zig:709
+#: src/input/command.zig:771
 msgid "Put a little Ghostty in your terminal."
 msgstr "Een beetje Ghostty in je terminal."

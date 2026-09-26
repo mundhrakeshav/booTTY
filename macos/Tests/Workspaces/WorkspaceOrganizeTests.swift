@@ -238,4 +238,8 @@ struct WorkspaceOrganizeTests {
         #expect(names(["/tmp", "/Users/me/tmp"]) == ["tmp (/)", "tmp (~)"])
         #expect(names(["/a/app", "/b/a/app"]) == ["app (/a)", "app (b/a)"])
     }
+
+    @Test func aFolderNamedOtherIsToldFromTheUnplacedGroup() {
+        #expect(names(["/Users/me/x/Other", nil]) == ["Other (x)", "Other"])
+    }
 }

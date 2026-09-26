@@ -37,8 +37,8 @@ extension NSApplication {
         var seen: Set<ObjectIdentifier> = []
         var result: [ScriptWindow] = []
 
-        // Hidden Tabs are ordered out but still listed; they aren't windows (SPEC §18.2).
-        for controller in orderedTerminalControllers where !controller.isInHiddenWorkspace {
+        // Hidden Tabs are ordered out but still listed; they aren't windows.
+        for controller in orderedTerminalControllers where !controller.isHidden {
             // Collapse each controller to one canonical representative for the
             // whole tab group. Standalone windows map to themselves.
             guard let primary = primaryTerminalController(for: controller) else {

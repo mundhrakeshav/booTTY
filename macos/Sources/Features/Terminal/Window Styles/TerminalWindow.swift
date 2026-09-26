@@ -169,7 +169,7 @@ class TerminalWindow: NSWindow {
         }
 
         // If window decorations are disabled, remove our title. The controller fixed that
-        // when the Window was created (SPEC §4.2).
+        // when the Window was created.
         if terminalController?.windowStyle.isDecorated == false { styleMask.remove(.titled) }
 
         // NOTE: setInitialWindowPosition is NOT called here because subclass
@@ -297,19 +297,26 @@ class TerminalWindow: NSWindow {
         targetController.promptTabTitle()
     }
 
-    /// Merge All Windows moves whole Workspaces (SPEC §12.1). AppKit's merge skips ordered-out
-    /// Tabs, which would orphan hidden Workspaces, so it never runs. A Window that can't hold
-    /// Tabs never receives a merge.
+    /// Merge All Windows moves whole Workspaces. AppKit's merge skips ordered-out Tabs, which
+    /// would orphan hidden Workspaces, so it never runs. A Window that can't hold Tabs never
+    /// receives a merge.
     override func mergeAllWindows(_ sender: Any?) {
-        guard let tab = terminalController, tab.workspacesUnavailableAlert == nil else { return }
+        guard let tab = terminalController, tab.holdsWorkspaces else { return }
         tab.workspaceStore.mergeAllWindows(requestedBy: tab)
+    }
+
+    /// A Tab doesn't leave for a new Window with its sheet up, nor in non-native fullscreen,
+    /// which shows "Cannot Move Tab", whichever menu, tab bar, or keybind asks.
+    override func moveTabToNewWindow(_ sender: Any?) {
+        if let tab = terminalController, !tab.workspaceStore.allowsMoveToNewWindow(tab) { return }
+        super.moveTabToNewWindow(sender)
     }
 
     override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard item.action == #selector(mergeAllWindows(_:)) else { return super.validateMenuItem(item) }
 
         // Enabled only when another Window can join, counting Windows rather than NSWindows.
-        guard let tab = terminalController, tab.workspacesUnavailableAlert == nil else { return false }
+        guard let tab = terminalController, tab.holdsWorkspaces else { return false }
         return !tab.workspaceStore.windowsJoiningMerge.isEmpty
     }
 

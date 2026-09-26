@@ -1,16 +1,16 @@
 import AppKit
 
 extension WorkspaceStore {
-    /// The Workspace menu's list (SPEC §7.3): one row per Workspace in bar order, ✓ on the
-    /// shown one. Row N runs `goto_workspace:N`, and rows 1–9 show the shortcut bound to it,
-    /// read the way `TerminalController.relabelTabs` reads `goto_tab:N`.
+    /// The Workspace menu's list: one row per Workspace in bar order, ✓ on the shown one.
+    /// Row N runs `goto_workspace:N`, and rows 1–9 show the shortcut bound to it, read the
+    /// way `TerminalController.relabelTabs` reads `goto_tab:N`.
     func menuItems(config: Ghostty.Config) -> [NSMenuItem] {
         rows(action: #selector(BaseTerminalController.selectWorkspace(_:)), keybind: "goto_workspace", config: config)
     }
 
     /// The Workspace menu's Move Tab to Workspace ▸ for the focused Tab, which is in the shown
-    /// Workspace (SPEC §11.1): the list, with the shown row disabled, then New Workspace. Row
-    /// N runs `move_tab_to_workspace:N` and shows the shortcut bound to it.
+    /// Workspace: the list, with the shown row disabled, then New Workspace. Row N runs
+    /// `move_tab_to_workspace:N` and shows the shortcut bound to it.
     func moveTabMenuItems(config: Ghostty.Config) -> [NSMenuItem] {
         let rows = rows(action: #selector(BaseTerminalController.moveTabToWorkspace(_:)), keybind: "move_tab_to_workspace", config: config)
         for row in rows where row.state == .on { row.action = nil }

@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The Workspace switcher (SPEC §8): the command palette's view, in its spot and style,
-/// listing the Window's Workspaces most recently shown first, so opening it and pressing
-/// Return shows the previous Workspace.
+/// The Workspace switcher: the command palette's view, in its spot and style, listing the
+/// Window's Workspaces most recently shown first, so opening it and pressing Return shows
+/// the previous Workspace.
 struct WorkspaceSwitcherView: View {
     /// The surface the switcher is overlaid on. Focus returns to it on close.
     let surfaceView: Ghostty.SurfaceView
@@ -52,10 +52,11 @@ struct WorkspaceSwitcherView: View {
             if isPresented { tabChanges += 1 }
         }
         .onChange(of: isPresented) { newValue in
-            // Focus returns to the focused Split, unless the palette took over.
+            // Focus returns to the focused Split, unless the palette took over or the choice
+            // hid this Tab, whose Split mustn't take focus beside the incoming Tab's.
             guard !newValue else { return }
             DispatchQueue.main.async {
-                guard !tab.paletteOrSwitcherIsShowing else { return }
+                guard !tab.paletteOrSwitcherIsShowing, !tab.isHidden else { return }
                 surfaceView.window?.makeFirstResponder(surfaceView)
             }
         }
@@ -92,7 +93,7 @@ struct WorkspaceSwitcherView: View {
                     .compactMap { $0 }
                     .joined(separator: ", ")
             ) { [tab, store] in
-                // As its dot would (SPEC §8.6). The shown one just closes the switcher.
+                // Switches as its dot would. The shown one just closes the switcher.
                 guard workspace.id != store.shownID,
                       store.allowsRequest(from: tab, orShow: .cannotSwitch)
                 else { return }
