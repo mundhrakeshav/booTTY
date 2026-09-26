@@ -149,3 +149,271 @@ extension WorkspaceStore {
         return names
     }
 }
+
+extension WorkspaceStore {
+    /// Organize (SPEC §10): regroups every Tab of the Window, hidden ones included, into new,
+    /// uncolored Workspaces that replace the old ones, one per repo or folder of each Tab's
+    /// focused Split. Splits whose key differs break out as Tabs of their own (§10.3). The
+    /// Workspace holding the shown Tab is shown, and that Tab stays selected with its focused
+    /// Split. Registers Undo Organize (§10.6). Returns false with nothing changed when there's
+    /// no group or the Window is in non-native fullscreen; requests check `allowsRequest` first.
+    @discardableResult
+    func organize(by mode: OrganizeMode) -> Bool {
+        reconcile()
+        guard tabGroup != nil, !isInNonNativeFullscreen, let selected = shownTab else { return false }
+
+        var before = arrangement
+        let ordered = workspaces.flatMap { tabs(of: $0.id) }
+        var keys: [ObjectIdentifier: String?] = [:]
+        var kept: Trees = []
+        var pieces: Trees = [] // with the Tab each breaks out of
+        var pieceKeys: [String] = []
+        for tab in ordered {
+            let split = Self.organizeSplit(tab.surfaceTree, focused: tab.focusedSurface) {
+                Self.organizeKey(of: $0.pwd, by: mode)
+            }
+            keys[ObjectIdentifier(tab)] = split.key
+            guard !split.brokenOut.isEmpty else { continue }
+            before.trees.append((tab, tab.surfaceTree))
+            kept.append((tab, split.kept))
+            pieces += split.brokenOut.map { (tab, $0.tree) }
+            pieceKeys += split.brokenOut.map(\.key)
+        }
+
+        // The Tabs Organize makes don't take earlier Organize entries off the stack.
+        let undoTabs = organizeUndoTabs
+        organizeUndoTabs = nil
+        defer { if organizeUndoTabs == nil { organizeUndoTabs = undoTabs } }
+
+        guard let made = breakOut(keeping: kept, into: pieces) else { return false }
+        var brokenOut: [ObjectIdentifier: [TerminalController]] = [:]
+        for (index, tab) in made.enumerated() {
+            keys[ObjectIdentifier(tab)] = pieceKeys[index]
+            brokenOut[ObjectIdentifier(pieces[index].tab), default: []].append(tab)
+        }
+
+        let groups = Self.organizeGroups(
+            ordered,
+            key: { keys[ObjectIdentifier($0)] ?? nil },
+            brokenOut: { brokenOut[ObjectIdentifier($0)] ?? [] },
+            remembering: [selected] + workspaces.compactMap(\.rememberedTab))
+        let organized = groups.map { group in
+            var workspace = Workspace(name: group.name, hiddenTabs: group.tabs)
+            workspace.rememberedTab = group.tabs.contains { $0 === selected } ? selected : group.rememberedTab
+            return workspace
+        }
+        guard let shown = organized.first(where: { $0.rememberedTab === selected }),
+              arrange(Arrangement(workspaces: organized, shownID: shown.id), comingForward: false)
+        else {
+            foldBack(made, into: before.trees)
+            return false
+        }
+
+        registerUndoOrganize(restoring: before, from: selected)
+        return true
+    }
+
+    // MARK: Arranging
+
+    /// Tabs with the split tree each has or gets.
+    private typealias Trees = [(tab: TerminalController, tree: SplitTree<Ghostty.SurfaceView>)]
+
+    /// A Window's whole arrangement, as Organize makes it and Undo and Redo Organize bring it
+    /// back (SPEC §10.6): its Workspaces in bar order, each listing all its Tabs in order in
+    /// `hiddenTabs` and remembering the Tab it selects, the shown one included.
+    private struct Arrangement {
+        var workspaces: [Workspace]
+        var shownID: Workspace.ID
+        /// The split trees it gives the Tabs Organize broke Splits out of, and the broken-out
+        /// Tabs (§10.3). Bringing it back folds a Window's Tab it doesn't hold, broken out
+        /// since, back into these trees; a Tab listed here that has folded back since breaks
+        /// out again as a new Tab.
+        var trees: Trees = []
+    }
+
+    /// The Window's arrangement now. The shown Workspace remembers the shown Tab.
+    private var arrangement: Arrangement {
+        var workspaces = workspaces
+        workspaces[shownIndex].hiddenTabs = tabs(of: shownID)
+        workspaces[shownIndex].rememberedTab = shownTab
+        return Arrangement(workspaces: workspaces, shownID: shownID)
+    }
+
+    /// Every Tab of the Window, shown or hidden, by identity.
+    private var tabIDs: Set<ObjectIdentifier> {
+        Set(workspaces.flatMap { tabs(of: $0.id) }.map(ObjectIdentifier.init))
+    }
+
+    /// Makes `arrangement` the Window's. It holds the Window's Tabs, but for broken-out Tabs
+    /// about to fold back, which order out and leave the Workspaces. Its shown Workspace's
+    /// Tabs become the live group, in order, around its remembered Tab, which is selected;
+    /// the rest order out. This doesn't go through `show`, so it cancels a swipe itself (SPEC
+    /// §6.3) and counts as no show toward recency: the shown Workspace is newest and the rest
+    /// follow bar order (§8.3). `comingForward` is `show(_:comingForward:)`'s.
+    /// Returns false with nothing changed when there's no group, the Window is in non-native
+    /// fullscreen, or AppKit threw while adding or selecting the remembered Tab.
+    private func arrange(_ arrangement: Arrangement, comingForward: Bool) -> Bool {
+        reconcile()
+        guard let group = tabGroup,
+              let oldSelected = group.selectedWindow,
+              !isInNonNativeFullscreen,
+              let shown = arrangement.workspaces.first(where: { $0.id == arrangement.shownID }),
+              let selected = (shown.rememberedTab ?? shown.hiddenTabs.first)?.window
+        else { return false }
+
+        // A minimized Window is never key or main.
+        if comingForward, oldSelected.isMiniaturized { oldSelected.deminiaturize(nil) }
+
+        let outgoing = Self.tabs(in: group)
+        isChanging = true
+        let regrouped = Self.regroup(
+            group,
+            holding: shown.hiddenTabs.compactMap(\.window),
+            selecting: selected,
+            makeKey: comingForward || oldSelected.isKeyWindow || oldSelected.isMainWindow)
+        isChanging = false
+        guard regrouped else { return false }
+        cancelSwipe()
+
+        let grouped = Self.tabs(in: group)
+
+        // A switcher open in an outgoing Tab closes (SPEC §8.1).
+        for tab in outgoing where !grouped.contains(where: { $0 === tab }) { tab.workspaceSwitcherIsShowing = false }
+
+        // A Tab that failed to order out stayed in the group, so it's shown. One that failed
+        // to join stays hidden, in a Workspace of its own beside the shown one.
+        var arranged: [Workspace] = []
+        for var workspace in arrangement.workspaces {
+            let hidden = workspace.hiddenTabs.filter { tab in !grouped.contains { $0 === tab } }
+            if workspace.id == arrangement.shownID {
+                workspace.hiddenTabs = []
+                workspace.rememberedTab = nil
+                arranged.append(workspace)
+                if !hidden.isEmpty { arranged.append(Workspace(name: workspace.name, hiddenTabs: hidden)) }
+            } else if !hidden.isEmpty {
+                if !hidden.contains(where: { $0 === workspace.rememberedTab }) { workspace.rememberedTab = hidden.first }
+                workspace.hiddenTabs = hidden
+                arranged.append(workspace)
+            }
+        }
+
+        workspaces = arranged
+        shownID = arrangement.shownID
+        reconcile()
+        invalidateRestorableState()
+        didShow(selected)
+        return true
+    }
+
+    /// Registers Undo Organize, which brings back `arrangement`, the one Organize replaced
+    /// (SPEC §10.6). Undoing registers Redo Organize, which brings back the arrangement the
+    /// undo replaced, and so on. Both come off the stack once a Tab enters or leaves the
+    /// Window (`dropOrganizeUndoIfTabsChanged`).
+    private func registerUndoOrganize(restoring arrangement: Arrangement, from tab: TerminalController) {
+        guard let undoManager = tab.undoManager else { return }
+        organizeUndoTabs = tabIDs
+        undoManager.setActionName("Organize")
+        undoManager.registerUndo(withTarget: organizeUndoTarget, expiresAfter: tab.undoExpiration) { [weak self] _ in
+            self?.restoreArrangement(arrangement)
+        }
+    }
+
+    /// Undo or Redo Organize: leaves non-native fullscreen, brings back `arrangement`, then
+    /// registers the opposite entry. Tabs broken out since fold back, and Tabs folded back
+    /// since break out again (SPEC §10.3). Refused, with nothing changed, unless every Split
+    /// is where the entry left it, so none is lost. With a sheet on the shown Tab, the
+    /// Workspace holding that Tab is shown instead, with the Tab still selected, and the
+    /// Window comes forward with its sheet (§16); a shown Tab with a sheet doesn't fold back,
+    /// so that refuses.
+    private func restoreArrangement(_ arrangement: Arrangement) {
+        reconcile()
+        let windowTabs = tabIDs
+        let held = Set(arrangement.workspaces.flatMap(\.hiddenTabs).map(ObjectIdentifier.init))
+        let extras = workspaces.flatMap { tabs(of: $0.id) }.filter { !held.contains(ObjectIdentifier($0)) }
+        let missing = arrangement.trees.filter { !windowTabs.contains(ObjectIdentifier($0.tab)) }
+        let kept = arrangement.trees.filter { windowTabs.contains(ObjectIdentifier($0.tab)) }
+        guard extras.isEmpty || missing.isEmpty,
+              held.subtracting(windowTabs) == Set(missing.map { ObjectIdentifier($0.tab) }),
+              Self.splits(of: (kept.map(\.tab) + extras).map(\.surfaceTree))
+                == Self.splits(of: arrangement.trees.map(\.tree))
+        else { return }
+        leaveNonNativeFullscreen()
+        guard let tab = shownTab else { return }
+
+        var replaced = self.arrangement
+        replaced.trees = (kept.map(\.tab) + extras).map { ($0, $0.surfaceTree) }
+        var arrangement = arrangement
+        if !allowsUndoSwitch() {
+            guard let holding = arrangement.workspaces.firstIndex(where: { $0.hiddenTabs.contains { $0 === tab } })
+            else { return }
+            arrangement.shownID = arrangement.workspaces[holding].id
+            arrangement.workspaces[holding].rememberedTab = tab
+        }
+
+        // The Tabs this makes and closes don't take the other Organize entries off the stack.
+        let undoTabs = organizeUndoTabs
+        organizeUndoTabs = nil
+        defer { if organizeUndoTabs == nil { organizeUndoTabs = undoTabs } }
+
+        if missing.isEmpty {
+            guard arrange(arrangement, comingForward: true) else { return }
+            foldBack(extras, into: kept)
+        } else {
+            // New Tabs stand in for the ones that folded back.
+            guard let made = breakOut(keeping: kept, into: missing) else { return }
+            let remade = Dictionary(uniqueKeysWithValues: zip(missing.map { ObjectIdentifier($0.tab) }, made))
+            func live(_ tab: TerminalController) -> TerminalController { remade[ObjectIdentifier(tab)] ?? tab }
+            for index in arrangement.workspaces.indices {
+                arrangement.workspaces[index].hiddenTabs = arrangement.workspaces[index].hiddenTabs.map(live)
+                arrangement.workspaces[index].rememberedTab = arrangement.workspaces[index].rememberedTab.map(live)
+            }
+            guard arrange(arrangement, comingForward: true) else {
+                foldBack(made, into: replaced.trees)
+                return
+            }
+        }
+        registerUndoOrganize(restoring: replaced, from: tab)
+    }
+
+    /// Every Split of `trees`, by identity.
+    private static func splits(of trees: [SplitTree<Ghostty.SurfaceView>]) -> Set<ObjectIdentifier> {
+        Set(trees.flatMap { $0.map(ObjectIdentifier.init) })
+    }
+
+    /// Breaks Splits out into new Tabs (SPEC §10.3), as Move Split moves one into a new
+    /// window: each of `kept`'s Tabs takes its tree, giving up the Splits it lacks, then each
+    /// of `pieces` becomes a new Tab like its `tab`, holding `tree` and focused on its first
+    /// Split. The new Tabs are in no Workspace yet. Nil, with nothing changed, if one couldn't
+    /// be made.
+    private func breakOut(keeping kept: Trees, into pieces: Trees) -> [TerminalController]? {
+        let trees: Trees = kept.map { ($0.tab, $0.tab.surfaceTree) }
+        for (tab, tree) in kept { tab.surfaceTree = tree }
+        var made: [TerminalController] = []
+        for (parent, tree) in pieces {
+            guard let tab = newTab(from: parent, withSurfaceTree: tree) else {
+                foldBack(made, into: trees)
+                return nil
+            }
+            tab.focusedSurfaceDidChange(to: tree.first)
+            made.append(tab)
+        }
+        return made
+    }
+
+    /// Folds broken-out Splits back (SPEC §10.6): `tabs`, in no Workspace, close, then each of
+    /// `trees`' Tabs takes its tree, and with it their Splits.
+    private func foldBack(_ tabs: [TerminalController], into trees: Trees) {
+        // An emptied tree closes its Tab with no Undo Close Tab. `trees` keep its Splits.
+        for tab in tabs { tab.surfaceTree = .init() }
+        for (tab, tree) in trees { tab.surfaceTree = tree }
+    }
+
+    /// Takes Undo and Redo Organize off the stack once a Tab has entered or left the Window
+    /// since they were registered (SPEC §10.6). Every change to the Window's Tabs ends in
+    /// `reconcile()` or `invalidateRestorableState()`, and both call this.
+    func dropOrganizeUndoIfTabsChanged() {
+        guard let tabs = organizeUndoTabs, tabs != tabIDs else { return }
+        organizeUndoTabs = nil
+        (NSApp.delegate as? AppDelegate)?.undoManager.removeAllActions(withTarget: organizeUndoTarget)
+    }
+}
