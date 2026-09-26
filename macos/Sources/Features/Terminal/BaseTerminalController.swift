@@ -53,8 +53,22 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
-    /// This can be set to show/hide the command palette.
-    @Published var commandPaletteIsShowing: Bool = false
+    /// This can be set to show/hide the command palette. It and the Workspace switcher
+    /// exclude each other: opening either one closes the other.
+    @Published var commandPaletteIsShowing: Bool = false {
+        didSet { if commandPaletteIsShowing { workspaceSwitcherIsShowing = false } }
+    }
+
+    /// This can be set to show/hide the Workspace switcher.
+    @Published var workspaceSwitcherIsShowing: Bool = false {
+        didSet { if workspaceSwitcherIsShowing { commandPaletteIsShowing = false } }
+    }
+
+    /// The command palette or the Workspace switcher is showing, and takes the keyboard
+    /// and clicks from the terminal.
+    var paletteOrSwitcherIsShowing: Bool {
+        commandPaletteIsShowing || workspaceSwitcherIsShowing
+    }
 
     /// Set if the terminal view should show the update overlay.
     @Published var updateOverlayIsVisible: Bool = false
@@ -67,14 +81,36 @@ class BaseTerminalController: NSWindowController,
         self.derivedConfig.focusFollowsMouse
     }
 
-    /// Non-nil when an alert is active so we don't overlap multiple.
-    private var alert: NSAlert?
+    /// What each close confirmation up or queued on this window asks about: this controller
+    /// itself, or a hidden Tab or a Workspace asking here. Each subject asks once at a time,
+    /// and a question about one subject never answers another's.
+    private var confirmingClose: Set<AnyHashable> = []
 
     /// The clipboard confirmation window, if shown.
     private var clipboardConfirmation: ClipboardConfirmationController?
 
     /// Fullscreen state management.
     private(set) var fullscreenStyle: FullscreenStyle?
+
+    /// Non-native fullscreen strips `.titled`, which takes the window out of its tab group.
+    var isInNonNativeFullscreen: Bool {
+        guard let fullscreenStyle else { return false }
+        return fullscreenStyle.isFullscreen && !fullscreenStyle.supportsTabs
+    }
+
+    /// Whether this Tab is in one of its Window's hidden Workspaces: ordered out, yet still in
+    /// `NSApp.windows` and `NSApp.orderedWindows`. Actions aimed at it run out of sight or are
+    /// refused, and never show it.
+    var isHidden: Bool { false }
+
+    /// Runs before every Jump's usual focus: shows this Tab's Workspace if it's
+    /// hidden. False means the jump stops here and reports false.
+    func revealForJump() -> Bool { true }
+
+    /// Undo shows what it changes: shows this Tab's Workspace if it's hidden,
+    /// unless the Window can't switch now. Every undo and redo that changes a Tab or Split
+    /// calls it first.
+    func showForUndo() {}
 
     /// Event monitor (see individual events for why)
     private var eventMonitor: Any?
@@ -315,10 +351,11 @@ class BaseTerminalController: NSWindowController,
         return newView
     }
 
-    /// Move focus to a surface view.
-    func focusSurface(_ view: Ghostty.SurfaceView) {
+    /// Move focus to a surface view: a Jump (AppleScript `focus`, "Focus Terminal"). False when
+    /// the surface isn't ours or its hidden Workspace can't be shown now.
+    func focusSurface(_ view: Ghostty.SurfaceView) -> Bool {
         // Check if target surface is in our tree
-        guard surfaceTree.contains(view) else { return }
+        guard surfaceTree.contains(view), revealForJump() else { return false }
 
         // Move focus to the target surface and activate the window/app
         DispatchQueue.main.async {
@@ -328,6 +365,7 @@ class BaseTerminalController: NSWindowController,
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
+        return true
     }
 
     /// Called when the surfaceTree variable changed.
@@ -373,13 +411,19 @@ class BaseTerminalController: NSWindowController,
         savedFrame = .init(window: window.frame, screen: screen.visibleFrame)
     }
 
+    /// Asks on this window whether to close `subject`, by default this controller. A question
+    /// about another subject already up here doesn't answer this one: AppKit queues this
+    /// sheet behind it. Nil while a question about `subject` is already up.
     func confirmCloseAsync(
         messageText: String,
         informativeText: String,
         confirmButtonTitle: String = "Close",
+        about subject: AnyHashable? = nil
     ) async -> NSApplication.ModalResponse? {
+        let subject = subject ?? AnyHashable(ObjectIdentifier(self))
+
         // If we already have an alert, we need to wait for that one.
-        guard alert == nil else { return nil }
+        guard !confirmingClose.contains(subject) else { return nil }
 
         // If there is no window to attach the modal then we assume success
         // since we'll never be able to show the modal.
@@ -395,13 +439,13 @@ class BaseTerminalController: NSWindowController,
         alert.addButton(withTitle: confirmButtonTitle)
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
-        // Store our alert so we only ever show one.
-        self.alert = alert
+        // Remember the subject so we only ever ask about it once at a time.
+        confirmingClose.insert(subject)
         defer {
             // This is important so that we avoid losing focus when Stage
             // Manager is used (#8336)
             alert.window.orderOut(nil)
-            self.alert = nil
+            confirmingClose.remove(subject)
         }
         return await alert.beginSheetModal(for: window)
     }
@@ -410,13 +454,18 @@ class BaseTerminalController: NSWindowController,
         messageText: String,
         informativeText: String,
         confirmButtonTitle: String = "Close",
+        about subject: AnyHashable? = nil,
         completion: @escaping () -> Void
     ) {
         Task {
-            guard let response = await confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle) else {
-                completion()
-                return
-            }
+            // Nil means a question about `subject` is already up. Its answer decides, so a
+            // repeated request never closes without asking.
+            guard let response = await confirmCloseAsync(
+                messageText: messageText,
+                informativeText: informativeText,
+                confirmButtonTitle: confirmButtonTitle,
+                about: subject
+            ) else { return }
             if [.alertFirstButtonReturn, .OK].contains(response) {
                 completion()
             }
@@ -515,7 +564,7 @@ class BaseTerminalController: NSWindowController,
     /// This also updates the undo manager to support restoring this node.
     ///
     /// This does no confirmation and assumes confirmation is already done.
-    private func removeSurfaceNode(_ node: SplitTree<Ghostty.SurfaceView>.Node) {
+    func removeSurfaceNode(_ node: SplitTree<Ghostty.SurfaceView>.Node) {
         // Move focus if the closed surface was focused and we have a next target
         let nextFocus: Ghostty.SurfaceView? = if node.contains(
             where: { $0 == focusedSurface }
@@ -547,9 +596,7 @@ class BaseTerminalController: NSWindowController,
         let oldTree = surfaceTree
         surfaceTree = newTree
         if let newView {
-            DispatchQueue.main.async {
-                Ghostty.moveFocus(to: newView, from: oldView)
-            }
+            moveFocus(to: newView, from: oldView)
         }
 
         // Setup our undo
@@ -562,6 +609,7 @@ class BaseTerminalController: NSWindowController,
             withTarget: self,
             expiresAfter: undoExpiration
         ) { target in
+            target.showForUndo()
             target.surfaceTree = oldTree
             if let oldView {
                 DispatchQueue.main.async {
@@ -573,12 +621,22 @@ class BaseTerminalController: NSWindowController,
                 withTarget: target,
                 expiresAfter: target.undoExpiration
             ) { target in
+                target.showForUndo()
                 target.replaceSurfaceTree(
                     newTree,
                     moveFocusTo: newView,
                     moveFocusFrom: target.focusedSurface,
                     undoAction: undoAction)
             }
+        }
+    }
+
+    /// Moves focus to `view` on the next turn. A hidden Tab also records `view` as its focused
+    /// Split now, so showing the Tab focuses it.
+    private func moveFocus(to view: Ghostty.SurfaceView, from oldView: Ghostty.SurfaceView? = nil) {
+        if isHidden { focusedSurfaceDidChange(to: view) }
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: view, from: oldView)
         }
     }
 
@@ -725,9 +783,7 @@ class BaseTerminalController: NSWindowController,
         }
 
         // Move focus to the next surface
-        DispatchQueue.main.async {
-            Ghostty.moveFocus(to: nextSurface, from: target)
-        }
+        moveFocus(to: nextSurface, from: target)
     }
 
     @objc private func ghosttyDidToggleSplitZoom(_ notification: Notification) {
@@ -749,13 +805,14 @@ class BaseTerminalController: NSWindowController,
 
         // Move focus to our window. Importantly this ensures that if we click the
         // reset zoom button in a tab bar of an unfocused tab that we become focused.
-        window?.makeKeyAndOrderFront(nil)
+        // A hidden Tab stays out of sight.
+        if !isHidden {
+            window?.makeKeyAndOrderFront(nil)
+        }
 
         // Ensure focus stays on the target surface. We lose focus when we do
         // this so we need to grab it again.
-        DispatchQueue.main.async {
-            Ghostty.moveFocus(to: target)
-        }
+        moveFocus(to: target)
     }
 
     @objc private func ghosttyDidResizeSplit(_ notification: Notification) {
@@ -792,7 +849,7 @@ class BaseTerminalController: NSWindowController,
 
     @objc private func ghosttyDidPresentTerminal(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
-        guard surfaceTree.contains(target) else { return }
+        guard surfaceTree.contains(target), revealForJump() else { return }
 
         // Bring the window to front and focus the surface.
         window?.makeKeyAndOrderFront(nil)
@@ -1202,7 +1259,7 @@ class BaseTerminalController: NSWindowController,
         if surfaceTree.isEmpty { return true }
 
         // If we already have an alert, continue with it
-        guard alert == nil else { return false }
+        guard !confirmingClose.contains(ObjectIdentifier(self)) else { return false }
 
         // If our surfaces don't require confirmation, close.
         if !surfaceTree.contains(where: { $0.needsConfirmQuit }) { return true }
@@ -1443,6 +1500,80 @@ class BaseTerminalController: NSWindowController,
             // instead of the first responder (command palette).
             _ = focusedSurface?.resignFirstResponder()
         }
+    }
+
+    // Workspace menu items run their keybind action on the focused Split, so they get the
+    // same checks and alerts as the keys.
+
+    @IBAction func toggleWorkspaceSwitcher(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("toggle_workspace_switcher", on: focusedSurface)
+    }
+
+    @IBAction func newWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("new_workspace", on: focusedSurface)
+    }
+
+    @IBAction func renameWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("prompt_workspace_name", on: focusedSurface)
+    }
+
+    @IBAction func closeWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("close_workspace", on: focusedSurface)
+    }
+
+    @IBAction func previousWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("previous_workspace", on: focusedSurface)
+    }
+
+    @IBAction func nextWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("next_workspace", on: focusedSurface)
+    }
+
+    @IBAction func moveWorkspaceLeft(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("move_workspace:-1", on: focusedSurface)
+    }
+
+    @IBAction func moveWorkspaceRight(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("move_workspace:1", on: focusedSurface)
+    }
+
+    @IBAction func moveWorkspaceToNewWindow(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("move_workspace_to_new_window", on: focusedSurface)
+    }
+
+    @IBAction func organizeWorkspacesByRepo(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("organize_workspaces:repo", on: focusedSurface)
+    }
+
+    @IBAction func organizeWorkspacesByFolder(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("organize_workspaces:folder", on: focusedSurface)
+    }
+    /// A row of the Workspace menu's list; its tag is the Workspace's 1-based number.
+    @IBAction func selectWorkspace(_ sender: NSMenuItem) {
+        guard let focusedSurface else { return }
+        performAction("goto_workspace:\(sender.tag)", on: focusedSurface)
+    }
+
+    /// A row of Move Tab to Workspace ▸; its tag is the Workspace's 1-based number.
+    @IBAction func moveTabToWorkspace(_ sender: NSMenuItem) {
+        guard let focusedSurface else { return }
+        performAction("move_tab_to_workspace:\(sender.tag)", on: focusedSurface)
+    }
+
+    @IBAction func moveTabToNewWorkspace(_ sender: Any?) {
+        guard let focusedSurface else { return }
+        performAction("move_tab_to_new_workspace", on: focusedSurface)
     }
 
     @IBAction func find(_ sender: Any) {

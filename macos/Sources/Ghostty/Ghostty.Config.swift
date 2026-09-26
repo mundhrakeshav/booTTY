@@ -373,7 +373,7 @@ extension Ghostty {
         }
 
         var macosDockDropBehavior: MacDockDropBehavior {
-            let defaultValue = MacDockDropBehavior.new_tab
+            let defaultValue = MacDockDropBehavior.new_workspace
             guard let config = self.config else { return defaultValue }
             var v: UnsafePointer<Int8>?
             let key = "macos-dock-drop-behavior"
@@ -821,6 +821,7 @@ extension Ghostty.Config {
     }
 
     enum MacDockDropBehavior: String {
+        case new_workspace = "new-workspace"
         case new_tab = "new-tab"
         case new_window = "new-window"
     }

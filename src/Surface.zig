@@ -5387,6 +5387,49 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             {},
         ),
 
+        inline .goto_workspace,
+        .previous_workspace,
+        .next_workspace,
+        .new_workspace,
+        .close_workspace,
+        .prompt_workspace_name,
+        .move_workspace,
+        .move_workspace_to_new_window,
+        .move_tab_to_workspace,
+        .move_tab_to_new_workspace,
+        .organize_workspaces,
+        => |v, tag| return try self.rt_app.performAction(
+            .{ .surface = self },
+            .workspace,
+            switch (tag) {
+                .goto_workspace => .{ .op = .goto, .n = std.math.lossyCast(isize, v) },
+                .previous_workspace => .{ .op = .previous },
+                .next_workspace => .{ .op = .next },
+                .new_workspace => .{ .op = .new },
+                .close_workspace => .{ .op = .close },
+                .prompt_workspace_name => .{ .op = .prompt_name },
+                .move_workspace => .{ .op = .move, .n = v },
+                .move_workspace_to_new_window => .{ .op = .move_to_new_window },
+                .move_tab_to_workspace => .{ .op = .move_tab_to, .n = std.math.lossyCast(isize, v) },
+                .move_tab_to_new_workspace => .{ .op = .move_tab_to_new },
+                .organize_workspaces => .{ .op = switch (v) {
+                    .repo => .organize_repo,
+                    .folder => .organize_folder,
+                } },
+                else => comptime unreachable,
+            },
+        ),
+
+        .set_workspace_name => |v| {
+            const name = try self.alloc.dupeZ(u8, v);
+            defer self.alloc.free(name);
+            return try self.rt_app.performAction(
+                .{ .surface = self },
+                .set_workspace_name,
+                .{ .title = name },
+            );
+        },
+
         .new_split => |direction| return try self.rt_app.performAction(
             .{ .surface = self },
             .new_split,
@@ -5513,6 +5556,12 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
         .toggle_command_palette => return try self.rt_app.performAction(
             .{ .surface = self },
             .toggle_command_palette,
+            {},
+        ),
+
+        .toggle_workspace_switcher => return try self.rt_app.performAction(
+            .{ .surface = self },
+            .toggle_workspace_switcher,
             {},
         ),
 
@@ -5722,6 +5771,7 @@ fn closingAction(action: input.Binding.Action) bool {
         .close_surface,
         .close_window,
         .close_tab,
+        .close_workspace,
         => true,
 
         else => false,

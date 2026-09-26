@@ -3407,20 +3407,24 @@ keybind: Keybinds = .{},
 /// editor, etc.
 @"macos-titlebar-proxy-icon": MacTitlebarProxyIcon = .visible,
 
-/// Controls the windowing behavior when dropping a file or folder
-/// onto the Ghostty icon in the macOS dock.
+/// Controls where a file or folder opens when it is dropped on the
+/// Ghostty icon in the macOS dock, opened with Ghostty from Finder,
+/// or passed to `open -a`.
 ///
 /// Valid values are:
 ///
+///   * `new-workspace` - Open a folder as a new Workspace in the current
+///     window, named after the folder, or in a new window if none exist.
+///     A file opens in a new tab of the current Workspace.
 ///   * `new-tab` - Create a new tab in the current window, or open
 ///     a new window if none exist.
 ///   * `new-window` - Create a new window unconditionally.
 ///
-/// The default value is `new-tab`.
+/// The default value is `new-workspace`.
 ///
 /// This setting is only supported on macOS and has no effect on other
 /// platforms.
-@"macos-dock-drop-behavior": MacOSDockDropBehavior = .@"new-tab",
+@"macos-dock-drop-behavior": MacOSDockDropBehavior = .@"new-workspace",
 
 /// macOS doesn't have a distinct "alt" key and instead has the "option"
 /// key which behaves slightly differently. On macOS by default, the
@@ -6972,52 +6976,14 @@ pub const Keybinds = struct {
                 .{ .alt = true };
 
             // Cmd/Alt+N for goto tab N
-            const start: u21 = '1';
-            const end: u21 = '8';
-            comptime var i: u21 = start;
-            inline while (i <= end) : (i += 1) {
-                // We register BOTH the physical `digit_N` key and the unicode
-                // `N` key. This allows most keyboard layouts to work with
-                // this shortcut. Namely, AZERTY doesn't produce unicode `N`
-                // for their digit keys (they're on shifted keys on the same
-                // physical keys).
-
-                try self.set.putFlags(
-                    alloc,
-                    .{
-                        .key = .{ .physical = @field(
-                            inputpkg.Key,
-                            std.fmt.comptimePrint("digit_{u}", .{i}),
-                        ) },
-                        .mods = mods,
-                    },
-                    .{ .goto_tab = (i - start) + 1 },
-                    .{
-                        // On macOS we keep this not performable so that the
-                        // keyboard shortcuts in tabs work. In the future the
-                        // correct fix is to fix the reverse mapping lookup
-                        // to allow us to lookup performable keybinds
-                        // conditionally.
-                        .performable = !builtin.target.os.tag.isDarwin(),
-                    },
-                );
-
-                // Important: this must be the LAST binding set so that the
-                // libghostty trigger API returns this one for the action,
-                // so that things like the macOS tab bar key equivalent label
-                // work properly.
-                try self.set.putFlags(
-                    alloc,
-                    .{
-                        .key = .{ .unicode = i },
-                        .mods = mods,
-                    },
-                    .{ .goto_tab = (i - start) + 1 },
-                    .{
-                        .performable = !builtin.target.os.tag.isDarwin(),
-                    },
-                );
-            }
+            try self.putDigits(alloc, mods, '8', .goto_tab, .{
+                // On macOS we keep this not performable so that the
+                // keyboard shortcuts in tabs work. In the future the
+                // correct fix is to fix the reverse mapping lookup
+                // to allow us to lookup performable keybinds
+                // conditionally.
+                .performable = !builtin.target.os.tag.isDarwin(),
+            });
             try self.set.putFlags(
                 alloc,
                 .{
@@ -7172,6 +7138,35 @@ pub const Keybinds = struct {
                 alloc,
                 .{ .key = .{ .unicode = ']' }, .mods = .{ .super = true, .shift = true } },
                 .{ .next_tab = {} },
+            );
+
+            // Workspaces. ⌘⌥W stays close_tab (above).
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 't' }, .mods = .{ .super = true, .alt = true } },
+                .{ .new_workspace = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = '[' }, .mods = .{ .super = true, .alt = true } },
+                .{ .previous_workspace = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = ']' }, .mods = .{ .super = true, .alt = true } },
+                .{ .next_workspace = {} },
+            );
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true } },
+                .{ .toggle_workspace_switcher = {} },
+            );
+            // Cmd+Option+N for goto Workspace N.
+            try self.putDigits(alloc, .{ .super = true, .alt = true }, '9', .goto_workspace, .{});
+            try self.set.put(
+                alloc,
+                .{ .key = .{ .unicode = 'a' }, .mods = .{ .super = true, .alt = true } },
+                .{ .jump_to_agent = {} },
             );
             try self.set.put(
                 alloc,
@@ -7340,6 +7335,46 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .arrow_right }, .mods = .{ .alt = true } },
                 .{ .esc = "f" },
             );
+        }
+    }
+
+    /// Bind `mods`+1 through `mods`+`last` to `tag` with the digit as its
+    /// argument.
+    fn putDigits(
+        self: *Keybinds,
+        alloc: Allocator,
+        mods: inputpkg.Mods,
+        comptime last: u21,
+        comptime tag: inputpkg.Binding.Action.Key,
+        flags: inputpkg.Binding.Flags,
+    ) !void {
+        comptime var i: u21 = '1';
+        inline while (i <= last) : (i += 1) {
+            const action = @unionInit(inputpkg.Binding.Action, @tagName(tag), i - '0');
+
+            // We register BOTH the physical `digit_N` key and the unicode
+            // `N` key. This allows most keyboard layouts to work with
+            // this shortcut. Namely, AZERTY doesn't produce unicode `N`
+            // for their digit keys (they're on shifted keys on the same
+            // physical keys).
+            try self.set.putFlags(
+                alloc,
+                .{
+                    .key = .{ .physical = @field(
+                        inputpkg.Key,
+                        std.fmt.comptimePrint("digit_{u}", .{i}),
+                    ) },
+                    .mods = mods,
+                },
+                action,
+                flags,
+            );
+
+            // Important: this must be the LAST binding set so that the
+            // libghostty trigger API returns this one for the action,
+            // so that things like the macOS tab bar key equivalent label
+            // work properly.
+            try self.set.putFlags(alloc, .{ .key = .{ .unicode = i }, .mods = mods }, action, flags);
         }
     }
 
@@ -9420,6 +9455,7 @@ pub const WindowNewTabPosition = enum {
 
 /// See macos-dock-drop-behavior
 pub const MacOSDockDropBehavior = enum {
+    @"new-workspace",
     @"new-tab",
     @"new-window",
 };
@@ -10621,6 +10657,41 @@ test "parse e: command and args" {
     try testing.expectEqualStrings(cmd.direct[2], "bar baz");
 }
 
+test "default keybinds: workspaces on macOS" {
+    if (comptime !builtin.target.os.tag.isDarwin()) return error.SkipZigTest;
+
+    const testing = std.testing;
+    var cfg = try Config.default(testing.allocator);
+    defer cfg.deinit();
+    const set = cfg.keybind.set;
+
+    const Trigger = inputpkg.Binding.Trigger;
+    const Action = inputpkg.Binding.Action;
+    const mods: inputpkg.Mods = .{ .super = true, .alt = true };
+    const cases = [_]struct { Trigger, Action }{
+        .{ .{ .key = .{ .unicode = 't' }, .mods = mods }, .new_workspace },
+        .{ .{ .key = .{ .unicode = '[' }, .mods = mods }, .previous_workspace },
+        .{ .{ .key = .{ .unicode = ']' }, .mods = mods }, .next_workspace },
+        .{ .{ .key = .{ .unicode = '1' }, .mods = mods }, .{ .goto_workspace = 1 } },
+        .{ .{ .key = .{ .physical = .digit_1 }, .mods = mods }, .{ .goto_workspace = 1 } },
+        .{ .{ .key = .{ .unicode = '9' }, .mods = mods }, .{ .goto_workspace = 9 } },
+        .{ .{ .key = .{ .physical = .digit_9 }, .mods = mods }, .{ .goto_workspace = 9 } },
+        .{ .{ .key = .{ .unicode = 'w' }, .mods = mods }, .{ .close_tab = .this } },
+        .{ .{ .key = .{ .unicode = 'p' }, .mods = .{ .super = true } }, .toggle_workspace_switcher },
+        .{ .{ .key = .{ .unicode = 'a' }, .mods = mods }, .jump_to_agent },
+    };
+    for (cases) |case| {
+        const entry = set.get(case[0]).?.value_ptr.*;
+        try testing.expect(entry == .leaf);
+        try testing.expect(entry.leaf.action.equal(case[1]));
+    }
+
+    // Menus show the unicode trigger, not the physical one.
+    try testing.expect(set.getTrigger(.{ .goto_workspace = 1 }).?.equal(
+        .{ .key = .{ .unicode = '1' }, .mods = mods },
+    ));
+}
+
 test "clone default" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -11160,6 +11231,36 @@ test "clipboard write limit" {
     try testing.expectEqual(
         std.math.maxInt(usize),
         cfg.@"clipboard-write-limit-bytes".value,
+    );
+}
+
+test "macos-dock-drop-behavior" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var cfg = try Config.default(alloc);
+    defer cfg.deinit();
+    try testing.expectEqual(
+        MacOSDockDropBehavior.@"new-workspace",
+        cfg.@"macos-dock-drop-behavior",
+    );
+
+    var it: TestIterator = .{ .data = &.{
+        "--macos-dock-drop-behavior=new-tab",
+    } };
+    try cfg.loadIter(alloc, &it);
+    try testing.expectEqual(
+        MacOSDockDropBehavior.@"new-tab",
+        cfg.@"macos-dock-drop-behavior",
+    );
+
+    var workspace_it: TestIterator = .{ .data = &.{
+        "--macos-dock-drop-behavior=new-workspace",
+    } };
+    try cfg.loadIter(alloc, &workspace_it);
+    try testing.expectEqual(
+        MacOSDockDropBehavior.@"new-workspace",
+        cfg.@"macos-dock-drop-behavior",
     );
 }
 

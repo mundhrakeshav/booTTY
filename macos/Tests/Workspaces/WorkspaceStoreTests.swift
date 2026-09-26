@@ -1,0 +1,746 @@
+import AppKit
+import Testing
+@testable import Ghostty
+
+@MainActor
+struct WorkspaceStoreTests {
+    private func store(_ names: [String], shown: Int = 0) -> WorkspaceStore {
+        let workspaces = names.map { WorkspaceStore.Workspace(name: $0) }
+        return WorkspaceStore(workspaces: workspaces, shownID: workspaces[shown].id)
+    }
+
+    // MARK: Naming
+
+    @Test func newNameTakesTheLowestFreeNumber() {
+        #expect(WorkspaceStore.newName(in: []) == "Workspace 1")
+        #expect(WorkspaceStore.newName(in: store(["Workspace 1", "Workspace 3"]).workspaces) == "Workspace 2")
+        #expect(WorkspaceStore.newName(in: store(["Workspace 2"]).workspaces) == "Workspace 1")
+    }
+
+    @Test func newNameCountsOnlyNamesAsShown() {
+        // A renamed Workspace frees its number, and names that only look alike don't take one.
+        let workspaces = store(["api", "Workspace 1", "Workspace 02", "workspace 2", "Workspace 2 "]).workspaces
+        #expect(WorkspaceStore.newName(in: workspaces) == "Workspace 2")
+    }
+
+    @Test func renameNamesAnyWorkspaceAndBlankRestoresTheOriginal() {
+        let store = store(["Workspace 1", "Workspace 2"])
+        let hidden = store.workspaces[1].id
+
+        // Names needn't be unique, and a hidden Workspace renames without being shown.
+        store.rename(hidden, to: "Workspace 1")
+        #expect(store.workspaces.map(\.name) == ["Workspace 1", "Workspace 1"])
+        #expect(store.shownIndex == 0)
+
+        store.rename(hidden, to: "  ")
+        #expect(store.workspaces[1].name == "Workspace 2")
+
+        store.rename(hidden, to: "api")
+        store.rename(hidden, to: "")
+        #expect(store.workspaces[1].name == "Workspace 2")
+        #expect(store.workspaces[1].originalName == "Workspace 2")
+    }
+
+    @Test func folderNameIsItsBasenameOrTildeForHome() {
+        #expect(WorkspaceStore.name(ofFolder: "/Users/me/code/app") == "app")
+        #expect(WorkspaceStore.name(ofFolder: "/Users/me/code/app/") == "app")
+        #expect(WorkspaceStore.name(ofFolder: NSHomeDirectory()) == "~")
+        #expect(WorkspaceStore.name(ofFolder: NSHomeDirectory() + "/") == "~")
+        #expect(WorkspaceStore.name(ofFolder: NSHomeDirectory() + "/app") == "app")
+        #expect(WorkspaceStore.name(ofFolder: "/") == "/")
+    }
+
+    @Test func folderWorkspaceKeepsItsNameAsTheOriginal() {
+        // Opening the same folder twice makes two Workspaces, with no suffix.
+        let store = store(["app"])
+        let id = store.addWorkspace(holding: [], named: "app")
+        #expect(store.workspaces.map(\.name) == ["app", "app"])
+
+        store.rename(id, to: "api")
+        store.rename(id, to: "")
+        #expect(store.workspaces[1].name == "app")
+    }
+
+    // MARK: Recency
+
+    @Test func recencyPutsTheShownFirstThenTheMostRecentlyShown() {
+        let store = store(["api", "web", "db", "logs"])
+        let (api, web, db, logs) = (store.workspaces[0].id, store.workspaces[1].id, store.workspaces[2].id, store.workspaces[3].id)
+
+        // Show web, then db, then api, each switch from the one shown before.
+        var recent = WorkspaceStore.recency([], showing: web, from: api)
+        recent = WorkspaceStore.recency(recent, showing: db, from: web)
+        recent = WorkspaceStore.recency(recent, showing: api, from: db)
+        #expect(WorkspaceStore.recencyOrder(store.workspaces, shownID: api, recent: recent).map(\.id) == [api, db, web, logs])
+
+        // Cmd+P then Return flips back and forth between the last two.
+        recent = WorkspaceStore.recency(recent, showing: db, from: api)
+        #expect(WorkspaceStore.recencyOrder(store.workspaces, shownID: db, recent: recent).map(\.id) == [db, api, web, logs])
+    }
+
+    @Test func workspacesNeverShownFollowInBarOrder() {
+        // The shown one is first even before any switch, as after a relaunch or Organize.
+        let store = store(["a", "b", "c", "d"], shown: 2)
+        let ids = store.workspaces.map(\.id)
+        #expect(store.recentWorkspaces.map(\.id) == [ids[2], ids[0], ids[1], ids[3]])
+
+        let recent = WorkspaceStore.recency([], showing: ids[3], from: ids[2])
+        #expect(WorkspaceStore.recencyOrder(store.workspaces, shownID: ids[3], recent: recent).map(\.id) == [ids[3], ids[2], ids[0], ids[1]])
+    }
+
+    @Test func workspaceThatEndedDropsOutOfRecency() {
+        let store = store(["a", "b", "c"])
+        let ids = store.workspaces.map(\.id)
+        let recent = [ids[2], UUID(), ids[1]]
+        let remaining = store.workspaces.filter { $0.id != ids[1] }
+        #expect(WorkspaceStore.recencyOrder(remaining, shownID: ids[0], recent: recent).map(\.id) == [ids[0], ids[2]])
+    }
+
+    @Test func setColorColorsAnyWorkspaceWithoutSwitching() {
+        let store = store(["Workspace 1", "Workspace 2"])
+        let hidden = store.workspaces[1].id
+        _ = store.addWorkspace(holding: [])
+        #expect(store.workspaces.map(\.color) == [.none, .none, .none])
+
+        store.setColor(.blue, of: hidden)
+        #expect(store.workspaces.map(\.color) == [.none, .blue, .none])
+        #expect(store.shownIndex == 0)
+
+        store.setColor(.none, of: hidden)
+        #expect(store.workspaces[1].color == .none)
+    }
+    // MARK: Ordering
+
+    @Test func addedWorkspaceGoesAtTheEnd() {
+        let store = store(["Workspace 1", "api", "Workspace 3"], shown: 1)
+        let before = store.workspaces.map(\.id)
+
+        let id = store.addWorkspace(holding: [])
+
+        #expect(store.workspaces.map(\.id) == before + [id])
+        #expect(store.workspaces.last?.name == "Workspace 2")
+        #expect(store.shownIndex == 1)
+    }
+
+    @Test func gotoShowsTheNthOrTheLast() {
+        let store = store(["a", "b", "c"], shown: 1)
+        #expect(store.index(of: .number(1)) == 0)
+        #expect(store.index(of: .number(3)) == 2)
+        #expect(store.index(of: .number(9)) == 2)
+        #expect(store.index(of: .number(0)) == nil)
+        #expect(store.index(of: .number(-1)) == nil)
+    }
+
+    @Test func previousAndNextWrap() {
+        #expect(store(["a", "b", "c"], shown: 1).index(of: .previous) == 0)
+        #expect(store(["a", "b", "c"], shown: 1).index(of: .next) == 2)
+        #expect(store(["a", "b", "c"], shown: 0).index(of: .previous) == 2)
+        #expect(store(["a", "b", "c"], shown: 2).index(of: .next) == 0)
+    }
+
+    @Test func oneWorkspaceHasNothingToShow() {
+        let store = store(["a"])
+        #expect(store.index(of: .number(1)) == nil)
+        #expect(store.index(of: .previous) == nil)
+        #expect(store.index(of: .next) == nil)
+        #expect(store.show(.next) == false)
+    }
+
+    @Test func showingTheShownWorkspaceReportsTrue() {
+        let store = store(["a", "b"], shown: 1)
+        #expect(store.show(store.workspaces[1].id))
+        #expect(store.shownIndex == 1)
+    }
+
+    // MARK: Reordering
+
+    private func names(_ store: WorkspaceStore) -> [String] { store.workspaces.map(\.name) }
+
+    @Test func movedWorkspaceLandsAtTheTargetsPlace() {
+        // Third onto first: it becomes first.
+        var store = store(["a", "b", "c"])
+        #expect(store.moveWorkspace(store.workspaces[2].id, to: 0))
+        #expect(names(store) == ["c", "a", "b"])
+
+        // First onto third: moving right lands after the target.
+        store = self.store(["a", "b", "c"])
+        #expect(store.moveWorkspace(store.workspaces[0].id, to: 2))
+        #expect(names(store) == ["b", "c", "a"])
+
+        // Goto numbers follow the new order.
+        #expect(store.index(of: .number(1)).map { store.workspaces[$0].name } == "b")
+    }
+
+    @Test func movingKeepsTheShownWorkspaceShown() {
+        let store = store(["a", "b", "c"], shown: 1)
+        let shown = store.shownID
+        #expect(store.moveWorkspace(shown, to: 0))
+        #expect(store.shownID == shown)
+        #expect(store.shownIndex == 0)
+    }
+
+    @Test func movingStopsAtTheEndsAndStillReportsTrue() {
+        let store = store(["a", "b", "c"])
+        #expect(store.moveWorkspace(store.workspaces[2].id, to: 3))
+        #expect(store.moveWorkspace(store.workspaces[0].id, to: -5))
+        #expect(names(store) == ["a", "b", "c"])
+        #expect(store.moveWorkspace(store.workspaces[1].id, to: .max))
+        #expect(names(store) == ["a", "c", "b"])
+    }
+
+    @Test func movingReportsFalseWithOneWorkspaceOrAnUnknownOne() {
+        let one = store(["a"])
+        #expect(one.moveWorkspace(one.workspaces[0].id, to: 1) == false)
+        #expect(store(["a", "b"]).moveWorkspace(UUID(), to: 0) == false)
+    }
+
+    // MARK: Ending
+
+    @Test func anEndingShownWorkspaceHandsOffToTheRightElseTheLeft() {
+        let names = ["a", "b", "c"]
+        for (shown, neighbor) in [(0, 1), (1, 2), (2, 1)] {
+            let store = store(names, shown: shown)
+            #expect(store.neighborID == store.workspaces[neighbor].id)
+        }
+        #expect(store(["a"]).neighborID == nil)
+    }
+
+    @Test func rememberedTabHandsOffToTheRightElseTheLeft() {
+        let a = NSObject(), b = NSObject(), c = NSObject()
+        let tabs = [a, b, c]
+        #expect(WorkspaceStore.remembered(a, after: a, leaves: tabs) === b)
+        #expect(WorkspaceStore.remembered(b, after: b, leaves: tabs) === c)
+        #expect(WorkspaceStore.remembered(c, after: c, leaves: tabs) === b)
+        #expect(WorkspaceStore.remembered(a, after: a, leaves: [a]) == nil)
+    }
+
+    @Test func rememberedTabStaysWhenAnotherTabLeaves() {
+        let a = NSObject(), b = NSObject(), c = NSObject()
+        #expect(WorkspaceStore.remembered(a, after: b, leaves: [a, b, c]) === a)
+        #expect(WorkspaceStore.remembered(c, after: a, leaves: [a, b, c]) === c)
+    }
+
+    // MARK: Agent status
+
+    @Test func agentStatusIsTheMostUrgentTabs() {
+        let t = Date(timeIntervalSinceReferenceDate: 0)
+        #expect(WorkspaceStore.agentStatus(of: []).status == nil)
+        #expect(WorkspaceStore.agentStatus(of: [(nil, t)]).status == nil)
+        #expect(WorkspaceStore.agentStatus(of: [(nil, t), (.done, t)]).status == .done)
+        #expect(WorkspaceStore.agentStatus(of: [(.done, t), (.waiting, t), (nil, t)]).status == .waiting)
+    }
+
+    @Test func agentStatusDateIsTheNewestAmongTheWinners() {
+        let t = (0..<4).map { Date(timeIntervalSinceReferenceDate: Double($0)) }
+
+        // No status has no date, however recently a Tab's status cleared.
+        #expect(WorkspaceStore.agentStatus(of: [(nil, t[3])]).since == .distantPast)
+
+        // A second finish moves the date, so an already-green dot pings again.
+        #expect(WorkspaceStore.agentStatus(of: [(.done, t[1]), (.done, t[2]), (nil, t[3])]).since == t[2])
+
+        // A finish behind a waiting agent keeps the waiting date.
+        let behindWaiting = WorkspaceStore.agentStatus(of: [(.waiting, t[0]), (.done, t[3])])
+        #expect(behindWaiting.status == .waiting)
+        #expect(behindWaiting.since == t[0])
+    }
+
+    // MARK: Hidden Tabs
+
+    @Test func newHiddenTabGoesAfterTheRememberedTabOrAtTheEnd() {
+        let a = NSObject(), b = NSObject(), c = NSObject()
+        let tabs = [a, b, c]
+        #expect(WorkspaceStore.newTabIndex(after: a, in: tabs, atEnd: false) == 1)
+        #expect(WorkspaceStore.newTabIndex(after: c, in: tabs, atEnd: false) == 3)
+        #expect(WorkspaceStore.newTabIndex(after: a, in: tabs, atEnd: true) == 3)
+        #expect(WorkspaceStore.newTabIndex(after: nil as NSObject?, in: tabs, atEnd: false) == 3)
+    }
+
+    // MARK: Undo
+
+    private func undoState(of store: WorkspaceStore, position: Int) -> WorkspaceStore.UndoState {
+        .init(windowID: store.id, id: UUID(), name: "api", originalName: "Workspace 2", color: .teal, position: position)
+    }
+
+    @Test func recreatedWorkspaceComesBackAtItsOldPosition() {
+        let store = store(["a", "b", "c"], shown: 2)
+        let shown = store.shownID
+        let saved = undoState(of: store, position: 1)
+
+        store.recreate(saved, holding: [])
+
+        #expect(store.workspaces.map(\.name) == ["a", "api", "b", "c"])
+        let workspace = store.workspaces[1]
+        #expect(workspace.id == saved.id)
+        #expect(workspace.originalName == "Workspace 2")
+        #expect(workspace.color == .teal)
+        #expect(store.shownID == shown)
+    }
+
+    @Test func recreatedWorkspaceGoesAtTheEndOfAWindowWithFewerWorkspaces() {
+        for (position, names) in [(2, ["a", "b", "api"]), (7, ["a", "b", "api"]), (0, ["api", "a", "b"])] {
+            let store = store(["a", "b"])
+            store.recreate(undoState(of: store, position: position), holding: [])
+            #expect(store.workspaces.map(\.name) == names)
+        }
+    }
+
+    @Test func undoStateRemembersTheWorkspacesPlace() throws {
+        let store = store(["a", "b", "c"])
+        let saved = try #require(store.undoState(of: store.workspaces[1].id))
+
+        #expect(saved.windowID == store.id)
+        #expect(saved.id == store.workspaces[1].id)
+        #expect(saved.name == "b")
+        #expect(saved.position == 1)
+        #expect(store.undoState(of: UUID()) == nil)
+    }
+
+    @Test func undoFindsAWorkspaceWhereItMovedElseInItsLastWindow() {
+        let last = store(["a", "b"])
+        let saved = undoState(of: last, position: 1)
+        let moved = WorkspaceStore.Workspace(id: saved.id, name: "api")
+        let other = WorkspaceStore(workspaces: [moved], shownID: moved.id)
+
+        #expect(WorkspaceStore.live(saved, among: [last, other]) === other)
+        #expect(WorkspaceStore.live(saved, among: [last, store(["c"])]) === last)
+        #expect(WorkspaceStore.live(saved, among: [store(["c"])]) == nil)
+    }
+
+    @Test func eachFolderOfOneOpenIsItsOwnUndoStep() {
+        // AppKit opens every dropped folder in one event, which `groupsByEvent` would undo
+        // as one step.
+        let undoManager = UndoManager()
+        let target = NSObject()
+        var undone: [String] = []
+        for name in ["a", "b"] {
+            undoManager.registerAsOwnStep {
+                undoManager.registerUndo(withTarget: target) { _ in undone.append(name) }
+            }
+        }
+
+        undoManager.undo()
+        #expect(undone == ["b"])
+        undoManager.undo()
+        #expect(undone == ["b", "a"])
+        #expect(!undoManager.canUndo)
+    }
+
+    // MARK: Closing the Window
+
+    @Test func closeWindowAndQuitNameAtMostThreeHiddenWorkspaces() {
+        let names = ["api", "web", "docs", "infra", "blog"]
+        func phrase(_ count: Int) -> String? { WorkspaceStore.hiddenWorkspacesPhrase(naming: Array(names.prefix(count))) }
+
+        #expect(phrase(0) == nil)
+        #expect(phrase(1) == "the hidden Workspace “api”")
+        #expect(phrase(2) == "the hidden Workspaces “api” and “web”")
+        #expect(phrase(3) == "the hidden Workspaces “api”, “web”, and “docs”")
+        #expect(phrase(4) == "the hidden Workspaces “api”, “web”, “docs”, and 1 more")
+        #expect(phrase(5) == "the hidden Workspaces “api”, “web”, “docs”, and 2 more")
+    }
+
+    // MARK: Switching
+
+    /// A tab group of two windows, `old` with the first selected, and two ordered-out
+    /// windows to switch to. None is ever shown.
+    private func tabGroup() throws -> (group: NSWindowTabGroup, old: [NSWindow], incoming: [NSWindow]) {
+        let windows = (0..<4).map { _ in
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: true)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            return window
+        }
+        let group = try #require(windows[0].tabGroup)
+        group.addWindow(windows[1])
+        group.selectedWindow = windows[0]
+        return (group, Array(windows[0...1]), Array(windows[2...3]))
+    }
+
+    @Test(arguments: [false, true])
+    func swapAddsSelectsThenOrdersOut(makeKey: Bool) throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        let orderedOut = WorkspaceStore.swap(in: group, adding: incoming, selecting: incoming[1], makeKey: makeKey)
+
+        #expect(orderedOut == old)
+        #expect(group.windows == incoming)
+        #expect(group.selectedWindow === incoming[1])
+    }
+
+    @Test(arguments: [WorkspaceStore.SwapStep.add, .select])
+    func failedSwapKeepsTheOldTabs(failing: WorkspaceStore.SwapStep) throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // Fails the second add, after the first incoming window joined, or the selection.
+        var adds = 0
+        let orderedOut = WorkspaceStore.swap(in: group, adding: incoming, selecting: incoming[1], makeKey: false) { step, block in
+            if step == .add { adds += 1 }
+            if step == failing && (step != .add || adds == 2) { return false }
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(orderedOut == nil)
+        #expect(group.windows == old)
+        #expect(group.selectedWindow === old[0])
+    }
+
+    // MARK: Arranging
+
+    @Test func regroupPutsTheWindowsInOrderAroundTheSelection() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // The selected window stays selected, and the other old one moves in front of it.
+        #expect(WorkspaceStore.regroup(group, holding: [old[1], incoming[0], old[0]], selecting: old[0], makeKey: false))
+        #expect(group.windows == [old[1], incoming[0], old[0]])
+        #expect(group.selectedWindow === old[0])
+
+        // An ordered-out window joins and is selected, and every window not held orders out.
+        #expect(WorkspaceStore.regroup(group, holding: [old[1], incoming[1]], selecting: incoming[1], makeKey: false))
+        #expect(group.windows == [old[1], incoming[1]])
+        #expect(group.selectedWindow === incoming[1])
+    }
+
+    @Test func regroupKeepsAWindowThatFailsToLeaveAndLeavesOutOneThatFailsToJoin() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // old[1] fails to order out, and incoming[0], the first to join, fails to.
+        var adds = 0
+        let regrouped = WorkspaceStore.regroup(group, holding: [incoming[0], old[0], incoming[1]], selecting: old[0], makeKey: false) { step, block in
+            if step == .add { adds += 1 }
+            if step == .orderOut || (step == .add && adds == 1) { return false }
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(regrouped)
+        #expect(group.windows == [old[0], incoming[1], old[1]])
+        #expect(group.selectedWindow === old[0])
+    }
+
+    // MARK: Re-forming an emptied group
+
+    /// Four ordered-out windows, as a hidden Workspace's Tabs are, and the window the last
+    /// shown Tab left for, ordered in. All are transparent.
+    private func reformWindows() -> (tabs: [NSWindow], joined: NSWindow) {
+        let windows = (0..<5).map { _ in
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: true)
+            window.isReleasedWhenClosed = false
+            window.tabbingMode = .preferred
+            window.alphaValue = 0
+            return window
+        }
+        windows[4].orderFront(nil)
+        return (Array(windows[0...3]), windows[4])
+    }
+
+    @Test func reformKeepsTheTabOrderAroundTheRememberedTab() throws {
+        let (tabs, joined) = reformWindows()
+        defer { (tabs + [joined]).forEach { $0.close() } }
+        let frame = NSRect(x: 40, y: 60, width: 300, height: 200)
+
+        let reformed = try #require(WorkspaceStore.reform(tabs, around: tabs[2], frame: frame, below: joined))
+
+        #expect(reformed.group.windows == tabs)
+        #expect(reformed.group.selectedWindow === tabs[2])
+        #expect(reformed.failed.isEmpty)
+        #expect(tabs[2].frame == frame)
+        #expect(joined.tabGroup?.windows == [joined])
+    }
+
+    @Test func reformLeavesOutATabThatFailsToJoin() throws {
+        let (tabs, joined) = reformWindows()
+        defer { (tabs + [joined]).forEach { $0.close() } }
+
+        // Fails the second add: the Tab before the Remembered Tab.
+        var adds = 0
+        let reformed = try #require(WorkspaceStore.reform(tabs, around: tabs[2], frame: nil, below: joined) { step, block in
+            if step == .add { adds += 1 }
+            return step == .add && adds == 2 ? false : WorkspaceStore.performSafely(step, block)
+        })
+
+        #expect(reformed.group.windows == [tabs[0], tabs[2], tabs[3]])
+        #expect(reformed.failed == [tabs[1]])
+    }
+
+    // MARK: Moving Workspaces
+
+    @Test func newWindowComesOnScreenWithTheTabOrderAroundTheRememberedTab() throws {
+        let (tabs, other) = reformWindows()
+        defer { (tabs + [other]).forEach { $0.close() } }
+
+        let opened = try #require(WorkspaceStore.reform(tabs, around: tabs[2], frame: nil, below: nil))
+
+        #expect(opened.group.windows == tabs)
+        #expect(opened.group.selectedWindow === tabs[2])
+        #expect(tabs[2].isVisible)
+    }
+
+    @Test func mergedAwayGroupOrdersOutTheSelectedTabLastAndKeepsTheTabOrder() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+        group.addWindow(incoming[0])
+        group.selectedWindow = old[1]
+        let tabs = group.windows
+
+        // The group before each order-out. Not after the last: AppKit sometimes still lists a
+        // lone ordered-out window in its group.
+        var before: [[NSWindow]] = []
+        let orderedOut = WorkspaceStore.orderOut(group) { step, block in
+            before.append(group.windows)
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(orderedOut == tabs)
+        #expect(before == [tabs, [old[1], incoming[0]], [old[1]]])
+    }
+
+    @Test func tabThatFailsToOrderOutStaysInTheMergedAwayGroup() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // Fails the first: the unselected Tab.
+        var orderOuts = 0
+        let orderedOut = WorkspaceStore.orderOut(group) { step, block in
+            orderOuts += 1
+            return orderOuts == 1 ? false : WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(orderedOut == [old[0]])
+        #expect(group.windows == [old[1]])
+    }
+
+    // MARK: Swiping
+
+    private func scroll(
+        _ store: WorkspaceStore,
+        _ phase: NSEvent.Phase,
+        momentum: NSEvent.Phase = [],
+        dx: CGFloat = 0,
+        dy: CGFloat = 0,
+        overBar: Bool = true
+    ) -> WorkspaceStore.SwipeEventAction {
+        store.swipeAction(phase: phase, momentumPhase: momentum, deltaX: dx, deltaY: dy, startsSwipe: overBar)
+    }
+
+    /// A flick's momentum after the fingers lift.
+    private func momentum(_ store: WorkspaceStore) -> [WorkspaceStore.SwipeEventAction] {
+        [.began, .changed, .ended].map { scroll(store, [], momentum: $0, dx: -3) }
+    }
+
+    @Test func horizontalFirstMovementClaimsTheGestureAndDropsItsMomentum() {
+        let store = store(["a", "b"])
+        #expect(scroll(store, .mayBegin) == .pass)
+        #expect(scroll(store, .began, dx: -4, dy: 1) == .track)
+        // AppKit's tracker needs the gesture's own events.
+        #expect(scroll(store, .changed, dx: 1, dy: -9) == .pass)
+        #expect(scroll(store, .ended) == .pass)
+        #expect(momentum(store) == [.drop, .drop, .drop])
+        // The momentum is over, so the next scroll is the user's again.
+        #expect(scroll(store, [], momentum: .changed, dx: -3) == .pass)
+    }
+
+    @Test func verticalFirstMovementKeepsTheWholeGestureForTheList() {
+        let store = store(["a", "b"])
+        // No movement yet decides nothing.
+        #expect(scroll(store, .began) == .pass)
+        #expect(scroll(store, .changed, dx: 2, dy: -6) == .pass)
+        #expect(scroll(store, .changed, dx: -20) == .pass)
+        #expect(scroll(store, .ended) == .pass)
+        #expect(momentum(store) == [.pass, .pass, .pass])
+    }
+
+    @Test func gestureThatCantStartASwipeIsNeverClaimed() {
+        // Over the terminal, or while the bar or Window refuses a swipe.
+        let store = store(["a", "b"])
+        #expect(scroll(store, .began, dx: -8, overBar: false) == .pass)
+        #expect(scroll(store, .changed, dx: -8) == .pass)
+        #expect(scroll(store, .ended) == .pass)
+        #expect(momentum(store) == [.pass, .pass, .pass])
+    }
+
+    @Test func newGestureStopsDroppingMomentum() {
+        let store = store(["a", "b"])
+        _ = scroll(store, .began, dx: -4)
+        _ = scroll(store, .ended)
+        #expect(scroll(store, .began, dy: 5, overBar: false) == .pass)
+        #expect(scroll(store, .ended) == .pass)
+        #expect(momentum(store) == [.pass, .pass, .pass])
+    }
+
+    @Test func swipeTargetsANeighborAndNeverWraps() {
+        let store = store(["a", "b", "c"])
+        let ids = store.workspaces.map(\.id)
+
+        let first = store.claimSwipe()
+        #expect(first.target(-0.4) == ids[1]) // fingers left: the next Workspace
+        #expect(first.target(0.4) == nil)
+        #expect(first.target(0) == nil)
+
+        // A rubber band at the first Workspace switches nothing when the fingers lift.
+        #expect(store.stepSwipe(first, amount: 0.1, phase: .ended))
+        #expect(store.shownIndex == 0)
+
+        let atLast = self.store(["a", "b", "c"], shown: 2)
+        let last = atLast.claimSwipe()
+        #expect(last.target(0.4) == atLast.workspaces[1].id) // fingers right: the previous Workspace
+        #expect(last.target(-0.4) == nil)
+    }
+
+    @Test func newSwipeStopsTheOneBefore() {
+        let store = store(["a", "b"])
+        let older = store.claimSwipe()
+        let newer = store.claimSwipe()
+        #expect(!store.stepSwipe(older, amount: -0.3, phase: []))
+        #expect(store.stepSwipe(newer, amount: -0.3, phase: .changed))
+    }
+
+    @Test func swipeWhoseTargetEndedIsCancelledAndDropped() {
+        let store = store(["a", "b"])
+        #expect(scroll(store, .began, dx: -4) == .track)
+        let claimed = store.claimSwipe()
+        let swipe = WorkspaceStore.Swipe(generation: claimed.generation, previous: nil, next: UUID())
+
+        #expect(!store.stepSwipe(swipe, amount: -0.3, phase: .changed))
+        #expect(store.shownIndex == 0)
+        // Once AppKit's tracker lets go, the rest of the gesture and its momentum are dropped.
+        #expect(scroll(store, .changed, dx: -4) == .drop)
+        #expect(scroll(store, .ended) == .drop)
+        #expect(momentum(store) == [.drop, .drop, .drop])
+    }
+
+    @Test func swipeProgressFollowsTheFingersAndRestsWhenAppKitSettles() {
+        let store = store(["a", "b", "c"], shown: 1)
+        let ids = store.workspaces.map(\.id)
+        let swipe = store.claimSwipe()
+
+        #expect(store.stepSwipe(swipe, amount: -0.3, phase: .changed))
+        #expect(store.swipeProgress == .init(amount: -0.3, neighbor: ids[2]))
+        #expect(store.stepSwipe(swipe, amount: 0.2, phase: .changed))
+        #expect(store.swipeProgress == .init(amount: 0.2, neighbor: ids[0]))
+        // Too short to finish: AppKit springs it back, then says it's complete.
+        #expect(store.stepSwipe(swipe, amount: 0.05, phase: .cancelled))
+        #expect(store.stepSwipe(swipe, amount: 0.01, phase: [], isComplete: true))
+        #expect(store.swipeProgress == .init())
+        #expect(store.swipeCancels == 0)
+    }
+
+    @Test func rubberBandHasNoNeighbor() {
+        let store = store(["a"])
+        let swipe = store.claimSwipe()
+        #expect(store.stepSwipe(swipe, amount: -0.08, phase: .changed))
+        #expect(store.swipeProgress == .init(amount: -0.08, neighbor: nil))
+    }
+
+    @Test func newSwipeStartsFromRest() {
+        let store = store(["a", "b"])
+        let older = store.claimSwipe()
+        _ = store.stepSwipe(older, amount: -0.6, phase: .changed)
+        _ = store.claimSwipe()
+        #expect(store.swipeProgress == .init())
+    }
+
+    @Test func cancelledSwipeRestsAtOnceAndSaysSo() {
+        let store = store(["a", "b"])
+        let claimed = store.claimSwipe()
+        #expect(store.stepSwipe(claimed, amount: -0.4, phase: .changed))
+
+        // Its target ends mid-swipe.
+        let swipe = WorkspaceStore.Swipe(generation: claimed.generation, previous: nil, next: UUID())
+        #expect(!store.stepSwipe(swipe, amount: -0.5, phase: .changed))
+        #expect(store.swipeProgress == .init())
+        #expect(store.swipeCancels == 1)
+    }
+
+    // MARK: Moving Tabs
+
+    @Test func detachingTheSelectedTabSelectsItsNeighborFirst() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        var steps: [WorkspaceStore.SwapStep] = []
+        let detached = WorkspaceStore.detach(old[0], from: group, makeKey: false) { step, block in
+            steps.append(step)
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(detached)
+        #expect(steps == [.select, .orderOut])
+        #expect(group.windows == [old[1]])
+        #expect(group.selectedWindow === old[1])
+    }
+
+    @Test func detachingAnUnselectedTabKeepsTheSelection() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        #expect(WorkspaceStore.detach(old[1], from: group, makeKey: false))
+        #expect(group.windows == [old[0]])
+        #expect(group.selectedWindow === old[0])
+    }
+
+    @Test(arguments: [WorkspaceStore.SwapStep.select, .orderOut])
+    func failedDetachKeepsTheTab(failing: WorkspaceStore.SwapStep) throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        // Fails only the first try of the step, so a rollback's select still runs.
+        var failed = false
+        let detached = WorkspaceStore.detach(old[0], from: group, makeKey: false) { step, block in
+            if step == failing && !failed {
+                failed = true
+                return false
+            }
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(!detached)
+        #expect(group.windows == old)
+        #expect(group.selectedWindow === old[0])
+    }
+
+    @Test func insertingPutsTheTargetsTabsInFrontAndKeepsTheSelection() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        #expect(WorkspaceStore.insert(incoming, around: old[1], in: group))
+        #expect(group.windows == [old[0]] + incoming + [old[1]])
+        #expect(group.selectedWindow === old[0])
+    }
+
+    @Test func insertingWithLeadingPutsTheRestAfterTheTab() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        #expect(WorkspaceStore.insert(incoming, around: old[0], leading: 1, in: group))
+        #expect(group.windows == [incoming[0], old[0], incoming[1], old[1]])
+        #expect(group.selectedWindow === old[0])
+    }
+
+    @Test func failedInsertOrdersTheAddedTabsOutAgain() throws {
+        let (group, old, incoming) = try tabGroup()
+        defer { (old + incoming).forEach { $0.close() } }
+
+        var adds = 0
+        let inserted = WorkspaceStore.insert(incoming, around: old[0], in: group) { step, block in
+            if step == .add { adds += 1 }
+            if step == .add && adds == 2 { return false }
+            return WorkspaceStore.performSafely(step, block)
+        }
+
+        #expect(!inserted)
+        #expect(group.windows == old)
+        #expect(group.selectedWindow === old[0])
+    }
+}

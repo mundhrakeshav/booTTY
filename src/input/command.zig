@@ -453,6 +453,68 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Toggle the tab overview."),
         }},
 
+        .new_workspace => comptime &.{.{
+            .action = .new_workspace,
+            .title = i18n.N_("New Workspace"),
+            .description = i18n.N_("Open a new Workspace in this window."),
+        }},
+
+        .close_workspace => comptime &.{.{
+            .action = .close_workspace,
+            .title = i18n.N_("Close Workspace"),
+            .description = i18n.N_("Close the current Workspace and all its tabs."),
+        }},
+
+        .prompt_workspace_name => comptime &.{.{
+            .action = .prompt_workspace_name,
+            .title = i18n.N_("Rename Workspace…"),
+            .description = i18n.N_("Prompt for a new name for the current Workspace."),
+        }},
+
+        .move_workspace => comptime &.{
+            .{
+                .action = .{ .move_workspace = -1 },
+                .title = i18n.N_("Move Workspace Left"),
+                .description = i18n.N_("Move the current Workspace to the left."),
+            },
+            .{
+                .action = .{ .move_workspace = 1 },
+                .title = i18n.N_("Move Workspace Right"),
+                .description = i18n.N_("Move the current Workspace to the right."),
+            },
+        },
+
+        .move_workspace_to_new_window => comptime &.{.{
+            .action = .move_workspace_to_new_window,
+            .title = i18n.N_("Move Workspace to New Window"),
+            .description = i18n.N_("Move the current Workspace to a new window."),
+        }},
+
+        .move_tab_to_new_workspace => comptime &.{.{
+            .action = .move_tab_to_new_workspace,
+            .title = i18n.N_("Move Tab to New Workspace"),
+            .description = i18n.N_("Move the current tab to a new Workspace."),
+        }},
+
+        .organize_workspaces => comptime &.{
+            .{
+                .action = .{ .organize_workspaces = .repo },
+                .title = i18n.N_("Organize Workspaces by Repo"),
+                .description = i18n.N_("Regroup this window's tabs into one Workspace per repository."),
+            },
+            .{
+                .action = .{ .organize_workspaces = .folder },
+                .title = i18n.N_("Organize Workspaces by Folder"),
+                .description = i18n.N_("Regroup this window's tabs into one Workspace per folder."),
+            },
+        },
+
+        .jump_to_agent => comptime &.{.{
+            .action = .jump_to_agent,
+            .title = i18n.N_("Jump to Agent"),
+            .description = i18n.N_("Focus the next agent waiting for you, then the next that finished."),
+        }},
+
         .prompt_surface_title => comptime &.{.{
             .action = .prompt_surface_title,
             .title = i18n.N_("Change Terminal Title…"),
@@ -728,6 +790,9 @@ fn actionCommands(action: Action.Key) []const Command {
         .jump_to_prompt,
         .write_scrollback_file,
         .goto_tab,
+        .goto_workspace,
+        .set_workspace_name,
+        .move_tab_to_workspace,
         .resize_split,
         .activate_key_table,
         .activate_key_table_once,
@@ -740,11 +805,14 @@ fn actionCommands(action: Action.Key) []const Command {
         // No commands because I'm not sure they make sense in a command
         // palette context.
         .toggle_command_palette,
+        .toggle_workspace_switcher,
         .toggle_quick_terminal,
         .toggle_visibility,
         .previous_tab,
         .next_tab,
         .last_tab,
+        .previous_workspace,
+        .next_workspace,
         => comptime &.{},
 
         // No commands for obvious reasons

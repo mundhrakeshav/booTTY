@@ -597,6 +597,102 @@ pub const Action = union(enum) {
     /// found by running `ghostty +version`.
     toggle_tab_overview,
 
+    /// Open a new Workspace in this window and show it. It is named
+    /// "Workspace N", with the lowest N that no Workspace in the window
+    /// shows as its name, goes at the end of the window's Workspaces, and
+    /// holds one new tab.
+    ///
+    /// Only implemented on macOS.
+    new_workspace,
+
+    /// Show the previous Workspace in this window, wrapping around.
+    ///
+    /// Only implemented on macOS.
+    previous_workspace,
+
+    /// Show the next Workspace in this window, wrapping around.
+    ///
+    /// Only implemented on macOS.
+    next_workspace,
+
+    /// Show the Workspace with the specific index in this window, starting
+    /// from 1.
+    ///
+    /// If the number is higher than the number of Workspaces, this shows
+    /// the last Workspace.
+    ///
+    /// Only implemented on macOS.
+    goto_workspace: usize,
+
+    /// Close the current Workspace and all its tabs, asking first if any
+    /// of them has a running process. On the window's only Workspace this
+    /// closes the window.
+    ///
+    /// Only implemented on macOS.
+    close_workspace,
+
+    /// Rename the current Workspace via a pop-up prompt. A blank name
+    /// restores the Workspace's original name.
+    ///
+    /// Only implemented on macOS.
+    prompt_workspace_name,
+
+    /// Set the name of the current Workspace. Names needn't be unique.
+    ///
+    /// If the name is empty, the Workspace's original name is restored.
+    ///
+    /// Only implemented on macOS.
+    set_workspace_name: []const u8,
+
+    /// Moves this window's current Workspace by a relative offset.
+    ///
+    /// Positive values move the Workspace to the right, and negative values
+    /// move it to the left. Unlike `move_tab`, it doesn't wrap around: a
+    /// Workspace moved past either end stops there.
+    ///
+    /// Only implemented on macOS.
+    move_workspace: isize,
+
+    /// Move the current Workspace to a new window of its own, with its
+    /// name, color, tabs, and splits. The window it leaves shows its
+    /// neighbor. Does nothing when it is the window's only Workspace.
+    ///
+    /// Only implemented on macOS.
+    move_workspace_to_new_window,
+
+    /// Move the current tab to the Workspace with the specific index in
+    /// this window, starting from 1. It goes at the end of that Workspace's
+    /// tabs, and the window keeps showing the Workspace it shows.
+    ///
+    /// If the number is higher than the number of Workspaces, this moves
+    /// the tab to the last Workspace. Naming the tab's own Workspace does
+    /// nothing.
+    ///
+    /// Only implemented on macOS.
+    move_tab_to_workspace: usize,
+
+    /// Move the current tab to a new Workspace, named "Workspace N", at the
+    /// end of this window's Workspaces. A Workspace's only tab can't move.
+    ///
+    /// Only implemented on macOS.
+    move_tab_to_new_workspace,
+
+    /// Regroup every tab in this window, including hidden Workspaces'
+    /// tabs, into new Workspaces: one per repository (`repo`) or one per
+    /// folder (`folder`) that each tab's focused split sits in. The new
+    /// Workspaces replace the window's old ones. Tabs whose focused split
+    /// never reported a working directory collect in a Workspace named
+    /// "Other".
+    ///
+    /// Valid values:
+    ///
+    ///   - `repo`: the nearest folder at or above the working directory
+    ///     that holds `.git`, else the working directory itself.
+    ///   - `folder`: the working directory.
+    ///
+    /// Only implemented on macOS.
+    organize_workspaces: OrganizeWorkspaces,
+
     /// Change the title of the current focused surface via a pop-up prompt.
     prompt_surface_title,
 
@@ -812,6 +908,13 @@ pub const Action = union(enum) {
     /// version can be found by running `ghostty +version`.
     toggle_command_palette,
 
+    /// Toggle the Workspace switcher: a searchable list of this window's
+    /// Workspaces, most recently shown first, so opening it and pressing
+    /// Return shows the previous Workspace.
+    ///
+    /// Only implemented on macOS.
+    toggle_workspace_switcher,
+
     /// Toggle the quick terminal.
     ///
     /// The quick terminal, also known as the "Quake-style" or drop-down
@@ -863,6 +966,22 @@ pub const Action = union(enum) {
     /// See the various configurations for the quick terminal in the
     /// configuration file to customize its behavior.
     toggle_quick_terminal,
+
+    /// Focus the next split whose agent needs you, in any Workspace of any
+    /// window, showing its Workspace if it's hidden. Splits whose agent is
+    /// waiting come first; only when none is waiting does this visit splits
+    /// whose agent is done. The walk starts from the most recently focused
+    /// split and wraps around. With nothing to visit, this does nothing.
+    ///
+    /// Like `toggle_quick_terminal`, this works with a *global* keybind from
+    /// other apps once booTTY has Accessibility access:
+    ///
+    /// ```ini
+    /// keybind = global:cmd+alt+a=jump_to_agent
+    /// ```
+    ///
+    /// Only implemented on macOS.
+    jump_to_agent,
 
     /// Show or hide all windows. If all windows become shown, we also ensure
     /// Ghostty becomes focused. When hiding all windows, focus is yielded
@@ -1205,6 +1324,11 @@ pub const Action = union(enum) {
         pub const default: CloseTabMode = .this;
     };
 
+    pub const OrganizeWorkspaces = enum {
+        repo,
+        folder,
+    };
+
     pub const OpenConfig = enum {
         /// Open the config in the OS default editor.
         os_open,
@@ -1366,6 +1490,7 @@ pub const Action = union(enum) {
             .close_all_windows,
             .quit,
             .toggle_quick_terminal,
+            .jump_to_agent,
             .toggle_visibility,
             .check_for_updates,
             .show_gtk_inspector,
@@ -1428,6 +1553,7 @@ pub const Action = union(enum) {
             .toggle_secure_input,
             .toggle_mouse_reporting,
             .toggle_command_palette,
+            .toggle_workspace_switcher,
             .toggle_background_opacity,
             .show_on_screen_keyboard,
             .reset_window_size,
@@ -1451,6 +1577,18 @@ pub const Action = union(enum) {
             .move_tab,
             .move_tab_to_new_window,
             .toggle_tab_overview,
+            .new_workspace,
+            .previous_workspace,
+            .next_workspace,
+            .goto_workspace,
+            .close_workspace,
+            .prompt_workspace_name,
+            .set_workspace_name,
+            .move_workspace,
+            .move_workspace_to_new_window,
+            .move_tab_to_workspace,
+            .move_tab_to_new_workspace,
+            .organize_workspaces,
             .new_split,
             .goto_split,
             .goto_window,
@@ -3440,6 +3578,116 @@ test "parse: action with float" {
         try testing.expect(binding.action == .scroll_page_fractional);
         try testing.expectEqual(@as(f32, 0.5), binding.action.scroll_page_fractional);
     }
+}
+
+test "parse: workspace actions" {
+    const testing = std.testing;
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .new_workspace },
+        try parseSingle("a=new_workspace"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .previous_workspace },
+        try parseSingle("a=previous_workspace"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .next_workspace },
+        try parseSingle("a=next_workspace"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .goto_workspace = 3 } },
+        try parseSingle("a=goto_workspace:3"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .move_workspace = -1 } },
+        try parseSingle("a=move_workspace:-1"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .move_workspace = 2 } },
+        try parseSingle("a=move_workspace:2"),
+    );
+
+    // goto_workspace is a 1-based index, so it needs one and it can't be negative.
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=goto_workspace:-1"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .close_workspace },
+        try parseSingle("a=close_workspace"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=close_workspace:1"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .prompt_workspace_name },
+        try parseSingle("a=prompt_workspace_name"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=prompt_workspace_name:x"));
+
+    // set_workspace_name takes the rest of the line, colons included, and may be blank.
+    {
+        const binding = try parseSingle("a=set_workspace_name:api: web");
+        try testing.expect(binding.action == .set_workspace_name);
+        try testing.expectEqualStrings("api: web", binding.action.set_workspace_name);
+    }
+    {
+        const binding = try parseSingle("a=set_workspace_name:");
+        try testing.expectEqualStrings("", binding.action.set_workspace_name);
+    }
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=set_workspace_name"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=new_workspace:1"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_workspace"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .move_workspace_to_new_window },
+        try parseSingle("a=move_workspace_to_new_window"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_workspace_to_new_window:1"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .organize_workspaces = .repo } },
+        try parseSingle("a=organize_workspaces:repo"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .organize_workspaces = .folder } },
+        try parseSingle("a=organize_workspaces:folder"),
+    );
+
+    // organize_workspaces has no default, so it needs a payload.
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=organize_workspaces"));
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .toggle_workspace_switcher },
+        try parseSingle("a=toggle_workspace_switcher"),
+    );
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=toggle_workspace_switcher:x"));
+}
+
+test "parse: move tab to workspace actions" {
+    const testing = std.testing;
+
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .{ .move_tab_to_workspace = 2 } },
+        try parseSingle("a=move_tab_to_workspace:2"),
+    );
+    try testing.expectEqual(
+        Binding{ .trigger = .{ .key = .{ .unicode = 'a' } }, .action = .move_tab_to_new_workspace },
+        try parseSingle("a=move_tab_to_new_workspace"),
+    );
+
+    // move_tab_to_workspace is a 1-based index, so it needs one and it can't be negative.
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_tab_to_workspace"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_tab_to_workspace:-1"));
+    try testing.expectError(Error.InvalidFormat, parseSingle("a=move_tab_to_new_workspace:1"));
+}
+
+test "action: jump_to_agent is app-scoped" {
+    const testing = std.testing;
+
+    // It isn't a Workspace command: it runs with no focused surface and
+    // from global keybinds, like toggle_quick_terminal.
+    try testing.expectEqual(Action.Scope.app, (Action{ .jump_to_agent = {} }).scope());
+    try testing.expectEqual(Action.Scope.surface, (Action{ .new_workspace = {} }).scope());
 }
 
 test "parse: action with a tuple" {

@@ -131,9 +131,10 @@ final class ScriptTerminal: NSObject {
         return ScriptTerminal(surfaceView: newView)
     }
 
-    /// Handler for `focus <terminal>`.
+    /// Handler for `focus <terminal>`. Returns a Bool to match the command's declared result:
+    /// false when a hidden Workspace can't be shown now.
     @objc(handleFocusCommand:)
-    func handleFocus(_ command: NSScriptCommand) -> Any? {
+    func handleFocus(_ command: NSScriptCommand) -> NSNumber? {
         guard NSApp.validateScript(command: command) else { return nil }
 
         guard let surfaceView else {
@@ -148,8 +149,7 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
-        controller.focusSurface(surfaceView)
-        return nil
+        return NSNumber(value: controller.focusSurface(surfaceView))
     }
 
     /// Handler for `close <terminal>`.

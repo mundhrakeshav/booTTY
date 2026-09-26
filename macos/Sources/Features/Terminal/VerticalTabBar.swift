@@ -56,8 +56,9 @@ final class TabBarSettings: ObservableObject {
 
     private init() {
         let defaults = UserDefaults.ghostty
+        // Left by default so the Workspace dots show; a stored position wins.
         position = defaults.string(forKey: Self.positionKey)
-            .flatMap(TabBarPosition.init(rawValue:)) ?? .top
+            .flatMap(TabBarPosition.init(rawValue:)) ?? .left
         isCollapsed = defaults.bool(forKey: Self.collapsedKey)
         let width = CGFloat(defaults.double(forKey: Self.expandedWidthKey))
         let range = Self.expandedWidthRange
@@ -87,10 +88,44 @@ final class VerticalTabBarModel: ObservableObject {
         let isSelected: Bool
     }
 
+    /// A Workspace of the Window, drawn as a dot at the foot of the bar.
+    struct Workspace: Identifiable, Equatable {
+        let id: WorkspaceStore.Workspace.ID
+        let name: String
+        let color: TerminalTabColor
+        let isShown: Bool
+        /// The Workspace's agent status roll-up, and its date. The shown Workspace's capsule
+        /// hides it, and its ring fades in as the mark gives up its share of the capsule, so
+        /// a swipe or switch shows no pop.
+        let status: Ghostty.AgentStatus?
+        let statusDate: Date
+    }
+
+    /// The bar as it looks with a Workspace shown: its name header and its Tabs.
+    struct Page: Equatable {
+        let workspace: Workspace
+        let tabs: [Tab]
+    }
+
     @Published private(set) var tabs: [Tab] = []
+
+    /// The Window's Workspaces in bar order. Empty when the Window can't hold them (it's
+    /// undecorated, has a hidden titlebar, or is the Quick Terminal), so the bar draws no dots.
+    @Published private(set) var workspaces: [Workspace] = []
 
     /// The tab being renamed inline.
     @Published private(set) var renamingTab: Tab.ID?
+
+    /// The Workspace whose name the header is editing.
+    @Published private(set) var renamingWorkspace: Workspace.ID?
+
+    /// The swipe's progress from the shown Workspace (`WorkspaceStore.SwipeProgress`), and
+    /// the page it brings in beside the shown one: nil at rest and past an end.
+    @Published private(set) var swipeAmount: CGFloat = 0
+    @Published private(set) var neighborPage: Page?
+
+    /// Follows `WorkspaceStore.swipeCancels`, so the dots morph back on a cancel.
+    @Published private(set) var swipeCancels = 0
 
     /// The bar takes the terminal's background and title font so it blends into
     /// the window. The owning window sets these when its appearance changes.
@@ -101,6 +136,8 @@ final class VerticalTabBarModel: ObservableObject {
     private var tabWindows: [Tab.ID: Weak<NSWindow>] = [:]
     private weak var observedTabGroup: NSWindowTabGroup?
     private var tabGroupObservations: [NSKeyValueObservation] = []
+    private weak var observedStore: WorkspaceStore?
+    private var storeObservation: AnyCancellable?
     private var cancellables: Set<AnyCancellable> = []
     private var refreshScheduled = false
 
@@ -144,6 +181,7 @@ final class VerticalTabBarModel: ObservableObject {
         guard visibleBars == 0 else { return }
         cancellables.removeAll()
         observe(nil)
+        observe(store: nil)
     }
 
     /// Coalesces bursts of changes (e.g. many titles changing) into one rebuild.
@@ -177,7 +215,46 @@ final class VerticalTabBarModel: ObservableObject {
         tabWindows = Dictionary(
             windows.map { (ObjectIdentifier($0), Weak($0)) },
             uniquingKeysWith: { first, _ in first })
-        let tabs = windows.enumerated().map { index, tabWindow in
+        let tabs = Self.tabs(windows, selected: selected, config: config)
+        if tabs != self.tabs { self.tabs = tabs }
+
+        // Every Tab's bar follows the Window's store, so a switch also redraws the bar of
+        // a Tab that comes in without becoming key.
+        let store = workspaceTab?.workspaceStore
+        if store !== observedStore { observe(store: store) }
+        let workspaces = store.map { store in
+            store.workspaces.map { workspace -> Workspace in
+                let rollUp = store.agentStatus(of: workspace.id)
+                return Workspace(
+                    id: workspace.id, name: workspace.name, color: workspace.color,
+                    isShown: workspace.id == store.shownID,
+                    status: rollUp.status, statusDate: rollUp.since)
+            }
+        } ?? []
+        if workspaces != self.workspaces { self.workspaces = workspaces }
+
+        // The neighbor is hidden, so its page draws its held Tabs, with the one it
+        // remembers selected.
+        let progress = store?.swipeProgress ?? WorkspaceStore.SwipeProgress()
+        var neighborPage: Page?
+        if let neighbor = store?.workspaces.first(where: { $0.id == progress.neighbor }),
+           let workspace = workspaces.first(where: { $0.id == neighbor.id }) {
+            neighborPage = Page(
+                workspace: workspace,
+                tabs: Self.tabs(
+                    neighbor.hiddenTabs.compactMap(\.window),
+                    selected: neighbor.rememberedTab?.window,
+                    config: config))
+        }
+        if progress.amount != swipeAmount { swipeAmount = progress.amount }
+        if neighborPage != self.neighborPage { self.neighborPage = neighborPage }
+        let cancels = store?.swipeCancels ?? 0
+        if cancels != swipeCancels { swipeCancels = cancels }
+    }
+
+    /// The bar's rows for `windows`, the Tabs of one Workspace in order.
+    private static func tabs(_ windows: [NSWindow], selected: NSWindow?, config: Ghostty.Config?) -> [Tab] {
+        windows.enumerated().map { index, tabWindow in
             let terminalWindow = tabWindow as? TerminalWindow
             return Tab(
                 id: ObjectIdentifier(tabWindow),
@@ -190,7 +267,6 @@ final class VerticalTabBarModel: ObservableObject {
                     : nil,
                 isSelected: tabWindow === selected)
         }
-        if tabs != self.tabs { self.tabs = tabs }
     }
 
     private func observe(_ tabGroup: NSWindowTabGroup?) {
@@ -208,6 +284,12 @@ final class VerticalTabBarModel: ObservableObject {
                 DispatchQueue.main.async { self?.setNeedsRefresh() }
             },
         ]
+    }
+
+    private func observe(store: WorkspaceStore?) {
+        observedStore = store
+        // Fires before the change, and the refresh runs on a later turn that sees it.
+        storeObservation = store?.objectWillChange.sink { [weak self] _ in self?.setNeedsRefresh() }
     }
 
     // MARK: Actions
@@ -255,6 +337,13 @@ final class VerticalTabBarModel: ObservableObject {
         controller(id)?.closeTabsOnTheRight(nil)
     }
 
+    /// Move Tab to Workspace ▸: runs `move_tab_to_workspace:N`, or with no number
+    /// `move_tab_to_new_workspace`, on the row's Tab, as the Workspace menu does.
+    func moveToWorkspace(_ id: Tab.ID, number: Int?) {
+        guard let tab = controller(id), let surface = tab.focusedSurface else { return }
+        tab.performAction(number.map { "move_tab_to_workspace:\($0)" } ?? "move_tab_to_new_workspace", on: surface)
+    }
+
     func moveToNewWindow(_ id: Tab.ID) {
         tabWindow(id)?.moveTabToNewWindow(nil)
     }
@@ -270,6 +359,173 @@ final class VerticalTabBarModel: ObservableObject {
               surface.window === window
         else { return }
         window.makeFirstResponder(surface)
+    }
+
+    // MARK: Workspaces
+
+    /// This bar's Tab, when its Window holds Workspaces.
+    private var workspaceTab: TerminalController? {
+        guard let tab = window?.windowController as? TerminalController,
+              tab.holdsWorkspaces
+        else { return nil }
+        return tab
+    }
+
+    /// Clicking a dot: shows its Workspace, refused as `goto_workspace` is. Clicking the
+    /// shown Workspace's capsule does nothing.
+    func showWorkspace(_ id: Workspace.ID) {
+        guard let tab = workspaceTab else { return }
+        let store = tab.workspaceStore
+        guard id != store.shownID else { return focusTerminal() }
+        guard store.allowsRequest(from: tab, orShow: .cannotSwitch) else { return }
+        store.show(id)
+    }
+
+    /// "+": runs `new_workspace` on the focused Split, as the keybind does.
+    func newWorkspace() {
+        guard let tab = workspaceTab, let surface = tab.focusedSurface else { return }
+        tab.performAction("new_workspace", on: surface)
+    }
+
+    /// Double-clicking the header renames the shown Workspace in place.
+    func beginWorkspaceRename() {
+        renamingWorkspace = workspaces.first(where: \.isShown)?.id
+    }
+
+    func commitWorkspaceRename(_ id: Workspace.ID, name: String) {
+        guard renamingWorkspace == id else { return }
+        renamingWorkspace = nil
+        workspaceTab?.workspaceStore.rename(id, to: name)
+        focusTerminal()
+    }
+
+    func cancelWorkspaceRename() {
+        renamingWorkspace = nil
+        focusTerminal()
+    }
+
+    // The dot menu aims at its dot's Workspace, shown or hidden.
+
+    /// Rename Workspace…: in the header for the shown Workspace of an expanded bar, else
+    /// with the rename prompt.
+    func renameWorkspace(_ id: Workspace.ID) {
+        guard let store = workspaceTab?.workspaceStore else { return }
+        if id == store.shownID && !TabBarSettings.shared.isCollapsed {
+            renamingWorkspace = id
+        } else {
+            _ = store.promptName(for: id)
+        }
+    }
+
+    func setColor(_ color: TerminalTabColor, forWorkspace id: Workspace.ID) {
+        workspaceTab?.workspaceStore.setColor(color, of: id)
+    }
+
+    func closeWorkspace(_ id: Workspace.ID) {
+        guard let tab = workspaceTab else { return }
+        _ = tab.workspaceStore.closeWorkspace(id, from: tab)
+    }
+
+    func moveWorkspaceToNewWindow(_ id: Workspace.ID) {
+        guard let tab = workspaceTab else { return }
+        _ = tab.workspaceStore.moveToNewWindow(id, requestedBy: tab)
+    }
+
+    /// A dot's drag payload. With no Window to name, it names none that exists, so every
+    /// dot refuses it.
+    func dragItem(for id: Workspace.ID) -> DraggedWorkspace {
+        DraggedWorkspace(window: workspaceTab?.workspaceStore.id ?? UUID(), workspace: id)
+    }
+
+    /// Something dropped on the dot of Workspace `target`, or on "+" when `target` is nil.
+    /// A dot moves its Workspace to the target's place, and "+" refuses it. A Tab row moves
+    /// its Tab to the end of the target, or into a new Workspace on "+", which refuses a
+    /// Workspace's only Tab; the capsule takes no Tab. Both payloads from another Window are
+    /// refused.
+    func drop(_ item: WorkspaceDrop, on target: Workspace.ID?) -> Bool {
+        guard let store = workspaceTab?.workspaceStore else { return false }
+
+        switch item {
+        case .workspace(let dragged):
+            guard dragged.window == store.id,
+                  let index = store.workspaces.firstIndex(where: { $0.id == target })
+            else { return false }
+            return store.moveWorkspace(dragged.workspace, to: index)
+
+        case .tab(let dragged):
+            guard target != store.shownID,
+                  let tab = draggedWindow(dragged)?.windowController as? TerminalController,
+                  tab.workspaceStore === store,
+                  // A row's Tab is shown, so in non-native fullscreen its drop would change
+                  // the shown Workspace's Tabs, and a drop is refused silently.
+                  !store.isInNonNativeFullscreen || store.isHidden(tab)
+            else { return false }
+            guard let target else { return store.moveTabToNewWorkspace(tab) }
+            return store.moveTab(tab, to: target)
+        }
+    }
+
+    /// The room a dot and "+" each take along the expanded bar's row of dots, and a dot down
+    /// the collapsed bar's column.
+    static let dotPitch: CGFloat = 14
+    static let newWorkspacePitch: CGFloat = 22
+
+    /// The expanded bar's rows of dots: indices of `count` dots, then "+" as index `count`,
+    /// broken greedily into rows no wider than `width`. A row breaks before the item that
+    /// doesn't fit and is never empty.
+    static func dotRows(count: Int, width: CGFloat) -> [[Int]] {
+        var rows: [[Int]] = [[]]
+        var x: CGFloat = 0
+        for i in 0...count {
+            let itemWidth = i == count ? newWorkspacePitch : dotPitch
+            if x + itemWidth > width, !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                x = 0
+            }
+            rows[rows.count - 1].append(i)
+            x += itemWidth
+        }
+        return rows
+    }
+
+    /// Where a page sits mid-swipe: an x offset in bar widths, and an opacity. The shown page
+    /// moves by the swipe's amount, stretching past an end, and the neighbor's comes in beside
+    /// it. Under Reduce Motion the pages stay in place and crossfade, and nothing changes past
+    /// an end.
+    static func pagePlacement(
+        amount: CGFloat,
+        isNeighbor: Bool,
+        hasNeighbor: Bool,
+        reduceMotion: Bool
+    ) -> (offset: CGFloat, opacity: Double) {
+        let t = Double(min(abs(amount), 1))
+        if reduceMotion {
+            guard hasNeighbor else { return (0, 1) }
+            return (0, isNeighbor ? t : 1 - t)
+        }
+        guard isNeighbor else { return (amount, 1) }
+        return (amount < 0 ? amount + 1 : amount - 1, 1)
+    }
+
+    /// How much of the capsule Workspace `id`'s mark holds. Mid-swipe the shown mark hands the
+    /// neighbor's the swipe's share. A rubber band, and Reduce Motion, leave it whole on the
+    /// shown mark until the switch.
+    static func capsuleShare(
+        of id: Workspace.ID,
+        shown: Workspace.ID?,
+        neighbor: Workspace.ID?,
+        amount: CGFloat,
+        reduceMotion: Bool
+    ) -> CGFloat {
+        let t = neighbor == nil || reduceMotion ? 0 : min(abs(amount), 1)
+        if id == shown { return 1 - t }
+        return id == neighbor ? t : 0
+    }
+
+    /// A mark holding `share` of the capsule: its long side, from the 6 pt dot to the 12 pt
+    /// capsule, and its status ring's opacity, which fades as it becomes the capsule.
+    static func mark(share: CGFloat) -> (length: CGFloat, ringOpacity: Double) {
+        (6 + 6 * share, Double(1 - share))
     }
 
     // MARK: Renaming
@@ -312,12 +568,14 @@ final class VerticalTabBarModel: ObservableObject {
         DraggedTab(window: UInt(bitPattern: id))
     }
 
+    private func draggedWindow(_ tab: DraggedTab) -> NSWindow? {
+        NSApp.windows.first(where: { UInt(bitPattern: ObjectIdentifier($0)) == tab.window })
+    }
+
     /// Moves the dragged tab to `index` in this window's tab group, taking it out of
     /// another group if it came from a different window.
     func moveTab(_ tab: DraggedTab, to index: Int) -> Bool {
-        guard let window,
-              let dragged = NSApp.windows.first(where: { UInt(bitPattern: ObjectIdentifier($0)) == tab.window })
-        else { return false }
+        guard let window, let dragged = draggedWindow(tab) else { return false }
 
         let windows = window.tabGroup?.windows ?? [window]
         let from = windows.firstIndex(of: dragged)
@@ -330,6 +588,13 @@ final class VerticalTabBarModel: ObservableObject {
             return style.isFullscreen && !style.supportsTabs
         }
         guard !tabsBlocked(window), !tabsBlocked(dragged) else { return false }
+
+        // Nor can a Tab cross into or out of a Window in non-native fullscreen through the
+        // windowed group behind its fullscreen Tab.
+        func windowInFullscreen(_ candidate: NSWindow) -> Bool {
+            (candidate.windowController as? TerminalController)?.workspaceStore.isInNonNativeFullscreen ?? false
+        }
+        if from == nil, windowInFullscreen(window) || windowInFullscreen(dragged) { return false }
 
         // Moving down lands after the target so the tab ends up at `index`.
         let target: NSWindow
@@ -369,10 +634,40 @@ struct DraggedTab: Codable, Transferable {
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .ghosttyTab)
     }
+
+    /// Whether the drag in flight carries a Tab row. `isTargeted` doesn't say what hovers
+    /// a drop destination, and the capsule and "+" each refuse one payload.
+    static var isDragging: Bool {
+        NSPasteboard(name: .drag).types?.contains(.init(UTType.ghosttyTab.identifier)) ?? false
+    }
 }
 
 extension UTType {
     static let ghosttyTab = UTType(exportedAs: "com.mitchellh.ghosttyTab")
+    static let ghosttyWorkspace = UTType(exportedAs: "com.mitchellh.ghosttyWorkspace")
+}
+
+/// A Workspace's dot dragged in a vertical tab bar, the twin of `DraggedTab`. It names the
+/// Window id and the Workspace id, so a dot only lands among its own Window's dots.
+struct DraggedWorkspace: Codable, Transferable {
+    let window: UUID
+    let workspace: UUID
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .ghosttyWorkspace)
+    }
+}
+
+/// What a dot and "+" accept. Chained `.dropDestination`s honor only the first matching
+/// type, so each has one destination for this enum, which wraps every payload they take.
+enum WorkspaceDrop: Transferable {
+    case workspace(DraggedWorkspace)
+    case tab(DraggedTab)
+
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(importing: { (dragged: DraggedWorkspace) in .workspace(dragged) })
+        ProxyRepresentation(importing: { (dragged: DraggedTab) in .tab(dragged) })
+    }
 }
 
 // MARK: - Views
@@ -427,22 +722,75 @@ private struct VerticalTabBar: View {
     @GestureState private var dragOffset: CGFloat?
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedTab: VerticalTabBarModel.Tab.ID? {
         model.tabs.first(where: \.isSelected)?.id
     }
 
+    /// The shown Workspace's name, which the collapsed bar leaves out. Mid-swipe the neighbor's
+    /// name comes in beside it, as part of its page.
+    @ViewBuilder
+    private var header: some View {
+        if !settings.isCollapsed, let workspace = model.workspaces.first(where: \.isShown) {
+            ZStack {
+                swipePage(WorkspaceHeader(model: model, workspace: workspace, edge: edge), isNeighbor: false)
+                if let neighbor = model.neighborPage {
+                    swipePage(
+                        WorkspaceHeader(model: model, workspace: neighbor.workspace, edge: edge),
+                        isNeighbor: true)
+                }
+            }
+            .clipped()
+        }
+    }
+
+    /// The Tab rows down to "New Tab": the lower part of a page.
+    private func tabList(_ tabs: [VerticalTabBarModel.Tab]) -> some View {
+        VStack(spacing: 2) {
+            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                VerticalTabRow(model: model, settings: settings, tab: tab, index: index)
+                    .id(tab.id)
+            }
+
+            NewTabRow(model: model, collapsed: settings.isCollapsed)
+        }
+        .padding(.horizontal, 6)
+        .padding(.bottom, 8)
+    }
+
+    /// Places part of a page mid-swipe. The neighbor's page is only drawn: it takes no clicks
+    /// and VoiceOver skips it.
+    private func swipePage(_ page: some View, isNeighbor: Bool) -> some View {
+        let placement = VerticalTabBarModel.pagePlacement(
+            amount: model.swipeAmount,
+            isNeighbor: isNeighbor,
+            hasNeighbor: model.neighborPage != nil,
+            reduceMotion: reduceMotion)
+        return page
+            .offset(x: placement.offset * width)
+            .opacity(placement.opacity)
+            .allowsHitTesting(!isNeighbor)
+            .accessibilityHidden(isNeighbor)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // The toggle sits on the outer edge so it stays under the pointer
-            // when the bar collapses.
-            IconButton(
-                systemImage: edge == .leading ? "sidebar.left" : "sidebar.right",
-                size: 24,
-                help: settings.isCollapsed ? "Expand Tab Bar" : "Collapse Tab Bar"
-            ) {
-                settings.isCollapsed.toggle()
-                model.focusTerminal()
+            // when the bar collapses. The name header takes its inner side.
+            HStack(spacing: 4) {
+                if edge == .trailing { header }
+
+                IconButton(
+                    systemImage: edge == .leading ? "sidebar.left" : "sidebar.right",
+                    size: 24,
+                    help: settings.isCollapsed ? "Expand Tab Bar" : "Collapse Tab Bar"
+                ) {
+                    settings.isCollapsed.toggle()
+                    model.focusTerminal()
+                }
+
+                if edge == .leading { header }
             }
             .frame(
                 maxWidth: .infinity,
@@ -452,20 +800,23 @@ private struct VerticalTabBar: View {
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 2) {
-                        ForEach(Array(model.tabs.enumerated()), id: \.element.id) { index, tab in
-                            VerticalTabRow(model: model, settings: settings, tab: tab, index: index)
-                                .id(tab.id)
-                        }
-
-                        NewTabRow(model: model, collapsed: settings.isCollapsed)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 8)
+                    swipePage(tabList(model.tabs), isNeighbor: false)
                 }
                 .onChange(of: selectedTab) { id in
                     if let id { proxy.scrollTo(id) }
                 }
+            }
+            // The neighbor's page comes in from its top, however far the list is scrolled.
+            .overlay(alignment: .top) {
+                if let neighbor = model.neighborPage {
+                    swipePage(tabList(neighbor.tabs).fixedSize(horizontal: false, vertical: true), isNeighbor: true)
+                }
+            }
+            .clipped()
+
+            // Pinned below the list, which scrolls to make room.
+            if !model.workspaces.isEmpty {
+                WorkspaceDots(model: model, settings: settings, barWidth: width)
             }
         }
         .frame(width: width)
@@ -538,7 +889,14 @@ private struct VerticalTabRow: View {
 
     var body: some View {
         if model.renamingTab == tab.id && !settings.isCollapsed {
-            TabRenameField(model: model, tab: tab)
+            RenameField(
+                placeholder: "Tab Title",
+                color: tab.color,
+                font: model.tabTitleFont,
+                initialText: model.renameTitle(for: tab.id),
+                commit: { model.commitRename(tab.id, title: $0) },
+                cancel: model.cancelRename)
+                .padding(.horizontal, 8)
                 .tabRow(fill: Color.primary.opacity(0.06))
                 .overlay(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -630,19 +988,7 @@ private struct VerticalTabRow: View {
     @ViewBuilder
     private var menu: some View {
         Button("Rename Tab…") { model.rename(tab.id) }
-        Menu("Tab Color") {
-            ForEach(TerminalTabColor.allCases, id: \.self) { color in
-                Button {
-                    model.setColor(color, for: tab.id)
-                } label: {
-                    Label {
-                        Text(color.localizedName)
-                    } icon: {
-                        Image(nsImage: color.swatchImage(selected: color == tab.color))
-                    }
-                }
-            }
-        }
+        ColorMenu(title: "Tab Color", current: tab.color) { model.setColor($0, for: tab.id) }
 
         Divider()
 
@@ -651,6 +997,20 @@ private struct VerticalTabRow: View {
             .disabled(model.tabs.count < 2)
         Button("Close Tabs Below") { model.closeBelow(tab.id) }
             .disabled(index >= model.tabs.count - 1)
+        if !model.workspaces.isEmpty {
+            Menu("Move Tab to Workspace") {
+                ForEach(Array(model.workspaces.enumerated()), id: \.element.id) { index, workspace in
+                    if workspace.isShown {
+                        Toggle(workspace.name, isOn: .constant(true)).disabled(true)
+                    } else {
+                        Button(workspace.name) { model.moveToWorkspace(tab.id, number: index + 1) }
+                    }
+                }
+                Divider()
+                Button("New Workspace") { model.moveToWorkspace(tab.id, number: nil) }
+                    .disabled(model.tabs.count < 2)
+            }
+        }
         Button("Move Tab to New Window") { model.moveToNewWindow(tab.id) }
             .disabled(model.tabs.count < 2)
 
@@ -700,36 +1060,285 @@ private struct NewTabRow: View {
     }
 }
 
-private struct TabRenameField: View {
+/// The Window's Workspaces as page dots, then "+". Expanded they run in rows that wrap,
+/// leading-aligned on either side; collapsed they stack in one column.
+private struct WorkspaceDots: View {
     @ObservedObject var model: VerticalTabBarModel
-    let tab: VerticalTabBarModel.Tab
+    @ObservedObject var settings: TabBarSettings
+    let barWidth: CGFloat
 
-    @State private var title = ""
+    private var collapsed: Bool { settings.isCollapsed }
+
+    /// The dot under the pointer. Only a dot that still matches clears it, so passing
+    /// from dot to dot doesn't flicker the label.
+    @State private var hovered: VerticalTabBarModel.Workspace.ID?
+
+    @State private var isNewWorkspaceDropTarget = false
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if collapsed {
+                VStack(spacing: 0) {
+                    ForEach(model.workspaces.indices, id: \.self) { dot($0) }
+                    newWorkspaceButton
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 8)
+            } else {
+                let count = model.workspaces.count
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(VerticalTabBarModel.dotRows(count: count, width: barWidth - 16), id: \.self) { row in
+                        HStack(spacing: 0) {
+                            ForEach(row, id: \.self) { i in
+                                if i == count { newWorkspaceButton } else { dot(i) }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .overlay(alignment: .top) { hoverLabel }
+                .padding(.bottom, 2)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Workspaces")
+        // Every switch morphs the capsule from the old mark to the new, and so does a
+        // cancelled swipe, from wherever the marks stand back to the shown mark.
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.workspaces.first(where: \.isShown)?.id)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.swipeCancels)
+    }
+
+    private func dot(_ index: Int) -> some View {
+        let workspace = model.workspaces[index]
+        return WorkspaceDot(
+            model: model,
+            workspace: workspace,
+            index: index,
+            share: VerticalTabBarModel.capsuleShare(
+                of: workspace.id,
+                shown: model.workspaces.first(where: \.isShown)?.id,
+                neighbor: model.neighborPage?.workspace.id,
+                amount: model.swipeAmount,
+                reduceMotion: reduceMotion),
+            settings: settings,
+            hovered: $hovered)
+    }
+
+    /// "+" takes only Tab rows, and not a Workspace's only Tab, so it lights up only for those.
+    private var newWorkspaceButton: some View {
+        IconButton(systemImage: "plus", pointSize: 10, weight: .medium, size: 20, help: "New Workspace") {
+            model.newWorkspace()
+        }
+        .frame(width: collapsed ? 32 : VerticalTabBarModel.newWorkspacePitch, height: 22)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(isNewWorkspaceDropTarget ? Color.accentColor.opacity(0.25) : .clear))
+        .contentShape(Rectangle())
+        .dropDestination(for: WorkspaceDrop.self) { items, _ in
+            items.first.map { model.drop($0, on: nil) } ?? false
+        } isTargeted: {
+            isNewWorkspaceDropTarget = $0 && DraggedTab.isDragging && model.tabs.count > 1
+        }
+    }
+
+    /// The hovered dot's name, above the dots and never wider than the bar. Collapsed,
+    /// dots use tooltips instead, since nothing can draw over the terminal.
+    @ViewBuilder
+    private var hoverLabel: some View {
+        if let workspace = model.workspaces.first(where: { $0.id == hovered }) {
+            Text(workspace.name)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 7)
+                .frame(height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(colorScheme == .dark ? Color(white: 0.2) : .white))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.12)))
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                .frame(maxWidth: barWidth - 12)
+                .offset(y: -24)
+                .allowsHitTesting(false)
+                // VoiceOver reads the name on the dot itself.
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// One Workspace's mark: a 6 pt dot, or the 12×6 capsule (upright when collapsed) for
+/// the shown Workspace. One shape for both, so a switch or a swipe morphs it in place.
+private struct WorkspaceDot: View {
+    @ObservedObject var model: VerticalTabBarModel
+    let workspace: VerticalTabBarModel.Workspace
+    let index: Int
+    /// How much of the capsule this mark holds (`VerticalTabBarModel.capsuleShare`).
+    let share: CGFloat
+    @ObservedObject var settings: TabBarSettings
+    @Binding var hovered: VerticalTabBarModel.Workspace.ID?
+
+    private var collapsed: Bool { settings.isCollapsed }
+
+    @State private var isDropTarget = false
+
+    var body: some View {
+        let mark = VerticalTabBarModel.mark(share: share)
+        let fill = workspace.color.displayColor.map { Color(nsColor: $0) } ?? .primary
+
+        // The capsule fades to nothing as it shrinks, and the dimmed StatusDot with its
+        // ring shows in its place, so the mark morphs by its share.
+        Capsule()
+            .fill(fill.opacity(share))
+            .frame(width: collapsed ? 6 : mark.length, height: collapsed ? mark.length : 6)
+            .overlay {
+                StatusDot(
+                    color: workspace.color,
+                    status: workspace.status,
+                    since: workspace.statusDate,
+                    dotSize: 6,
+                    echoScale: 1.5,
+                    dimming: hovered == workspace.id ? 0.8 : 0.35)
+                    .opacity(mark.ringOpacity)
+            }
+            .frame(
+                width: collapsed ? 32 : VerticalTabBarModel.dotPitch,
+                height: collapsed ? VerticalTabBarModel.dotPitch : 22)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isDropTarget ? Color.accentColor.opacity(0.25) : .clear))
+            .contentShape(Rectangle())
+            .onTapGesture { model.showWorkspace(workspace.id) }
+            .onHover { inside in
+                if inside {
+                    hovered = workspace.id
+                } else if hovered == workspace.id {
+                    hovered = nil
+                }
+            }
+            .contextMenu { menu }
+            .draggable(model.dragItem(for: workspace.id))
+            .dropDestination(for: WorkspaceDrop.self) { items, _ in
+                items.first.map { model.drop($0, on: workspace.id) } ?? false
+            } isTargeted: {
+                // The capsule takes no Tab, so it doesn't light up for one.
+                isDropTarget = $0 && !(workspace.isShown && DraggedTab.isDragging)
+            }
+            .help(collapsed ? workspace.name : "")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(workspace.name)
+            .accessibilityValue(
+                // The shown Workspace's Tabs read their own status right above.
+                ["Workspace \(index + 1) of \(model.workspaces.count)",
+                 workspace.isShown ? nil : workspace.status?.accessibilityDescription]
+                    .compactMap { $0 }
+                    .joined(separator: ", "))
+            .accessibilityAddTraits(workspace.isShown ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// The dot menu. The last group acts on the bar, not on this Workspace.
+    @ViewBuilder
+    private var menu: some View {
+        Button("Rename Workspace…") { model.renameWorkspace(workspace.id) }
+        ColorMenu(title: "Workspace Color", current: workspace.color) {
+            model.setColor($0, forWorkspace: workspace.id)
+        }
+
+        Divider()
+
+        Button("Close Workspace") { model.closeWorkspace(workspace.id) }
+        Button("Move Workspace to New Window") { model.moveWorkspaceToNewWindow(workspace.id) }
+            .disabled(model.workspaces.count < 2)
+
+        Divider()
+
+        TabBarMenuItems(model: model, settings: settings)
+    }
+}
+
+/// The shown Workspace's name atop the expanded bar, led by a dot of its color when it has
+/// one. Double-clicking renames it in place, as with a Tab row.
+private struct WorkspaceHeader: View {
+    @ObservedObject var model: VerticalTabBarModel
+    let workspace: VerticalTabBarModel.Workspace
+    let edge: HorizontalEdge
+
+    private static let font = Font.system(size: 13, weight: .semibold)
+
+    /// Nil leaves no room for a dot.
+    private var dotColor: TerminalTabColor? {
+        workspace.color.displayColor == nil ? nil : workspace.color
+    }
+
+    var body: some View {
+        if model.renamingWorkspace == workspace.id {
+            RenameField(
+                placeholder: "Workspace Name",
+                color: dotColor,
+                font: Self.font,
+                initialText: workspace.name,
+                commit: { model.commitWorkspaceRename(workspace.id, name: $0) },
+                cancel: model.cancelWorkspaceRename)
+        } else {
+            HStack(spacing: 7) {
+                if let dotColor { ColorDot(color: dotColor) }
+
+                Text(workspace.name)
+                    .font(Self.font)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            // Mirrored on a right-side bar, so the name sits against the toggle.
+            .frame(maxWidth: .infinity, alignment: edge == .leading ? .leading : .trailing)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { model.beginWorkspaceRename() }
+            .help(workspace.name)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(workspace.name)
+            .accessibilityAddTraits(.isHeader)
+        }
+    }
+}
+
+/// Edits a name in place: Return commits, Esc cancels, and clicking elsewhere commits.
+private struct RenameField: View {
+    let placeholder: String
+    /// The dot before the field; nil leaves no room for one.
+    let color: TerminalTabColor?
+    let font: Font
+    let initialText: String
+    let commit: (String) -> Void
+    let cancel: () -> Void
+
+    @State private var text = ""
     @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 7) {
-            ColorDot(color: tab.color)
+            if let color { ColorDot(color: color) }
 
-            TextField("Tab Title", text: $title)
+            TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(model.tabTitleFont)
+                .font(font)
                 .focused($isFocused)
-                .onSubmit { model.commitRename(tab.id, title: title) }
-                .onExitCommand { model.cancelRename() }
+                .onSubmit { commit(text) }
+                .onExitCommand { cancel() }
         }
-        .padding(.horizontal, 8)
         .onAppear {
-            title = model.renameTitle(for: tab.id)
+            text = initialText
             DispatchQueue.main.async { isFocused = true }
         }
         .onChange(of: isFocused) { focused in
             // Clicking elsewhere commits, like the native tab title editor.
-            if !focused { model.commitRename(tab.id, title: title) }
+            if !focused { commit(text) }
         }
         // Collapsing or moving the bar removes the field without a blur, which would
         // leave keyboard focus on the window. Commit so focus returns to the terminal.
-        .onDisappear { model.commitRename(tab.id, title: title) }
+        .onDisappear { commit(text) }
     }
 }
 
@@ -750,6 +1359,30 @@ private struct TabBarMenuItems: View {
         }
         Button(settings.isCollapsed ? "Expand Tab Bar" : "Collapse Tab Bar") {
             settings.isCollapsed.toggle()
+        }
+    }
+}
+
+/// A swatch for each color, None first, with `current` marked: the Tab Color and
+/// Workspace Color menus.
+private struct ColorMenu: View {
+    let title: String
+    let current: TerminalTabColor
+    let set: (TerminalTabColor) -> Void
+
+    var body: some View {
+        Menu(title) {
+            ForEach(TerminalTabColor.allCases, id: \.self) { color in
+                Button {
+                    set(color)
+                } label: {
+                    Label {
+                        Text(color.localizedName)
+                    } icon: {
+                        Image(nsImage: color.swatchImage(selected: color == current))
+                    }
+                }
+            }
         }
     }
 }
@@ -809,15 +1442,22 @@ struct StatusDot: View {
     /// How far the ping and pulse rings grow; tight spots keep them off their neighbors.
     var echoScale: CGFloat = 2.1
 
+    /// For hidden Workspace dots: the color fill at this opacity, and gray without a color
+    /// or a status. Nil keeps the color at full strength and leaves an empty slot.
+    var dimming: Double?
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let tint = status.map { Color(nsColor: $0.color) }
+        let color = self.color.displayColor.map { Color(nsColor: $0) }
+        let fill = dimming.map { dimming in color.map { $0.opacity(dimming) } ?? tint ?? .primary.opacity(dimming) }
+            ?? color ?? tint ?? .clear
 
         // One container for every state so status changes animate in place.
         ZStack {
             Circle()
-                .fill(color.displayColor.map { Color(nsColor: $0) } ?? tint ?? .clear)
+                .fill(fill)
                 .frame(width: status == nil ? dotSize : 5, height: status == nil ? dotSize : 5)
 
             if let tint {
@@ -832,11 +1472,13 @@ struct StatusDot: View {
                 }
 
                 // Rows are rebuilt when switching tabs, so only a finish that just
-                // arrived pings.
+                // arrived pings. A new date is a new ring, so a Workspace whose Tabs
+                // finish one after another pings for each.
                 if status == .done && !reduceMotion && Date().timeIntervalSince(since) < 0.5 {
                     Circle()
                         .strokeBorder(tint, lineWidth: 1)
                         .frame(width: 9, height: 9)
+                        .id(since)
                         .transition(.asymmetric(
                             insertion: .modifier(
                                 active: StatusPing(progress: 0, scale: echoScale),

@@ -82,6 +82,22 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuMoveSplitDividerLeft: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerRight: NSMenuItem?
 
+    @IBOutlet private var menuSwitchWorkspace: NSMenuItem?
+    @IBOutlet private var menuNewWorkspace: NSMenuItem?
+    @IBOutlet private var menuRenameWorkspace: NSMenuItem?
+    @IBOutlet private var menuCloseWorkspace: NSMenuItem?
+    @IBOutlet private var menuPreviousWorkspace: NSMenuItem?
+    @IBOutlet private var menuNextWorkspace: NSMenuItem?
+    @IBOutlet private var menuMoveWorkspaceLeft: NSMenuItem?
+    @IBOutlet private var menuMoveWorkspaceRight: NSMenuItem?
+    @IBOutlet private var menuMoveWorkspaceToNewWindow: NSMenuItem?
+    @IBOutlet private var menuMoveTabToWorkspace: NSMenuItem?
+    @IBOutlet private var menuJumpToAgent: NSMenuItem?
+    @IBOutlet private var menuOrganizeByRepo: NSMenuItem?
+    @IBOutlet private var menuOrganizeByFolder: NSMenuItem?
+    /// The Workspace menu's list of Workspaces follows this separator.
+    @IBOutlet private var menuWorkspaceListSeparator: NSMenuItem?
+
     /// The dock menu
     private var dockMenu: NSMenu = NSMenu()
 
@@ -209,6 +225,14 @@ class AppDelegate: NSObject,
             // Manual autofill via the `Edit => AutoFill` menu item still work as expected.
             "NSAutoFillHeuristicControllerEnabled": false,
         ])
+
+        // Restored Windows claim their Workspaces until AppKit finishes restoring windows,
+        // which can happen before or after applicationDidFinishLaunching.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didFinishRestoringWindows(_:)),
+            name: NSApplication.didFinishRestoringWindowsNotification,
+            object: nil)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -473,8 +497,8 @@ class AppDelegate: NSObject,
         var config = Ghostty.SurfaceConfiguration()
 
         if isDirectory.boolValue {
-            // When opening a directory, check the configuration to decide
-            // whether to open in a new tab or new window.
+            // A directory's first Tab starts in it. The configuration
+            // decides below whether it opens as a Workspace, a tab, or a window.
             config.workingDirectory = filename
         } else {
             // Unconditionally require confirmation in the file execution case.
@@ -519,17 +543,58 @@ class AppDelegate: NSObject,
             }
         }
 
-        switch ghostty.config.macosDockDropBehavior {
-        case .new_tab:
+        // A folder's Workspace is named after it wherever one is made from it. A file that
+        // opens a new Window gets "Workspace 1".
+        let folderName = isDirectory.boolValue ? WorkspaceStore.name(ofFolder: filename) : nil
+
+        switch (ghostty.config.macosDockDropBehavior, folderName) {
+        case (.new_workspace, let name?):
+            openWorkspace(named: name, withBaseConfig: config)
+
+        case (.new_workspace, nil), (.new_tab, _):
             _ = TerminalController.newTab(
                 ghostty,
                 from: TerminalController.preferredParent?.window,
-                withBaseConfig: config
+                withBaseConfig: config,
+                workspaceName: folderName
             )
-        case .new_window: _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+
+        case (.new_window, _):
+            _ = TerminalController.newWindow(ghostty, withBaseConfig: config, workspaceName: folderName)
         }
 
         return true
+    }
+
+    /// A folder opened under `new-workspace`: a new Workspace named `name` at the
+    /// end of the receiving Window, the front one, shown as the Window comes forward. Where
+    /// that Window can't hold Tabs, or a sheet blocks switching, the folder opens as a new
+    /// Window instead, with no alert, and so it does when no Window is open. Non-native
+    /// fullscreen refuses it with "Cannot Create New Workspace". Each folder is its own undo
+    /// step.
+    @MainActor private func openWorkspace(named name: String, withBaseConfig config: Ghostty.SurfaceConfiguration) {
+        if let parent = TerminalController.preferredParent {
+            // A Window an earlier folder of this open made forms its tab group only once
+            // it's presented, a runloop turn later.
+            if parent.awaitsInitialPresentation {
+                DispatchQueue.main.async { self.openWorkspace(named: name, withBaseConfig: config) }
+                return
+            }
+
+            let store = parent.workspaceStore
+            store.reconcile()
+            if parent.holdsWorkspaces, !store.shownTabHasSheet {
+                guard store.allowsRequest(from: parent, orShow: .cannotCreate) else { return }
+                if store.newWorkspace(from: parent, withBaseConfig: config, named: name, comingForward: true) {
+                    NSApp.activate(ignoringOtherApps: true)
+                    return
+                }
+            }
+        }
+
+        undoManager.registerAsOwnStep {
+            _ = TerminalController.newWindow(ghostty, withBaseConfig: config, workspaceName: name)
+        }
     }
 
     /// Setup signal handlers
@@ -735,7 +800,14 @@ class AppDelegate: NSObject,
     @objc private func ghosttyNewWindow(_ notification: Notification) {
         let configAny = notification.userInfo?[Ghostty.Notification.NewSurfaceConfigKey]
         let config = configAny as? Ghostty.SurfaceConfiguration
-        _ = TerminalController.newWindow(ghostty, withBaseConfig: config)
+
+        // A Window opened from a Tab reads whether to start fullscreen from that Tab's
+        // Window, hidden Tabs included.
+        let parent = (notification.object as? Ghostty.SurfaceView)?.window
+        _ = TerminalController.newWindow(
+            ghostty,
+            withBaseConfig: config,
+            withParent: parent?.windowController is TerminalController ? parent : nil)
     }
 
     @objc private func ghosttyNewTab(_ notification: Notification) {
@@ -885,16 +957,28 @@ class AppDelegate: NSObject,
         default:
             break
         }
+
+        // Encode every Window's Workspaces, which restored Tabs claim by Window id.
+        WorkspacesRestorableState.current.encode(with: coder)
     }
 
     func application(_ app: NSApplication, didDecodeRestorableState coder: NSCoder) {
         Self.logger.debug("application will restore window state")
+        guard ghostty.config.windowSaveState != "never" else { return }
 
         // Decode our quick terminal state.
-        if ghostty.config.windowSaveState != "never",
-            let state = QuickTerminalRestorableState(coder: coder) {
+        if let state = QuickTerminalRestorableState(coder: coder) {
             quickTerminalControllerState = .pendingRestore(state)
         }
+
+        // Decode the Windows' Workspaces. Their restored Tabs claim them by Window id.
+        if let state = WorkspacesRestorableState(coder: coder) {
+            WorkspaceRestoration.didDecode(state, ghostty: ghostty)
+        }
+    }
+
+    @MainActor @objc private func didFinishRestoringWindows(_ notification: Notification) {
+        WorkspaceRestoration.didFinishRestoringWindows()
     }
 
     // MARK: - UNUserNotificationCenterDelegate
@@ -996,6 +1080,11 @@ class AppDelegate: NSObject,
         quickController.toggle()
     }
 
+    /// Jump to Agent. App-scoped, so it runs whatever window is key.
+    @IBAction func jumpToAgent(_ sender: Any?) {
+        _ = JumpToAgent.perform()
+    }
+
     /// Toggles visibility of all Ghosty Terminal windows. When hidden, activates Ghostty as the frontmost application
     @IBAction func toggleVisibility(_ sender: Any) {
         // If we have focus, then we hide all windows.
@@ -1085,9 +1174,16 @@ class AppDelegate: NSObject,
             self.hiddenWindows = visibleWindows
         }
 
-        func restore() {
-            hiddenWindows.forEach { $0.value?.orderFrontRegardless() }
-            keyWindow?.value?.makeKey()
+        @MainActor func restore() {
+            hiddenWindows.forEach { Self.onScreen($0.value)?.orderFrontRegardless() }
+            Self.onScreen(keyWindow?.value)?.makeKey()
+        }
+
+        /// A captured Tab that a switch hid meanwhile gives way to its Window's shown Tab, so it
+        /// never surfaces as a stray window.
+        @MainActor private static func onScreen(_ window: NSWindow?) -> NSWindow? {
+            guard let tab = window?.windowController as? TerminalController else { return window }
+            return tab.onScreenTab?.window
         }
     }
 }
@@ -1213,6 +1309,19 @@ extension AppDelegate {
         syncMenuShortcut(config, action: "inspector:toggle", menuItem: self.menuTerminalInspector)
         syncMenuShortcut(config, action: "toggle_command_palette", menuItem: self.menuCommandPalette)
 
+        syncMenuShortcut(config, action: "toggle_workspace_switcher", menuItem: self.menuSwitchWorkspace)
+        syncMenuShortcut(config, action: "new_workspace", menuItem: self.menuNewWorkspace)
+        syncMenuShortcut(config, action: "prompt_workspace_name", menuItem: self.menuRenameWorkspace)
+        syncMenuShortcut(config, action: "close_workspace", menuItem: self.menuCloseWorkspace)
+        syncMenuShortcut(config, action: "previous_workspace", menuItem: self.menuPreviousWorkspace)
+        syncMenuShortcut(config, action: "next_workspace", menuItem: self.menuNextWorkspace)
+        syncMenuShortcut(config, action: "move_workspace:-1", menuItem: self.menuMoveWorkspaceLeft)
+        syncMenuShortcut(config, action: "move_workspace:1", menuItem: self.menuMoveWorkspaceRight)
+        syncMenuShortcut(config, action: "move_workspace_to_new_window", menuItem: self.menuMoveWorkspaceToNewWindow)
+        syncMenuShortcut(config, action: "jump_to_agent", menuItem: self.menuJumpToAgent)
+        syncMenuShortcut(config, action: "organize_workspaces:repo", menuItem: self.menuOrganizeByRepo)
+        syncMenuShortcut(config, action: "organize_workspaces:folder", menuItem: self.menuOrganizeByFolder)
+
         syncMenuShortcut(config, action: "toggle_secure_input", menuItem: self.menuSecureInput)
 
         // This menu item is NOT synced with the configuration because it disables macOS
@@ -1231,6 +1340,31 @@ extension AppDelegate {
 
     @MainActor func performGhosttyBindingMenuKeyEquivalent(with event: NSEvent) -> Bool {
         menuShortcutManager.performGhosttyBindingMenuKeyEquivalent(with: event)
+    }
+}
+
+// MARK: Workspace menu
+
+extension AppDelegate: NSMenuDelegate {
+    /// Refills the Workspace menu's list from the key Window as the menu opens.
+    /// Windows that can't hold Tabs, the Quick Terminal among them, list nothing.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let separator = menuWorkspaceListSeparator, separator.menu === menu else { return }
+
+        let start = menu.index(of: separator) + 1
+        while menu.numberOfItems > start { menu.removeItem(at: start) }
+
+        let tab = NSApp.keyWindow?.windowController as? TerminalController
+        let store = tab.flatMap { $0.holdsWorkspaces ? $0.workspaceStore : nil }
+        let rows = store?.menuItems(config: ghostty.config) ?? []
+        rows.forEach(menu.addItem)
+        separator.isHidden = rows.isEmpty
+
+        if let submenu = menuMoveTabToWorkspace?.submenu {
+            submenu.removeAllItems()
+            let items = store?.moveTabMenuItems(config: ghostty.config) ?? [WorkspaceStore.moveTabToNewWorkspaceItem()]
+            items.forEach(submenu.addItem)
+        }
     }
 }
 
@@ -1303,6 +1437,10 @@ extension AppDelegate: NSMenuItemValidation {
         case #selector(setAsDefaultTerminal(_:)):
             return NSWorkspace.shared.defaultTerminal != Bundle.main.bundleURL
 
+        case #selector(jumpToAgent(_:)):
+            // Enabled whenever there's a Split to visit, even with no terminal window key.
+            return JumpToAgent.target() != nil
+
         case #selector(floatOnTop(_:)),
             #selector(useAsDefault(_:)):
             // Float on top items only active if the key window is a primary
@@ -1343,10 +1481,16 @@ extension AppDelegate: NSMenuItemValidation {
 // MARK: - Termination Flow
 
 extension AppDelegate {
+    /// Quit asks once per Window, on its shown Tab, when any of its Tabs would, hidden
+    /// Workspaces included, and nothing switches Workspaces. The Quick Terminal
+    /// asks on its own.
     func terminate() -> NSApplication.TerminateReply {
+        var seen = Set<ObjectIdentifier>()
         let controllersNeedConfirmation = NSApplication.shared.windows
             .compactMap { $0.windowController as? BaseTerminalController }
             .filter { !$0.windowCanBeClosedWithoutConfirmation() }
+            .map { ($0 as? TerminalController)?.windowShownTab ?? $0 }
+            .filter { seen.insert(ObjectIdentifier($0)).inserted }
 
         guard !controllersNeedConfirmation.isEmpty else {
             return .terminateNow
@@ -1354,17 +1498,7 @@ extension AppDelegate {
 
         if controllersNeedConfirmation.count == 1 {
             Task {
-                let response = await controllersNeedConfirmation[0].confirmCloseAsync(
-                    messageText: "Quit Ghostty?",
-                    informativeText: "The terminal still has a running process. If you quit, the process will be killed.",
-                    confirmButtonTitle: "Terminate",
-                )
-
-                if [.OK, .alertFirstButtonReturn].contains(response) {
-                    await NSApp.reply(toApplicationShouldTerminate: true)
-                } else {
-                    await NSApp.reply(toApplicationShouldTerminate: false)
-                }
+                await NSApp.reply(toApplicationShouldTerminate: confirmQuit(controllersNeedConfirmation[0]))
             }
 
             return .terminateLater
@@ -1385,26 +1519,44 @@ extension AppDelegate {
         }
     }
 
-    private func reviewWindows(_ controllers: [BaseTerminalController]) {
-        Task {
-            for controller in controllers {
-                let response = await controller.confirmCloseAsync(
-                    messageText: "Quit Ghostty?",
-                    informativeText: "The terminal still has a running process. If you quit, the process will be killed.",
-                    confirmButtonTitle: "Terminate",
-                )
+    /// "Quit Ghostty?" on `controller`, a Window's shown Tab or the Quick Terminal. A Window's
+    /// text names its hidden Workspaces that would ask. True for Terminate.
+    @MainActor private func confirmQuit(_ controller: BaseTerminalController) async -> Bool {
+        let informativeText: String
+        if let tab = controller as? TerminalController {
+            let hidden = WorkspaceStore.hiddenWorkspacesPhrase(
+                naming: tab.workspaceStore.hiddenNames { !$0.windowCanBeClosedWithoutConfirmation() })
+            informativeText = "This window still has running processes\(hidden.map { ", including in \($0)" } ?? ""). If you quit, they will be killed."
+        } else {
+            informativeText = "The terminal still has a running process. If you quit, the process will be killed."
+        }
 
-                if [.OK, .alertFirstButtonReturn].contains(response) {
-                    // Close this window and until next review is cancelled
-                    await controller.window?.close()
-                    continue
-                } else {
-                    await NSApp.reply(toApplicationShouldTerminate: false)
+        let response = await controller.confirmCloseAsync(
+            messageText: "Quit Ghostty?",
+            informativeText: informativeText,
+            confirmButtonTitle: "Terminate",
+        )
+        return [.OK, .alertFirstButtonReturn].contains(response)
+    }
+
+    private func reviewWindows(_ controllers: [BaseTerminalController]) {
+        Task { @MainActor in
+            for controller in controllers {
+                guard await confirmQuit(controller) else {
+                    NSApp.reply(toApplicationShouldTerminate: false)
                     // Cancel the review
                     return
                 }
+
+                // Terminate closes the whole Window, hidden Workspaces included, with nothing
+                // to undo, and the review goes on.
+                if let tab = controller as? TerminalController {
+                    undoManager.disableUndoRegistration { tab.closeWindowImmediately() }
+                } else {
+                    controller.window?.close()
+                }
             }
-            await NSApp.reply(toApplicationShouldTerminate: true)
+            NSApp.reply(toApplicationShouldTerminate: true)
         }
     }
 }

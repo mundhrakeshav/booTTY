@@ -86,6 +86,8 @@ class TerminalWindow: NSWindow {
             guard tabColor != oldValue else { return }
             tabColorIndicator.rootView = tabColorIndicatorView
             invalidateRestorableState()
+            // Only the app-level Workspaces entry saves a hidden Tab.
+            if let tab = terminalController, tab.workspaceStore.isHidden(tab) { NSApp.invalidateRestorableState() }
             NotificationCenter.default.post(name: Self.tabDidChangeNotification, object: self)
         }
     }
@@ -166,8 +168,9 @@ class TerminalWindow: NSWindow {
             self.title = title
         }
 
-        // If window decorations are disabled, remove our title
-        if !config.windowDecorations { styleMask.remove(.titled) }
+        // If window decorations are disabled, remove our title. The controller fixed that
+        // when the Window was created.
+        if terminalController?.windowStyle.isDecorated == false { styleMask.remove(.titled) }
 
         // NOTE: setInitialWindowPosition is NOT called here because subclass
         // awakeFromNib may add decorations (e.g. toolbar for tabs style) that
@@ -294,14 +297,27 @@ class TerminalWindow: NSWindow {
         targetController.promptTabTitle()
     }
 
+    /// Merge All Windows moves whole Workspaces. AppKit's merge skips ordered-out Tabs, which
+    /// would orphan hidden Workspaces, so it never runs. A Window that can't hold Tabs never
+    /// receives a merge.
     override func mergeAllWindows(_ sender: Any?) {
-        super.mergeAllWindows(sender)
+        guard let tab = terminalController, tab.holdsWorkspaces else { return }
+        tab.workspaceStore.mergeAllWindows(requestedBy: tab)
+    }
 
-        // It takes an event loop cycle to merge all the windows so we set a
-        // short timer to relabel the tabs (issue #1902)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.terminalController?.relabelTabs()
-        }
+    /// A Tab doesn't leave for a new Window with its sheet up, nor in non-native fullscreen,
+    /// which shows "Cannot Move Tab", whichever menu, tab bar, or keybind asks.
+    override func moveTabToNewWindow(_ sender: Any?) {
+        if let tab = terminalController, !tab.workspaceStore.allowsMoveToNewWindow(tab) { return }
+        super.moveTabToNewWindow(sender)
+    }
+
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(mergeAllWindows(_:)) else { return super.validateMenuItem(item) }
+
+        // Enabled only when another Window can join, counting Windows rather than NSWindows.
+        guard let tab = terminalController, tab.holdsWorkspaces else { return false }
+        return !tab.workspaceStore.windowsJoiningMerge.isEmpty
     }
 
     override func addTitlebarAccessoryViewController(_ childViewController: NSTitlebarAccessoryViewController) {

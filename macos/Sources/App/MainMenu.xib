@@ -23,6 +23,7 @@
                 <outlet property="menuCloseAllWindows" destination="yKr-Vi-Yqw" id="Zet-Ir-zbm"/>
                 <outlet property="menuCloseTab" destination="Obb-Mk-j8J" id="Gda-L0-gdz"/>
                 <outlet property="menuCloseWindow" destination="W5w-UZ-crk" id="6ff-BT-ENV"/>
+                <outlet property="menuCloseWorkspace" destination="Wk11-Cl-Itm" id="Wk11-Ol-Clw"/>
                 <outlet property="menuCommandPalette" destination="et6-de-Mh7" id="53t-cu-dm5"/>
                 <outlet property="menuCopy" destination="Jqf-pv-Zcu" id="bKd-1C-oy9"/>
                 <outlet property="menuDecreaseFontSize" destination="kzb-SZ-dOA" id="Y1B-Vh-6Z2"/>
@@ -34,22 +35,33 @@
                 <outlet property="menuFloatOnTop" destination="uRj-7z-1Nh" id="94n-o9-Jol"/>
                 <outlet property="menuHideFindBar" destination="xzC-AG-HAc" id="HCo-o6-VWv"/>
                 <outlet property="menuIncreaseFontSize" destination="CIH-ey-Z6x" id="hkc-9C-80E"/>
+                <outlet property="menuJumpToAgent" destination="J2A-Mn-Itm" id="J2A-Ol-Itm"/>
                 <outlet property="menuMoveSplitDividerDown" destination="Zj7-2W-fdF" id="997-LL-nlN"/>
                 <outlet property="menuMoveSplitDividerLeft" destination="wSR-ny-j1a" id="HCZ-CI-2ob"/>
                 <outlet property="menuMoveSplitDividerRight" destination="CcX-ql-QU4" id="rIn-PK-fVM"/>
                 <outlet property="menuMoveSplitDividerUp" destination="h9Y-40-3oo" id="dDi-Vq-I3r"/>
+                <outlet property="menuMoveTabToWorkspace" destination="W13-Mt-Itm" id="W13-Ol-Mtw"/>
+                <outlet property="menuMoveWorkspaceLeft" destination="W12-Ml-Itm" id="W12-Ol-Mwl"/>
+                <outlet property="menuMoveWorkspaceRight" destination="W12-Mr-Itm" id="W12-Ol-Mwr"/>
+                <outlet property="menuMoveWorkspaceToNewWindow" destination="W17-Mw-Itm" id="W17-Ol-Mww"/>
                 <outlet property="menuNewTab" destination="uTG-Vz-hJU" id="eMg-R3-SeS"/>
                 <outlet property="menuNewWindow" destination="Was-JA-tGl" id="lK7-3I-CPG"/>
+                <outlet property="menuNewWorkspace" destination="Wk4-Nw-Itm" id="Wk4-Ol-Nwk"/>
                 <outlet property="menuNextSplit" destination="bD7-ei-wKU" id="LeT-xw-eh4"/>
+                <outlet property="menuNextWorkspace" destination="Wk4-Nx-Itm" id="Wk4-Ol-Nxw"/>
                 <outlet property="menuOpenConfig" destination="BOF-NM-1cW" id="Nze-Go-glw"/>
+                <outlet property="menuOrganizeByFolder" destination="W26-Of-Itm" id="W26-Ol-Ofo"/>
+                <outlet property="menuOrganizeByRepo" destination="W26-Or-Itm" id="W26-Ol-Ore"/>
                 <outlet property="menuPaste" destination="i27-pK-umN" id="ICc-X2-gV3"/>
                 <outlet property="menuPasteSelection" destination="akq-ov-Jjh" id="GS8-aQ-hVw"/>
                 <outlet property="menuPreviousSplit" destination="Lic-px-1wg" id="Rto-CG-yRe"/>
+                <outlet property="menuPreviousWorkspace" destination="Wk4-Pv-Itm" id="Wk4-Ol-Pwk"/>
                 <outlet property="menuQuickTerminal" destination="1pv-LF-NBJ" id="glN-5B-IGi"/>
                 <outlet property="menuQuit" destination="4sb-4s-VLi" id="qYN-S1-6UW"/>
                 <outlet property="menuReadonly" destination="xpe-ia-Yjw" id="MMT-Sl-AfD"/>
                 <outlet property="menuRedo" destination="EX8-lB-4s7" id="wON-2J-yT1"/>
                 <outlet property="menuReloadConfig" destination="KKH-XX-5py" id="Wvp-7J-wqX"/>
+                <outlet property="menuRenameWorkspace" destination="Wk8-Rn-Itm" id="Wk8-Ol-Rnw"/>
                 <outlet property="menuResetFontSize" destination="Jah-MY-aLX" id="ger-qM-wrm"/>
                 <outlet property="menuReturnToDefaultSize" destination="Gbx-Vi-OGC" id="po9-qC-Iz6"/>
                 <outlet property="menuScrollToSelection" destination="1rN-4k-Dz3" id="aRr-aT-oe3"/>
@@ -66,11 +78,13 @@
                 <outlet property="menuSplitLeft" destination="Ppv-GP-lQU" id="Xd5-Cd-Jut"/>
                 <outlet property="menuSplitRight" destination="VUR-Ld-nLx" id="RxO-Zw-ovb"/>
                 <outlet property="menuSplitUp" destination="Ggp-7N-GbX" id="YJF-uq-S4Y"/>
+                <outlet property="menuSwitchWorkspace" destination="W23-Sw-Itm" id="W23-Ol-Swk"/>
                 <outlet property="menuTerminalInspector" destination="QwP-M5-fvh" id="wJi-Dh-S9f"/>
                 <outlet property="menuToggleFullScreen" destination="8kY-Pi-KaY" id="yQg-6V-OO6"/>
                 <outlet property="menuToggleVisibility" destination="DOX-wA-ilh" id="iBj-Bc-2bq"/>
                 <outlet property="menuUndo" destination="r83-CV-syt" id="bU9-0b-xgQ"/>
                 <outlet property="menuUseAsDefault" destination="TrB-O8-g8H" id="af4-Jh-2HU"/>
+                <outlet property="menuWorkspaceListSeparator" destination="Wk4-Ls-Sep" id="Wk4-Ol-Lsp"/>
                 <outlet property="menuZoomSplit" destination="oPd-mn-IEH" id="wTu-jK-egI"/>
             </connections>
         </customObject>
@@ -406,6 +420,97 @@
                                 </connections>
                             </menuItem>
                         </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Workspace" id="Wk4-Mn-Top">
+                    <modifierMask key="keyEquivalentModifierMask"/>
+                    <menu key="submenu" title="Workspace" id="Wk4-Mn-Sub">
+                        <items>
+                            <menuItem title="Switch Workspace…" id="W23-Sw-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="toggleWorkspaceSwitcher:" target="-1" id="W23-Sw-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="W23-Sp-Swt"/>
+                            <menuItem title="New Workspace" id="Wk4-Nw-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="newWorkspace:" target="-1" id="Wk4-Nw-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Rename Workspace…" id="Wk8-Rn-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="renameWorkspace:" target="-1" id="Wk8-Rn-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Close Workspace" id="Wk11-Cl-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="closeWorkspace:" target="-1" id="Wk11-Cl-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="Wk4-Sp-Nav"/>
+                            <menuItem title="Previous Workspace" id="Wk4-Pv-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="previousWorkspace:" target="-1" id="Wk4-Pv-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Next Workspace" id="Wk4-Nx-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="nextWorkspace:" target="-1" id="Wk4-Nx-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Move Workspace Left" id="W12-Ml-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="moveWorkspaceLeft:" target="-1" id="W12-Ml-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Move Workspace Right" id="W12-Mr-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="moveWorkspaceRight:" target="-1" id="W12-Mr-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Move Workspace to New Window" id="W17-Mw-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="moveWorkspaceToNewWindow:" target="-1" id="W17-Mw-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Move Tab to Workspace" id="W13-Mt-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <menu key="submenu" title="Move Tab to Workspace" id="W13-Mt-Sub"/>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="J2A-Sp-Sep"/>
+                            <menuItem title="Jump to Agent" id="J2A-Mn-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="jumpToAgent:" target="bbz-4X-AYv" id="J2A-Mn-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="W26-Sp-Org"/>
+                            <menuItem title="Organize by Repo" id="W26-Or-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="organizeWorkspacesByRepo:" target="-1" id="W26-Or-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Organize by Folder" id="W26-Of-Itm">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="organizeWorkspacesByFolder:" target="-1" id="W26-Of-Act"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="Wk4-Ls-Sep"/>
+                        </items>
+                        <connections>
+                            <outlet property="delegate" destination="bbz-4X-AYv" id="Wk4-Dg-Out"/>
+                        </connections>
                     </menu>
                 </menuItem>
                 <menuItem title="Window" id="aUF-d1-5bR">

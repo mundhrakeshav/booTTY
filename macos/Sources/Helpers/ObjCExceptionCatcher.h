@@ -18,3 +18,10 @@ FOUNDATION_EXPORT BOOL GhosttyShowWindowSafely(
     id _Nullable sender,
     NSError * _Nullable * _Nullable error
 );
+
+/// Runs any block under an Objective-C exception catcher, for AppKit calls
+/// without a dedicated wrapper (NSWindowTabGroup.addWindow, orderOut, ...).
+FOUNDATION_EXPORT BOOL GhosttyPerformSafely(
+    void (NS_NOESCAPE ^ _Nonnull block)(void),
+    NSError * _Nullable * _Nullable error
+);

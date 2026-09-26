@@ -660,7 +660,7 @@ extension Ghostty {
 
         private func localEventLeftMouseDown(_ event: NSEvent) -> NSEvent? {
             let isCommandPaletteVisible = (event.window?.windowController as? BaseTerminalController)?
-                .commandPaletteIsShowing == true
+                .paletteOrSwitcherIsShowing == true
             guard !isCommandPaletteVisible else {
                 // We don't want to process events that
                 // are supposed to be handled by CommandPaletteView
@@ -1038,7 +1038,7 @@ extension Ghostty {
             // Handle focus-follows-mouse
             if let window,
                let controller = window.windowController as? BaseTerminalController,
-               !controller.commandPaletteIsShowing,
+               !controller.paletteOrSwitcherIsShowing,
                window.isKeyWindow &&
                     !self.focused &&
                     controller.focusFollowsMouse {
@@ -1824,7 +1824,8 @@ extension Ghostty {
         func handleUserNotification(notification: UNNotification, focus: Bool) {
             let id = notification.request.identifier
             guard self.notificationIdentifiers.remove(id) != nil else { return }
-            if focus {
+            // A Jump: a hidden Split's Workspace is shown first.
+            if focus, BaseTerminalController.controller(owning: self)?.revealForJump() ?? true {
                 self.window?.makeKeyAndOrderFront(self)
                 Ghostty.moveFocus(to: self)
             }

@@ -40,6 +40,27 @@ struct CommandPaletteFilterTests {
         #expect(results == [byTitle, bySubtitle, byDescription])
     }
 
+    /// Workspace rows: name matches rank above Tab matches, which match on a Tab's title or
+    /// any of its folders; ties keep the given (recency) order. The subtitle ("N tabs · …")
+    /// doesn't match, and a Tab match shows that Tab as the subtitle.
+    @Test func workspaceNameMatchesRankAboveTabMatches() {
+        func workspace(_ name: String, _ tabs: [CommandOption.Tab]) -> CommandOption {
+            CommandOption(title: name, subtitle: "\(tabs.count) tabs · \(tabs.first?.title ?? "")", tabs: tabs) {}
+        }
+        let byFolder = workspace("web", [.init(title: "vim", folders: ["~/code/site", "~/code/api"])])
+        let byTabTitle = workspace("scratch", [.init(title: "zsh", folders: []), .init(title: "api logs", folders: ["/tmp"])])
+        let byName = workspace("api", [.init(title: "zsh", folders: ["~"])])
+        let noMatch = workspace("docs", [.init(title: "man", folders: ["~/docs"])])
+
+        #expect([byFolder, byTabTitle, noMatch, byName].filteredAndSorted(query: "api") == [byName, byFolder, byTabTitle])
+        #expect([byTabTitle, byFolder].filteredAndSorted(query: "api") == [byTabTitle, byFolder])
+        #expect([byName, noMatch].filteredAndSorted(query: "tabs").isEmpty)
+
+        #expect(byFolder.tabSubtitle(matching: "api") == "vim · ~/code/api")
+        #expect(byTabTitle.tabSubtitle(matching: "logs") == "api logs · /tmp")
+        #expect(byName.tabSubtitle(matching: "api") == nil)
+    }
+
     /// Options with equal scores keep their original relative order.
     @Test func tiesPreserveOriginalOrder() {
         let first = option(title: "New Window")

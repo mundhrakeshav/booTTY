@@ -54,3 +54,19 @@ BOOL GhosttyShowWindowSafely(
         return NO;
     }
 }
+
+BOOL GhosttyPerformSafely(
+    void (NS_NOESCAPE ^block)(void),
+    NSError * _Nullable * _Nullable error
+) {
+    @try {
+        block();
+        return YES;
+    } @catch (NSException *exception) {
+        if (error != NULL) {
+            *error = GhosttyErrorFromException(exception, 3);
+        }
+
+        return NO;
+    }
+}

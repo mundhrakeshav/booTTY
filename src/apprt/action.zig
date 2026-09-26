@@ -361,6 +361,23 @@ pub const Action = union(Key) {
     /// OSC 1337 SetUserVar. The value is already base64 decoded.
     set_user_var: SetUserVar,
 
+    /// A Workspace command aimed at the surface's window. Only implemented
+    /// on macOS.
+    workspace: Workspace,
+
+    /// Set the name of the Workspace holding the target's tab. An empty
+    /// name restores the Workspace's original name. Only implemented on
+    /// macOS.
+    set_workspace_name: SetTitle,
+
+    /// Toggle the Workspace switcher in the target's window. Only
+    /// implemented on macOS.
+    toggle_workspace_switcher,
+
+    /// Focus the next split whose agent needs the user, in any window.
+    /// Only implemented on macOS.
+    jump_to_agent,
+
     /// Sync with: ghostty_action_tag_e
     pub const Key = enum(c_int) {
         quit,
@@ -433,6 +450,10 @@ pub const Action = union(Key) {
         copy_title_to_clipboard,
         move_tab_to_new_window,
         set_user_var,
+        workspace,
+        set_workspace_name,
+        toggle_workspace_switcher,
+        jump_to_agent,
 
         test "ghostty.h Action.Key" {
             try lib.checkGhosttyHEnum(Key, "GHOSTTY_ACTION_");
@@ -566,6 +587,35 @@ pub const ResizeSplit = extern struct {
 
 pub const MoveTab = extern struct {
     amount: isize,
+};
+
+/// A Workspace command. `n` is the 1-based index for `goto` and `move_tab_to`,
+/// the signed offset for `move`, and unused otherwise.
+///
+/// Sync with: ghostty_action_workspace_s
+pub const Workspace = extern struct {
+    op: Op,
+    n: isize = 0,
+
+    /// Sync with: ghostty_action_workspace_op_e
+    pub const Op = enum(c_int) {
+        goto,
+        previous,
+        next,
+        new,
+        close,
+        prompt_name,
+        move,
+        move_to_new_window,
+        move_tab_to,
+        move_tab_to_new,
+        organize_repo,
+        organize_folder,
+
+        test "ghostty.h Workspace.Op" {
+            try lib.checkGhosttyHEnum(Op, "GHOSTTY_ACTION_WORKSPACE_");
+        }
+    };
 };
 
 /// The tab to jump to. This is non-exhaustive so that integer values represent

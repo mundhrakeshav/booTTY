@@ -15,6 +15,10 @@ extension TerminalRestorableState {
         let effectiveFullscreenMode: FullscreenMode?
         let tabColor: TerminalTabColor?
         let titleOverride: String?
+
+        // MARK: - Version 8
+        /// The Window id, which matches this Tab to its Window's Workspaces.
+        let windowID: UUID?
     }
 }
 
@@ -26,6 +30,7 @@ extension TerminalRestorableState.InternalState where ViewType == Ghostty.Surfac
             effectiveFullscreenMode: controller.fullscreenStyle?.fullscreenMode,
             tabColor: (controller.window as? TerminalWindow)?.tabColor,
             titleOverride: controller.titleOverride,
+            windowID: controller.workspaceStore.id,
         )
     }
 }

@@ -17,8 +17,9 @@ struct FocusTerminalIntent: AppIntent {
     static var supportedModes: IntentModes = .background
 #endif
 
+    /// False when the terminal's hidden Workspace can't be shown now.
     @MainActor
-    func perform() async throws -> some IntentResult {
+    func perform() async throws -> some IntentResult & ReturnsValue<Bool> {
         guard await requestIntentPermission() else {
             throw GhosttyIntentError.permissionDenied
         }
@@ -28,10 +29,9 @@ struct FocusTerminalIntent: AppIntent {
         }
 
         guard let controller = BaseTerminalController.controller(owning: surfaceView) else {
-            return .result()
+            return .result(value: false)
         }
 
-        controller.focusSurface(surfaceView)
-        return .result()
+        return .result(value: controller.focusSurface(surfaceView))
     }
 }

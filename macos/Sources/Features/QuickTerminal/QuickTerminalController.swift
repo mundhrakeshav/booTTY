@@ -248,20 +248,20 @@ class QuickTerminalController: BaseTerminalController {
 
     // MARK: Base Controller Overrides
 
-    override func focusSurface(_ view: Ghostty.SurfaceView) {
+    override func focusSurface(_ view: Ghostty.SurfaceView) -> Bool {
         if visible {
             // If we're visible, we just focus the surface as normal.
-            super.focusSurface(view)
-            return
+            return super.focusSurface(view)
         }
         // Check if target surface belongs to this quick terminal
-        guard surfaceTree.contains(view) else { return }
+        guard surfaceTree.contains(view) else { return false }
         // Set the target surface as focused
         DispatchQueue.main.async {
             Ghostty.moveFocus(to: view)
         }
         // Animation completion handler will handle window/app activation
         animateIn()
+        return true
     }
 
     override func surfaceTreeDidChange(from: SplitTree<Ghostty.SurfaceView>, to: SplitTree<Ghostty.SurfaceView>) {
@@ -635,14 +635,14 @@ class QuickTerminalController: BaseTerminalController {
         terminalViewContainer?.ghosttyConfigDidChange(ghostty.config, preferredBackgroundColor: nil)
     }
 
-    override func confirmCloseAsync(messageText: String, informativeText: String, confirmButtonTitle: String = "Close") async -> NSApplication.ModalResponse? {
+    override func confirmCloseAsync(messageText: String, informativeText: String, confirmButtonTitle: String = "Close", about subject: AnyHashable? = nil) async -> NSApplication.ModalResponse? {
 
         let waitTime = visible ? 0 : 0.25
         animateIn()
 
         try? await Task.sleep(for: .seconds(waitTime))
 
-        return await super.confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle)
+        return await super.confirmCloseAsync(messageText: messageText, informativeText: informativeText, confirmButtonTitle: confirmButtonTitle, about: subject)
     }
 
     private func showNoNewTabAlert() {
