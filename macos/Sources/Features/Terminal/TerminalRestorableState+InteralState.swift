@@ -19,6 +19,10 @@ extension TerminalRestorableState {
         // MARK: - Version 8
         /// The Window id, which matches this Tab to its Window's Workspaces.
         let windowID: UUID?
+
+        // MARK: - Version 9
+        /// The Tab group the Tab is in.
+        let group: TabGroup?
     }
 }
 
@@ -31,6 +35,7 @@ extension TerminalRestorableState.InternalState where ViewType == Ghostty.Surfac
             tabColor: (controller.window as? TerminalWindow)?.tabColor,
             titleOverride: controller.titleOverride,
             windowID: controller.workspaceStore.id,
+            group: (controller.window as? TerminalWindow)?.group,
         )
     }
 }

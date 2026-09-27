@@ -186,15 +186,17 @@ extension WorkspaceStore {
     }
 
     /// Registers Undo Move Tab for `tab`, which just left the Workspace `saved` describes,
-    /// where it was at `index`. Undo moves it back there and shows it; the redo that move
-    /// registers in turn moves it again, with the view following the move as any move's does.
-    /// Both come off the stack when the Tab alone leaves the Window (`dropUndoMoveTab(of:)`).
-    func registerUndoMoveTab(_ tab: TerminalController, from saved: UndoState, at index: Int) {
+    /// where it was at `index` in Tab group `group`. Undo moves it back there, in that group, and
+    /// shows it; the redo that move registers in turn moves it again, with the view following
+    /// the move as any move's does. Both come off the stack when the Tab alone leaves the Window
+    /// (`dropUndoMoveTab(of:)`).
+    func registerUndoMoveTab(_ tab: TerminalController, from saved: UndoState, at index: Int, group: TabGroup?) {
         guard let undoManager = tab.undoManager else { return }
         undoManager.setActionName("Move Tab")
         undoManager.registerUndo(withTarget: tab.moveTabUndoTarget, expiresAfter: tab.undoExpiration) { [weak tab] _ in
             guard let tab else { return }
             tab.workspaceStore.moveBack(tab, to: saved, at: index, showing: !undoManager.isRedoing)
+            if tab.workspaceStore.workspace(holding: tab).id == saved.id { (tab.window as? TerminalWindow)?.group = group }
         }
     }
 
@@ -256,7 +258,7 @@ extension WorkspaceStore {
             _ = Self.openWindow(holding: Workspace(name: Self.newName(in: []), hiddenTabs: [tab]), sizedLike: nil)
             return
         }
-        registerUndoMoveTab(tab, from: from, at: fromIndex)
+        registerUndoMoveTab(tab, from: from, at: fromIndex, group: (tab.window as? TerminalWindow)?.group)
     }
 
     /// Takes `tab` out of this Window for a move to another one: afterwards it's ordered out

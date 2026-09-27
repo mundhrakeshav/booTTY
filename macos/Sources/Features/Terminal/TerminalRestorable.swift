@@ -73,7 +73,7 @@ extension TerminalRestorable {
 
 /// The state stored for terminal window restoration.
 final class TerminalRestorableState: TerminalRestorable {
-    static var version: Int { 8 }
+    static var version: Int { 9 }
     static var minimumVersion: Int { 5 }
 
     var focusedSurface: String? {
@@ -93,6 +93,9 @@ final class TerminalRestorableState: TerminalRestorable {
     }
     var windowID: UUID? {
         internalState.windowID
+    }
+    var group: TabGroup? {
+        internalState.group
     }
 
     /// Internal State we use to perform unit tests
@@ -209,6 +212,9 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         // Restore our tab color and avoid unnecessary `invalidateRestorableState` calls
         if let tabColor = state.tabColor {
             (window as? TerminalWindow)?.tabColor = tabColor
+        }
+        if let group = state.group {
+            (window as? TerminalWindow)?.group = group
         }
 
         // Restore the tab title override

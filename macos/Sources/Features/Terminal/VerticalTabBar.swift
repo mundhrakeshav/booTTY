@@ -85,6 +85,8 @@ final class VerticalTabBarModel: ObservableObject {
         let statusDate: Date
         /// The `goto_tab` keybind for this position, if any.
         let shortcut: String?
+        /// The Tab group the Tab is in.
+        let group: TabGroup?
         let isSelected: Bool
     }
 
@@ -109,6 +111,33 @@ final class VerticalTabBarModel: ObservableObject {
         let backgroundColor: NSColor?
     }
 
+    /// One of the bar's Tab rows, with its index among its Workspace's Tabs.
+    struct Row: Identifiable, Equatable {
+        let index: Int
+        let tab: Tab
+        var id: Tab.ID { tab.id }
+    }
+
+    /// A run of the bar's rows: one ungrouped Tab, or a Tab group's header and the Tabs it lists.
+    struct Section: Identifiable {
+        enum ID: Hashable {
+            case tab(Tab.ID)
+            /// A group split in two runs, which the next refresh mends, has a section for each.
+            case group(TabGroup.ID, run: Int)
+        }
+
+        let id: ID
+        /// The run's group, as its first Tab carries it. Nil for an ungrouped Tab.
+        let group: TabGroup?
+        /// The Tabs it lists. A collapsed group lists only the Shown Tab, when it's one of its own.
+        let rows: [Row]
+        /// How many Tabs the run holds, listed or not.
+        let count: Int
+        /// The agent status of the Tabs it doesn't list, and its date, for a collapsed header.
+        let status: Ghostty.AgentStatus?
+        let statusDate: Date
+    }
+
     @Published private(set) var tabs: [Tab] = []
 
     /// The Window's Workspaces in bar order. Empty when the Window can't hold them (it's
@@ -123,6 +152,9 @@ final class VerticalTabBarModel: ObservableObject {
 
     /// The shown Workspace while the customizer is open on it. A switch closes it.
     @Published private(set) var customizing: Workspace.ID?
+
+    /// The Tab group the editor is open on.
+    @Published private(set) var editingGroup: TabGroup.ID?
 
     /// The swipe's progress from the shown Workspace (`WorkspaceStore.SwipeProgress`), and
     /// the page it brings in beside the shown one: nil at rest and past an end.
@@ -212,6 +244,13 @@ final class VerticalTabBarModel: ObservableObject {
 
         var windows = tabGroup?.windows ?? []
         if !windows.contains(window) { windows = [window] }
+
+        // Tabs AppKit or a script moved away from their Tab group leave it, so every group's
+        // Tabs sit together.
+        let terminalWindows = windows.compactMap { $0 as? TerminalWindow }
+        for (tabWindow, group) in zip(terminalWindows, TabGroup.whole(terminalWindows.map(\.group))) {
+            tabWindow.group = group
+        }
         let selected = tabGroup?.selectedWindow ?? window
         let config = (window.windowController as? BaseTerminalController)?.ghostty.config
 
@@ -222,6 +261,7 @@ final class VerticalTabBarModel: ObservableObject {
             uniquingKeysWith: { first, _ in first })
         let tabs = Self.tabs(windows, selected: selected, config: config)
         if tabs != self.tabs { self.tabs = tabs }
+        if let editingGroup, !tabs.contains(where: { $0.group?.id == editingGroup }) { self.editingGroup = nil }
 
         // Every Tab's bar follows the Window's store, so a switch also redraws the bar of
         // a Tab that comes in without becoming key.
@@ -272,8 +312,41 @@ final class VerticalTabBarModel: ObservableObject {
                 shortcut: index < 9
                     ? config?.keyboardShortcut(for: "goto_tab:\(index + 1)")?.description
                     : nil,
+                group: terminalWindow?.group,
                 isSelected: tabWindow === selected)
         }
+    }
+
+    /// The bar's sections for `tabs`, the Tabs of one Workspace in order.
+    static func sections(_ tabs: [Tab]) -> [Section] {
+        var sections: [Section] = []
+        var runs: [TabGroup.ID: Int] = [:]
+        var start = 0
+        while start < tabs.count {
+            let group = tabs[start].group
+            var end = start + 1
+            if let group {
+                while end < tabs.count, tabs[end].group?.id == group.id { end += 1 }
+            }
+            let rows = (start..<end).map { Row(index: $0, tab: tabs[$0]) }
+
+            if let group {
+                let run = runs[group.id, default: 0]
+                runs[group.id] = run + 1
+                let unlisted = group.isCollapsed ? rows.filter { !$0.tab.isSelected } : []
+                let rollUp = WorkspaceStore.agentStatus(of: unlisted.map { ($0.tab.status, $0.tab.statusDate) })
+                sections.append(Section(
+                    id: .group(group.id, run: run), group: group,
+                    rows: group.isCollapsed ? rows.filter(\.tab.isSelected) : rows,
+                    count: rows.count, status: rollUp.status, statusDate: rollUp.since))
+            } else {
+                sections.append(Section(
+                    id: .tab(tabs[start].id), group: nil, rows: rows,
+                    count: 1, status: nil, statusDate: .distantPast))
+            }
+            start = end
+        }
+        return sections
     }
 
     private func observe(_ tabGroup: NSWindowTabGroup?) {
@@ -590,6 +663,160 @@ final class VerticalTabBarModel: ObservableObject {
         focusTerminal()
     }
 
+    // MARK: Tab groups
+
+    /// The Tab groups in the bar, in order.
+    var groups: [TabGroup] {
+        var seen = Set<TabGroup.ID>()
+        return tabs.compactMap(\.group).filter { seen.insert($0.id).inserted }
+    }
+
+    /// Tab group `id` as the bar shows it.
+    func group(_ id: TabGroup.ID) -> TabGroup? {
+        groups.first { $0.id == id }
+    }
+
+    /// The bar's Tabs in order as AppKit holds them now. Group commands read these, which a
+    /// refresh still waiting for its turn can't leave behind.
+    private var liveWindows: [NSWindow] {
+        guard let window else { return [] }
+        let windows = window.tabGroup?.windows ?? []
+        return windows.contains(window) ? windows : [window]
+    }
+
+    /// Add Tab to New Group: the Tab starts a group of its own, in a color no other group in
+    /// the bar has, and the editor opens on it, as Chrome's does.
+    func addToNewGroup(_ id: Tab.ID) {
+        guard let tabWindow = tabWindow(id) as? TerminalWindow else { return }
+        if tabWindow.group != nil { removeFromGroup(id) }
+        let group = TabGroup(
+            id: UUID(), name: "", color: TabGroup.color(avoiding: groups.map(\.color)), isCollapsed: false)
+        tabWindow.group = group
+        // A turn later, once the refresh this schedules has drawn the group's header.
+        DispatchQueue.main.async { [weak self] in self?.editingGroup = group.id }
+    }
+
+    /// Add Tab to Group ▸: the Tab joins group `groupID` at its end.
+    func addToGroup(_ id: Tab.ID, _ groupID: TabGroup.ID) {
+        _ = join(dragItem(for: id), groupID)
+    }
+
+    /// A Tab row dropped on group `id`'s header joins the group at its end.
+    func drop(_ tab: DraggedTab, intoGroup id: TabGroup.ID) -> Bool {
+        join(tab, id)
+    }
+
+    /// Moves the dragged Tab, from this bar or another Window's, to the end of group `groupID`
+    /// unless it's there already, and puts it in the group.
+    private func join(_ tab: DraggedTab, _ groupID: TabGroup.ID) -> Bool {
+        let windows = liveWindows
+        guard let dragged = draggedWindow(tab) as? TerminalWindow,
+              dragged.group?.id != groupID,
+              let last = windows.lastIndex(where: { ($0 as? TerminalWindow)?.group?.id == groupID }),
+              let group = (windows[last] as? TerminalWindow)?.group
+        else { return false }
+
+        // `moveTab` lands a Tab from above right after the target, and one from below or from
+        // another Window right before it.
+        let from = windows.firstIndex(of: dragged)
+        let index = from.map { $0 < last ? last : last + 1 } ?? last + 1
+        guard index == from || moveTab(tab, to: index) else { return false }
+        dragged.group = group
+        return true
+    }
+
+    /// Remove Tab from Group. A Tab from the middle of its group moves out past the group's
+    /// end, as Chrome's does, so the group's Tabs still sit together.
+    func removeFromGroup(_ id: Tab.ID) {
+        let windows = liveWindows
+        guard let tabWindow = tabWindow(id) as? TerminalWindow,
+              let groupID = tabWindow.group?.id,
+              let from = windows.firstIndex(of: tabWindow),
+              let last = windows.lastIndex(where: { ($0 as? TerminalWindow)?.group?.id == groupID })
+        else { return }
+
+        let inMiddle = from > 0 && from < last && (windows[from - 1] as? TerminalWindow)?.group?.id == groupID
+        guard !inMiddle || moveTab(dragItem(for: id), to: last) else { return }
+        tabWindow.group = nil
+    }
+
+    func ungroup(_ id: TabGroup.ID) {
+        for case let member as TerminalWindow in liveWindows where member.group?.id == id {
+            member.group = nil
+        }
+    }
+
+    func toggleCollapsed(_ id: TabGroup.ID) {
+        updateGroup(id) { $0.isCollapsed.toggle() }
+    }
+
+    func renameGroup(_ id: TabGroup.ID, to name: String) {
+        updateGroup(id) { $0.name = name }
+    }
+
+    func setGroupColor(_ id: TabGroup.ID, to color: TerminalTabColor) {
+        updateGroup(id) { $0.color = color }
+    }
+
+    /// Changes group `id` as its first Tab carries it and gives every one of its Tabs the
+    /// result, so their copies agree again.
+    private func updateGroup(_ id: TabGroup.ID, _ change: (inout TabGroup) -> Void) {
+        let members = liveWindows.compactMap { $0 as? TerminalWindow }.filter { $0.group?.id == id }
+        guard var group = members.first?.group else { return }
+        change(&group)
+        for member in members { member.group = group }
+    }
+
+    /// Edit Group…: opens the editor on group `id`.
+    func editGroup(_ id: TabGroup.ID) {
+        editingGroup = id
+    }
+
+    func endEditingGroup() {
+        editingGroup = nil
+        focusTerminal()
+    }
+
+    /// New Tab in Group: a Tab opens right after the group's last and joins it.
+    func newTab(inGroup id: TabGroup.ID) {
+        guard let last = liveWindows.last(where: { ($0 as? TerminalWindow)?.group?.id == id }) as? TerminalWindow,
+              let group = last.group,
+              let parent = last.windowController as? TerminalController,
+              let window = TerminalController.newTab(parent.ghostty, from: last)?.window as? TerminalWindow
+        else { return }
+
+        // Under `window-new-tab-position = end` it opened past the group, so it moves up beside it.
+        let windows = liveWindows
+        if let index = windows.firstIndex(of: window), let lastIndex = windows.firstIndex(of: last), index != lastIndex + 1 {
+            _ = moveTab(dragItem(for: ObjectIdentifier(window)), to: lastIndex + 1)
+        }
+        window.group = group
+    }
+
+    /// Close Group: closes the group's Tabs, asking once first when any would. The Shown Tab
+    /// stays on screen when it's outside the group; otherwise the Tab after the group, else the
+    /// one before, is shown first. A group of every Tab closes as its Workspace does.
+    func closeGroup(_ id: TabGroup.ID) {
+        let windows = liveWindows
+        guard let first = windows.firstIndex(where: { ($0 as? TerminalWindow)?.group?.id == id }),
+              let last = windows.lastIndex(where: { ($0 as? TerminalWindow)?.group?.id == id })
+        else { return }
+
+        let selected = window?.tabGroup?.selectedWindow
+        let outside = windows.filter { ($0 as? TerminalWindow)?.group?.id != id }
+        let keeper = outside.first { $0 === selected }
+            ?? (windows.indices.contains(last + 1) ? windows[last + 1] : nil)
+            ?? (first > 0 ? windows[first - 1] : nil)
+        guard let keeper = keeper?.windowController as? TerminalController else {
+            guard let tab = windows[first].windowController as? TerminalController else { return }
+            _ = tab.workspaceStore.closeWorkspace(tab.workspaceStore.shownID, from: tab)
+            return
+        }
+
+        if keeper.window !== selected { keeper.window?.makeKeyAndOrderFront(nil) }
+        keeper.closeTabs(inGroup: id)
+    }
+
     // MARK: Dragging
 
     func dragItem(for id: Tab.ID) -> DraggedTab {
@@ -649,6 +876,23 @@ final class VerticalTabBarModel: ObservableObject {
         (moved && from != nil ? selected ?? dragged : dragged).makeKeyAndOrderFront(nil)
         NSAnimationContext.endGrouping()
         return moved
+    }
+
+    /// A Tab row dropped on the row at `index`, or past the last on "New Tab": it moves there
+    /// and takes that row's Tab group, so dropping it on a group's Tab puts it in the group, and
+    /// dropping it elsewhere takes it out, unless it's its group's only Tab, which takes the
+    /// group along.
+    func drop(_ tab: DraggedTab, at index: Int) -> Bool {
+        guard let dragged = draggedWindow(tab) as? TerminalWindow else { return false }
+        let windows = liveWindows
+        let target = windows.indices.contains(index) ? (windows[index] as? TerminalWindow)?.group : nil
+        let source = dragged.tabGroup?.windows ?? [dragged]
+        let isOnly = source.firstIndex(of: dragged)
+            .map { TabGroup.isOnly($0, in: source.map { ($0 as? TerminalWindow)?.group }) } ?? false
+
+        guard moveTab(tab, to: index) else { return false }
+        dragged.group = target ?? (isOnly ? dragged.group : nil)
+        return true
     }
 }
 
@@ -774,18 +1018,45 @@ private struct VerticalTabBar: View {
         }
     }
 
-    /// The Tab rows down to "New Tab": the lower part of a page.
+    /// The Tab rows, Tab groups' under their headers, down to "New Tab": the lower part of a page.
     private func tabList(_ tabs: [VerticalTabBarModel.Tab]) -> some View {
         VStack(spacing: 2) {
-            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
-                VerticalTabRow(model: model, settings: settings, tab: tab, index: index)
-                    .id(tab.id)
+            ForEach(VerticalTabBarModel.sections(tabs)) { section in
+                if let group = section.group {
+                    groupSection(section, group: group)
+                } else {
+                    rows(section.rows)
+                }
             }
 
             NewTabRow(model: model, collapsed: settings.isCollapsed)
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 8)
+    }
+
+    private func rows(_ rows: [VerticalTabBarModel.Row]) -> some View {
+        ForEach(rows) { row in
+            VerticalTabRow(model: model, settings: settings, tab: row.tab, index: row.index)
+                .id(row.tab.id)
+        }
+    }
+
+    /// A Tab group's header, then the Tabs it lists along a rail of its color.
+    private func groupSection(_ section: VerticalTabBarModel.Section, group: TabGroup) -> some View {
+        VStack(spacing: 2) {
+            TabGroupHeader(model: model, settings: settings, section: section, group: group, edge: edge)
+
+            if !section.rows.isEmpty {
+                VStack(spacing: 2) { rows(section.rows) }
+                    .padding(.leading, 5)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(Color(nsColor: group.color.displayColor ?? .systemGray))
+                            .frame(width: 2)
+                    }
+            }
+        }
     }
 
     /// Places part of a page mid-swipe. The neighbor's page is only drawn: it takes no clicks
@@ -970,7 +1241,7 @@ private struct VerticalTabRow: View {
                 .contextMenu { menu }
                 .draggable(model.dragItem(for: tab.id))
                 .dropDestination(for: DraggedTab.self) { items, _ in
-                    items.first.map { model.moveTab($0, to: index) } ?? false
+                    items.first.map { model.drop($0, at: index) } ?? false
                 } isTargeted: {
                     isDropTarget = $0
                 }
@@ -1050,6 +1321,7 @@ private struct VerticalTabRow: View {
     private var menu: some View {
         Button("Rename Tab…") { model.rename(tab.id) }
         ColorMenu(title: "Tab Color", current: tab.color) { model.setColor($0, for: tab.id) }
+        groupItems
 
         Divider()
 
@@ -1078,6 +1350,35 @@ private struct VerticalTabRow: View {
         Divider()
 
         TabBarMenuItems(model: model, settings: settings)
+    }
+
+    /// Add Tab to Group ▸ lists New Group, then the bar's other groups; with no other group
+    /// it's a single item.
+    @ViewBuilder
+    private var groupItems: some View {
+        let others = model.groups.filter { $0.id != tab.group?.id }
+        if others.isEmpty {
+            Button("Add Tab to New Group") { model.addToNewGroup(tab.id) }
+        } else {
+            Menu("Add Tab to Group") {
+                Button("New Group") { model.addToNewGroup(tab.id) }
+                Divider()
+                ForEach(others) { group in
+                    Button {
+                        model.addToGroup(tab.id, group.id)
+                    } label: {
+                        Label {
+                            Text(group.title)
+                        } icon: {
+                            Image(nsImage: group.color.swatchImage(selected: false))
+                        }
+                    }
+                }
+            }
+        }
+        if tab.group != nil {
+            Button("Remove Tab from Group") { model.removeFromGroup(tab.id) }
+        }
     }
 }
 
@@ -1111,13 +1412,131 @@ private struct NewTabRow: View {
         .help("New Tab")
         // Dropping a tab here moves it to the end.
         .dropDestination(for: DraggedTab.self) { items, _ in
-            items.first.map { model.moveTab($0, to: model.tabs.count) } ?? false
+            items.first.map { model.drop($0, at: model.tabs.count) } ?? false
         } isTargeted: {
             isDropTarget = $0
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("New Tab")
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A Tab group's header: its color and name, which a click collapses or expands, with a count of
+/// the Tabs collapsing hides and their agent status. The group's editor hangs off it, and a Tab
+/// row dropped on it joins the group.
+private struct TabGroupHeader: View {
+    @ObservedObject var model: VerticalTabBarModel
+    @ObservedObject var settings: TabBarSettings
+    let section: VerticalTabBarModel.Section
+    let group: TabGroup
+    let edge: HorizontalEdge
+
+    @State private var isHovering = false
+    @State private var isDropTarget = false
+
+    private var color: Color {
+        Color(nsColor: group.color.displayColor ?? .systemGray)
+    }
+
+    var body: some View {
+        label
+            .frame(height: settings.isCollapsed ? 16 : 24)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isDropTarget ? Color.accentColor.opacity(0.25) : Color.primary.opacity(isHovering ? 0.06 : 0)))
+            .contentShape(Rectangle())
+            .onTapGesture { model.toggleCollapsed(group.id) }
+            .onHover { isHovering = $0 }
+            .help("\(group.title), \(section.count) \(section.count == 1 ? "tab" : "tabs")")
+            .contextMenu { TabGroupMenuItems(model: model, settings: settings, group: group) }
+            .dropDestination(for: DraggedTab.self) { items, _ in
+                items.first.map { model.drop($0, intoGroup: group.id) } ?? false
+            } isTargeted: {
+                isDropTarget = $0
+            }
+            .popover(isPresented: isEditing, arrowEdge: edge == .leading ? .trailing : .leading) {
+                TabGroupEditor(model: model, id: group.id)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(group.title)
+            .accessibilityValue("\(section.count) \(section.count == 1 ? "tab" : "tabs"), \(group.isCollapsed ? "collapsed" : "expanded")")
+            .accessibilityAddTraits(.isButton)
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if settings.isCollapsed {
+            // A bar of the group's color, thicker while the group is collapsed.
+            Capsule()
+                .fill(color)
+                .frame(width: group.isCollapsed ? 22 : 16, height: group.isCollapsed ? 8 : 4)
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 10)
+
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 7, height: 7)
+
+                    if !group.name.isEmpty {
+                        Text(group.name)
+                            .font(.system(size: 11.5, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .frame(height: 20)
+                .background(Capsule().fill(color.opacity(0.22)))
+
+                Spacer(minLength: 0)
+
+                if group.isCollapsed {
+                    StatusDot(color: nil, status: section.status, since: section.statusDate)
+                    Text("\(section.count)")
+                        .font(.system(size: 11))
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .animation(.easeOut(duration: 0.15), value: group.isCollapsed)
+        }
+    }
+
+    /// Only a group's first run hangs the editor, so a group split in two shows it once.
+    private var isEditing: Binding<Bool> {
+        Binding(
+            get: { model.editingGroup == group.id && section.id == .group(group.id, run: 0) },
+            set: { if !$0 { model.endEditingGroup() } })
+    }
+}
+
+/// A Tab group's menu, on its header. The last group acts on the bar, not on the group.
+private struct TabGroupMenuItems: View {
+    @ObservedObject var model: VerticalTabBarModel
+    @ObservedObject var settings: TabBarSettings
+    let group: TabGroup
+
+    var body: some View {
+        Button("Edit Group…") { model.editGroup(group.id) }
+        Button(group.isCollapsed ? "Expand Group" : "Collapse Group") { model.toggleCollapsed(group.id) }
+        Button("New Tab in Group") { model.newTab(inGroup: group.id) }
+
+        Divider()
+
+        Button("Ungroup") { model.ungroup(group.id) }
+        Button("Close Group") { model.closeGroup(group.id) }
+
+        Divider()
+
+        TabBarMenuItems(model: model, settings: settings)
     }
 }
 

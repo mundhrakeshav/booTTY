@@ -92,6 +92,18 @@ class TerminalWindow: NSWindow {
         }
     }
 
+    /// The Tab group this window's Tab is in. Not `tabGroup`, AppKit's native tab group, which
+    /// holds the shown Workspace's Tabs.
+    var group: TabGroup? {
+        didSet {
+            guard group != oldValue else { return }
+            invalidateRestorableState()
+            // Only the app-level Workspaces entry saves a hidden Tab.
+            if let tab = terminalController, tab.workspaceStore.isHidden(tab) { NSApp.invalidateRestorableState() }
+            NotificationCenter.default.post(name: Self.tabDidChangeNotification, object: self)
+        }
+    }
+
     /// The most urgent agent status of this tab's surfaces, drawn as a ring around the
     /// tab color. The terminal controller keeps it current.
     var agentStatus: Ghostty.AgentStatus? {

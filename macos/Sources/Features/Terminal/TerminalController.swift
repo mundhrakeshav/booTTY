@@ -619,6 +619,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 controller.workspaceStore = parentController.workspaceStore
                 controller.workspaceStore.applyThemes()
 
+                // Opened right after its parent, it joins the parent's Tab group, as a
+                // browser's new tab beside a grouped one does; one opened at the end joins none.
+                if ghostty.config.windowNewTabPosition != "end" {
+                    (window as? TerminalWindow)?.group = (parent as? TerminalWindow)?.group
+                }
+
                 // We set the selectedWindow early here because we want the next window
                 // to become first responder as quickly as possible. Usually this is
                 // set while `-[NSWindowController showWindow:]` is called, but we're
@@ -1061,6 +1067,48 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    /// The Tabs of this Tab's Workspace in Tab group `id`, this Tab left out.
+    private func tabs(inGroup id: TabGroup.ID) -> [TerminalController] {
+        groupedTabs
+            .filter { $0 !== window && ($0 as? TerminalWindow)?.group?.id == id }
+            .compactMap { $0.windowController as? TerminalController }
+    }
+
+    private func closeTabsImmediately(inGroup id: TabGroup.ID) {
+        let tabs = tabs(inGroup: id)
+        guard !tabs.isEmpty else { return }
+
+        undoManager?.beginUndoGrouping()
+        defer {
+            undoManager?.endUndoGrouping()
+        }
+
+        // Each Tab's undo brings it back in the group, as its undo state carries it.
+        for tab in tabs {
+            tab.closeTabImmediately(registerRedo: false)
+        }
+
+        if let undoManager {
+            undoManager.setActionName("Close Group")
+
+            undoManager.registerUndo(
+                withTarget: self,
+                expiresAfter: undoExpiration
+            ) { target in
+                DispatchQueue.main.async {
+                    if !target.isHidden { target.window?.makeKeyAndOrderFront(nil) }
+                }
+
+                undoManager.registerUndo(
+                    withTarget: target,
+                    expiresAfter: target.undoExpiration
+                ) { target in
+                    target.closeTabsImmediately(inGroup: id)
+                }
+            }
+        }
+    }
+
     /// Every Tab of this Window, by Workspace in bar order, hidden Workspaces included: what
     /// Close Window checks, closes, and brings back. The shown Workspace's are its
     /// live group's plus a Tab in non-native fullscreen, or this Tab alone while the store has
@@ -1234,6 +1282,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         /// The Tab's Workspace, to put the Tab back in. Nil reopens it as a Window of its own.
         var workspace: WorkspaceStore.UndoState?
         let tabColor: TerminalTabColor
+        let group: TabGroup?
         let windowStyle: WindowStyle
     }
 
@@ -1248,6 +1297,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             ?? surfaceTree.first
         if let terminalWindow = window as? TerminalWindow {
             terminalWindow.tabColor = undoState.tabColor
+            terminalWindow.group = undoState.group
         }
         window.setFrame(undoState.frame, display: false)
     }
@@ -1288,6 +1338,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             tabIndex: groupedTabs.firstIndex(of: window),
             workspace: workspaceStore.undoState(of: workspaceStore.workspace(holding: self).id),
             tabColor: (window as? TerminalWindow)?.tabColor ?? .none,
+            group: (window as? TerminalWindow)?.group,
             windowStyle: windowStyle)
     }
 
@@ -1637,6 +1688,25 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         }
     }
 
+    /// Close Group: closes the Tabs of Tab group `id`, which this Tab stays out of, asking once
+    /// first when any would.
+    func closeTabs(inGroup id: TabGroup.ID) {
+        let tabs = tabs(inGroup: id)
+        guard !tabs.isEmpty else { return }
+
+        guard tabs.contains(where: { $0.surfaceTree.contains(where: { $0.needsConfirmQuit }) }) else {
+            closeTabsImmediately(inGroup: id)
+            return
+        }
+
+        confirmCloseOnScreen(
+            messageText: "Close Group?",
+            informativeText: "At least one tab in the group still has a running process. If you close the group the processes will be killed."
+        ) {
+            self.closeTabsImmediately(inGroup: id)
+        }
+    }
+
     @IBAction func returnToDefaultSize(_ sender: Any?) {
         guard let window, let defaultSize else { return }
         defaultSize.apply(to: window)
@@ -1724,6 +1794,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             let tabs = groupedTabs
             guard let index = tabs.firstIndex(of: window) else { return }
             workspaceStore.moveHiddenTab(self, to: Self.movedTabIndex(from: index, by: action.amount, count: tabs.count))
+            Self.regroup(moved: window, in: groupedTabs)
             return
         }
 
@@ -1743,6 +1814,7 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Get our target window
         let targetWindow = tabbedWindows[finalIndex]
+        defer { Self.regroup(moved: selectedWindow, in: groupedTabs) }
 
         // Moving tabs on macOS 26 RC causes very nasty visual glitches in the titlebar tabs.
         // I believe this is due to messed up constraints for our hacky tab bar. I'd like to
@@ -1773,6 +1845,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         selectedWindow.makeKey()
 
         NSAnimationContext.endGrouping()
+    }
+
+    /// After `move_tab`, the moved Tab's `window` takes the Tab group `TabGroup.moved` gives it
+    /// among `tabs`, its Workspace's Tabs in their new order.
+    private static func regroup(moved window: NSWindow, in tabs: [NSWindow]) {
+        guard let window = window as? TerminalWindow, let index = tabs.firstIndex(of: window) else { return }
+        window.group = TabGroup.moved(at: index, in: tabs.map { ($0 as? TerminalWindow)?.group })
     }
 
     @objc private func onGotoTab(notification: SwiftUI.Notification) {

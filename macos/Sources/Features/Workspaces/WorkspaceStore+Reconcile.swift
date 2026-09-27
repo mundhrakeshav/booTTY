@@ -60,6 +60,8 @@ extension WorkspaceStore {
                 joined = window
             } else {
                 owner = WorkspaceStore(tab: tab)
+                // Alone in a Window of its own, it leaves its Tab group.
+                (window as? TerminalWindow)?.group = nil
             }
             tab.workspaceStore = owner
             owner.reconcile()

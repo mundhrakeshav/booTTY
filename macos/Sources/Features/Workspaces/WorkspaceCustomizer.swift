@@ -100,7 +100,7 @@ private struct ColorChoices: View {
     }
 }
 
-private struct Swatch<Fill: View>: View {
+struct Swatch<Fill: View>: View {
     let isSelected: Bool
     let help: String
     let action: () -> Void

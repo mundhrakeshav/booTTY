@@ -50,8 +50,12 @@ extension WorkspaceStore {
             return false
         }
 
+        // A Tab group stays in its Workspace, as a browser's stays in its window, so the Tab
+        // leaves it; undo puts the Tab back in it.
+        let group = (window as? TerminalWindow)?.group
         guard place(tab, window, from: source, to: id, at: index) else { return false }
-        registerUndoMoveTab(tab, from: saved, at: from)
+        (window as? TerminalWindow)?.group = nil
+        registerUndoMoveTab(tab, from: saved, at: from, group: group)
         return true
     }
 
@@ -184,6 +188,7 @@ extension WorkspaceStore {
         else { return false }
 
         Self.dropUndoMoveTab(of: tab)
+        (tab.window as? TerminalWindow)?.group = nil
         removeHiddenTab(tab)
         return true
     }

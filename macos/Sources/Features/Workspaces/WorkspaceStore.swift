@@ -566,6 +566,8 @@ final class WorkspaceStore: ObservableObject {
         var workspace = workspaces[index]
         let atEnd = parent.ghostty.config.windowNewTabPosition == "end"
         workspace.hiddenTabs.insert(tab, at: Self.newTabIndex(after: workspace.rememberedTab, in: workspace.hiddenTabs, atEnd: atEnd))
+        // Right after the remembered Tab, it joins that Tab's group, as Cmd+T joins its parent's.
+        if !atEnd { (tab.window as? TerminalWindow)?.group = (workspace.rememberedTab?.window as? TerminalWindow)?.group }
         workspace.rememberedTab = tab
         workspaces[index] = workspace
         invalidateRestorableState()
