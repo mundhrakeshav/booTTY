@@ -165,11 +165,11 @@ struct TerminalRestorableTests {
         let workspaces = WorkspacesRestorableState(windows: [
             .init(id: windowID, shownIndex: 1, workspaces: [
                 .init(
-                    id: UUID(), name: "api", originalName: "Workspace 1", color: .red,
-                    rememberedTabIndex: 1, tabs: [tab.archived(), tab.archived()]),
+                    id: UUID(), name: "api", originalName: "Workspace 1", color: .palette(.red),
+                    theme: "Catppuccin Latte", rememberedTabIndex: 1, tabs: [tab.archived(), tab.archived()]),
                 .init(
-                    id: UUID(), name: "Workspace 2", originalName: "Workspace 2", color: .none,
-                    rememberedTabIndex: nil, tabs: []),
+                    id: UUID(), name: "Workspace 2", originalName: "Workspace 2",
+                    color: .custom(hue: 0.5, saturation: 0.7), theme: nil, rememberedTabIndex: nil, tabs: []),
             ]),
         ])
         let quickTerminal = DummyQuickTerminalRestorableState(

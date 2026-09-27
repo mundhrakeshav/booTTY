@@ -140,7 +140,7 @@ extension WorkspaceStore {
     // MARK: Moving Workspaces
 
     /// Move Workspace to New Window: Workspace `id` leaves for a new Window of its own, with
-    /// its id, name, original name, color, Tabs and Splits, and remembered Tab. `tab` is the
+    /// its id, name, original name, color, theme, Tabs and Splits, and remembered Tab. `tab` is the
     /// Tab of the request's target Split. Moving the shown Workspace first shows its
     /// neighbor; moving a hidden one leaves the view as it is. No undo.
     ///
@@ -191,7 +191,7 @@ extension WorkspaceStore {
     /// Merge All Windows, picked in `tab`'s Window: every other Window that can join hands
     /// over all its Workspaces, Window by Window from front to back, each Window's in their
     /// own order. They arrive hidden at the end, with their id, name, original name, color,
-    /// Tabs and Splits, and remembered Tab, and their Tabs take this Window's store. This
+    /// theme, Tabs and Splits, and remembered Tab, and their Tabs take this Window's store. This
     /// Window keeps showing what it shows, and the other Windows go away. No undo.
     ///
     /// Reports false, with nothing merged, in non-native fullscreen, with "Cannot Merge

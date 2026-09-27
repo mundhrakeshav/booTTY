@@ -92,7 +92,7 @@ final class VerticalTabBarModel: ObservableObject {
     struct Workspace: Identifiable, Equatable {
         let id: WorkspaceStore.Workspace.ID
         let name: String
-        let color: TerminalTabColor
+        let color: WorkspaceColor
         let isShown: Bool
         /// The Workspace's agent status roll-up, and its date. The shown Workspace's capsule
         /// hides it, and its ring fades in as the mark gives up its share of the capsule, so
@@ -101,10 +101,12 @@ final class VerticalTabBarModel: ObservableObject {
         let statusDate: Date
     }
 
-    /// The bar as it looks with a Workspace shown: its name header and its Tabs.
+    /// The bar as it looks with a Workspace shown: its name header, its Tabs, and the
+    /// terminal background the bar takes on behind them.
     struct Page: Equatable {
         let workspace: Workspace
         let tabs: [Tab]
+        let backgroundColor: NSColor?
     }
 
     @Published private(set) var tabs: [Tab] = []
@@ -118,6 +120,9 @@ final class VerticalTabBarModel: ObservableObject {
 
     /// The Workspace whose name the header is editing.
     @Published private(set) var renamingWorkspace: Workspace.ID?
+
+    /// The shown Workspace while the customizer is open on it. A switch closes it.
+    @Published private(set) var customizing: Workspace.ID?
 
     /// The swipe's progress from the shown Workspace (`WorkspaceStore.SwipeProgress`), and
     /// the page it brings in beside the shown one: nil at rest and past an end.
@@ -232,6 +237,7 @@ final class VerticalTabBarModel: ObservableObject {
             }
         } ?? []
         if workspaces != self.workspaces { self.workspaces = workspaces }
+        if let customizing, customizing != store?.shownID { self.customizing = nil }
 
         // The neighbor is hidden, so its page draws its held Tabs, with the one it
         // remembers selected.
@@ -244,7 +250,8 @@ final class VerticalTabBarModel: ObservableObject {
                 tabs: Self.tabs(
                     neighbor.hiddenTabs.compactMap(\.window),
                     selected: neighbor.rememberedTab?.window,
-                    config: config))
+                    config: config),
+                backgroundColor: (neighbor.rememberedTab?.window as? TerminalWindow)?.preferredBackgroundColor)
         }
         if progress.amount != swipeAmount { swipeAmount = progress.amount }
         if neighborPage != self.neighborPage { self.neighborPage = neighborPage }
@@ -371,6 +378,9 @@ final class VerticalTabBarModel: ObservableObject {
         return tab
     }
 
+    /// The Window's store, which the customizer edits.
+    var workspaceStore: WorkspaceStore? { workspaceTab?.workspaceStore }
+
     /// Clicking a dot: shows its Workspace, refused as `goto_workspace` is. Clicking the
     /// shown Workspace's capsule does nothing.
     func showWorkspace(_ id: Workspace.ID) {
@@ -417,8 +427,26 @@ final class VerticalTabBarModel: ObservableObject {
         }
     }
 
-    func setColor(_ color: TerminalTabColor, forWorkspace id: Workspace.ID) {
-        workspaceTab?.workspaceStore.setColor(color, of: id)
+    /// Customize Workspace…: opens the customizer on Workspace `id`, first showing it if it's
+    /// hidden, refused as clicking its dot is. The shown Tab's bar holds the customizer, and
+    /// after a switch that's another Tab's.
+    func customizeWorkspace(_ id: Workspace.ID) {
+        guard let tab = workspaceTab else { return }
+        let store = tab.workspaceStore
+        if id != store.shownID {
+            guard store.allowsRequest(from: tab, orShow: .cannotSwitch), store.show(id) else { return }
+        }
+
+        // A popover needs its window on screen, which a switch's incoming Tab is a turn later.
+        DispatchQueue.main.async {
+            guard store.shownID == id else { return }
+            (store.shownTab?.window as? TerminalWindow)?.verticalTabBar.customizing = id
+        }
+    }
+
+    func endCustomizing() {
+        customizing = nil
+        focusTerminal()
     }
 
     func closeWorkspace(_ id: Workspace.ID) {
@@ -721,7 +749,6 @@ private struct VerticalTabBar: View {
     /// is only stored when the drag ends so other windows don't follow every step.
     @GestureState private var dragOffset: CGFloat?
 
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedTab: VerticalTabBarModel.Tab.ID? {
@@ -734,10 +761,12 @@ private struct VerticalTabBar: View {
     private var header: some View {
         if !settings.isCollapsed, let workspace = model.workspaces.first(where: \.isShown) {
             ZStack {
-                swipePage(WorkspaceHeader(model: model, workspace: workspace, edge: edge), isNeighbor: false)
+                swipePage(
+                    WorkspaceHeader(model: model, settings: settings, workspace: workspace, edge: edge),
+                    isNeighbor: false)
                 if let neighbor = model.neighborPage {
                     swipePage(
-                        WorkspaceHeader(model: model, workspace: neighbor.workspace, edge: edge),
+                        WorkspaceHeader(model: model, settings: settings, workspace: neighbor.workspace, edge: edge),
                         isNeighbor: true)
                 }
             }
@@ -797,6 +826,13 @@ private struct VerticalTabBar: View {
                 alignment: settings.isCollapsed ? .center : edge == .leading ? .leading : .trailing)
             .padding(.horizontal, 6)
             .frame(height: 34)
+            // The customizer hangs off the header toward the terminal, as Arc's theme
+            // editor hangs off its sidebar.
+            .popover(isPresented: isCustomizing, arrowEdge: edge == .leading ? .trailing : .leading) {
+                if let store = model.workspaceStore, let id = model.customizing {
+                    WorkspaceCustomizer(store: store, id: id)
+                }
+            }
 
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
@@ -823,11 +859,7 @@ private struct VerticalTabBar: View {
         // No ideal height: the window's default size comes from the terminal, not
         // from how many tabs are open.
         .frame(idealHeight: 0, maxHeight: .infinity)
-        .background(
-            // Recede slightly from the terminal so the bar reads as chrome.
-            Color(nsColor: model.backgroundColor ?? .windowBackgroundColor)
-                .overlay(Color.black.opacity(colorScheme == .dark ? 0.16 : 0.04))
-        )
+        .background(backdrop)
         .overlay(alignment: edge == .leading ? .trailing : .leading) {
             Rectangle()
                 .fill(Color.primary.opacity(0.1))
@@ -839,6 +871,29 @@ private struct VerticalTabBar: View {
         .contextMenu { TabBarMenuItems(model: model, settings: settings) }
         .onAppear { model.activate() }
         .onDisappear { model.deactivate() }
+    }
+
+    /// The shown Workspace's backdrop. A switch morphs its wash from the old Workspace's
+    /// color to the new one's, and mid-swipe the neighbor's backdrop fades in over it.
+    private var backdrop: some View {
+        let shown = model.workspaces.first(where: \.isShown)
+        return ZStack {
+            WorkspaceBackdrop(background: model.backgroundColor, wash: shown?.color.displayColor)
+                .animation(.easeOut(duration: 0.25), value: shown?.id)
+
+            if let neighbor = model.neighborPage {
+                WorkspaceBackdrop(
+                    background: neighbor.backgroundColor ?? model.backgroundColor,
+                    wash: neighbor.workspace.color.displayColor)
+                    .opacity(Double(min(abs(model.swipeAmount), 1)))
+            }
+        }
+    }
+
+    private var isCustomizing: Binding<Bool> {
+        Binding(
+            get: { model.customizing != nil },
+            set: { if !$0 { model.endCustomizing() } })
     }
 
     private var width: CGFloat {
@@ -882,6 +937,7 @@ private struct VerticalTabRow: View {
     @State private var isHovering = false
     @State private var isDropTarget = false
     @Environment(\.appearsActive) private var appearsActive
+    @Environment(\.colorScheme) private var colorScheme
 
     private var title: String {
         tab.title.isEmpty ? "Terminal" : tab.title
@@ -891,7 +947,7 @@ private struct VerticalTabRow: View {
         if model.renamingTab == tab.id && !settings.isCollapsed {
             RenameField(
                 placeholder: "Tab Title",
-                color: tab.color,
+                dot: ColorDot(color: tab.color.displayColor),
                 font: model.tabTitleFont,
                 initialText: model.renameTitle(for: tab.id),
                 commit: { model.commitRename(tab.id, title: $0) },
@@ -903,7 +959,7 @@ private struct VerticalTabRow: View {
                         .strokeBorder(Color.accentColor, lineWidth: 1))
         } else {
             label
-                .tabRow(fill: fill)
+                .tabRow(fill: fill, raised: tab.isSelected && colorScheme == .light)
                 .contentShape(Rectangle())
                 .onTapGesture { model.select(tab.id) }
                 .simultaneousGesture(TapGesture(count: 2).onEnded {
@@ -936,12 +992,12 @@ private struct VerticalTabRow: View {
                 .frame(maxWidth: .infinity)
                 // The number carries the tab color, so the ring's fill is the status.
                 .overlay(alignment: .leading) {
-                    StatusDot(color: .none, status: tab.status, since: tab.statusDate, echoScale: 1.5)
+                    StatusDot(color: nil, status: tab.status, since: tab.statusDate, echoScale: 1.5)
                         .padding(.leading, 2)
                 }
         } else {
             HStack(spacing: 7) {
-                StatusDot(color: tab.color, status: tab.status, since: tab.statusDate)
+                StatusDot(color: tab.color.displayColor, status: tab.status, since: tab.statusDate)
 
                 Text(title)
                     .font(model.tabTitleFont)
@@ -981,7 +1037,12 @@ private struct VerticalTabRow: View {
 
     private var fill: Color {
         if isDropTarget { return Color.accentColor.opacity(0.25) }
-        if tab.isSelected { return Color.primary.opacity(appearsActive ? 0.14 : 0.08) }
+        if tab.isSelected {
+            // A card lifted off the bar, as Arc draws its selected tab.
+            return colorScheme == .dark
+                ? Color.white.opacity(appearsActive ? 0.13 : 0.08)
+                : Color.white.opacity(appearsActive ? 0.8 : 0.55)
+        }
         return isHovering ? Color.primary.opacity(0.06) : .clear
     }
 
@@ -1198,7 +1259,7 @@ private struct WorkspaceDot: View {
             .frame(width: collapsed ? 6 : mark.length, height: collapsed ? mark.length : 6)
             .overlay {
                 StatusDot(
-                    color: workspace.color,
+                    color: workspace.color.displayColor,
                     status: workspace.status,
                     since: workspace.statusDate,
                     dotSize: 6,
@@ -1220,7 +1281,7 @@ private struct WorkspaceDot: View {
                     hovered = nil
                 }
             }
-            .contextMenu { menu }
+            .contextMenu { WorkspaceMenuItems(model: model, settings: settings, workspace: workspace) }
             .draggable(model.dragItem(for: workspace.id))
             .dropDestination(for: WorkspaceDrop.self) { items, _ in
                 items.first.map { model.drop($0, on: workspace.id) } ?? false
@@ -1239,14 +1300,18 @@ private struct WorkspaceDot: View {
                     .joined(separator: ", "))
             .accessibilityAddTraits(workspace.isShown ? [.isButton, .isSelected] : .isButton)
     }
+}
 
-    /// The dot menu. The last group acts on the bar, not on this Workspace.
-    @ViewBuilder
-    private var menu: some View {
+/// A Workspace's menu, on its dot and, for the shown one, on the header. The last group
+/// acts on the bar, not on the Workspace.
+private struct WorkspaceMenuItems: View {
+    @ObservedObject var model: VerticalTabBarModel
+    @ObservedObject var settings: TabBarSettings
+    let workspace: VerticalTabBarModel.Workspace
+
+    var body: some View {
+        Button("Customize Workspace…") { model.customizeWorkspace(workspace.id) }
         Button("Rename Workspace…") { model.renameWorkspace(workspace.id) }
-        ColorMenu(title: "Workspace Color", current: workspace.color) {
-            model.setColor($0, forWorkspace: workspace.id)
-        }
 
         Divider()
 
@@ -1261,46 +1326,67 @@ private struct WorkspaceDot: View {
 }
 
 /// The shown Workspace's name atop the expanded bar, led by a dot of its color when it has
-/// one. Double-clicking renames it in place, as with a Tab row.
+/// one. Double-clicking renames it in place, as with a Tab row, and the button beside it
+/// opens the customizer, as Arc's does beside a Space's name.
 private struct WorkspaceHeader: View {
     @ObservedObject var model: VerticalTabBarModel
+    @ObservedObject var settings: TabBarSettings
     let workspace: VerticalTabBarModel.Workspace
     let edge: HorizontalEdge
+
+    @State private var isHovering = false
 
     private static let font = Font.system(size: 13, weight: .semibold)
 
     /// Nil leaves no room for a dot.
-    private var dotColor: TerminalTabColor? {
-        workspace.color.displayColor == nil ? nil : workspace.color
+    private var dot: ColorDot? {
+        workspace.color.displayColor.map { ColorDot(color: $0) }
     }
 
     var body: some View {
         if model.renamingWorkspace == workspace.id {
             RenameField(
                 placeholder: "Workspace Name",
-                color: dotColor,
+                dot: dot,
                 font: Self.font,
                 initialText: workspace.name,
                 commit: { model.commitWorkspaceRename(workspace.id, name: $0) },
                 cancel: model.cancelWorkspaceRename)
         } else {
-            HStack(spacing: 7) {
-                if let dotColor { ColorDot(color: dotColor) }
+            HStack(spacing: 4) {
+                if edge == .trailing { customizeButton }
 
-                Text(workspace.name)
-                    .font(Self.font)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 7) {
+                    dot
+
+                    Text(workspace.name)
+                        .font(Self.font)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                // Mirrored on a right-side bar, so the name sits against the toggle.
+                .frame(maxWidth: .infinity, alignment: edge == .leading ? .leading : .trailing)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { model.beginWorkspaceRename() }
+                .help(workspace.name)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(workspace.name)
+                .accessibilityAddTraits(.isHeader)
+
+                if edge == .leading { customizeButton }
             }
-            // Mirrored on a right-side bar, so the name sits against the toggle.
-            .frame(maxWidth: .infinity, alignment: edge == .leading ? .leading : .trailing)
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) { model.beginWorkspaceRename() }
-            .help(workspace.name)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(workspace.name)
-            .accessibilityAddTraits(.isHeader)
+            .onHover { isHovering = $0 }
+            .contextMenu { WorkspaceMenuItems(model: model, settings: settings, workspace: workspace) }
         }
+    }
+
+    /// Keeps its room while hidden, so the name never shifts, and shows while the pointer is
+    /// over the header or the customizer is open.
+    private var customizeButton: some View {
+        IconButton(systemImage: "paintpalette", pointSize: 12, size: 22, help: "Customize Workspace") {
+            model.customizeWorkspace(workspace.id)
+        }
+        .opacity(isHovering || model.customizing == workspace.id ? 1 : 0)
     }
 }
 
@@ -1308,7 +1394,7 @@ private struct WorkspaceHeader: View {
 private struct RenameField: View {
     let placeholder: String
     /// The dot before the field; nil leaves no room for one.
-    let color: TerminalTabColor?
+    let dot: ColorDot?
     let font: Font
     let initialText: String
     let commit: (String) -> Void
@@ -1319,7 +1405,7 @@ private struct RenameField: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            if let color { ColorDot(color: color) }
+            dot
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
@@ -1363,8 +1449,7 @@ private struct TabBarMenuItems: View {
     }
 }
 
-/// A swatch for each color, None first, with `current` marked: the Tab Color and
-/// Workspace Color menus.
+/// A swatch for each color, None first, with `current` marked: the Tab Color menu.
 private struct ColorMenu: View {
     let title: String
     let current: TerminalTabColor
@@ -1415,14 +1500,41 @@ private struct IconButton: View {
     }
 }
 
-/// The user-assigned tab color, or an empty slot so titles stay aligned.
+/// A Tab's or Workspace's color, or an empty slot so titles stay aligned.
 private struct ColorDot: View {
-    let color: TerminalTabColor
+    let color: NSColor?
 
     var body: some View {
         Circle()
-            .fill(color.displayColor.map { Color(nsColor: $0) } ?? .clear)
+            .fill(color.map { Color(nsColor: $0) } ?? .clear)
             .frame(width: 7, height: 7)
+    }
+}
+
+/// A bar's backdrop: the terminal's background, receded a little so the bar reads as
+/// chrome, then washed in the Workspace color, strongest at the top, the way Arc washes its
+/// sidebar in a Space's color.
+private struct WorkspaceBackdrop: View {
+    let background: NSColor?
+    let wash: NSColor?
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let dark = colorScheme == .dark
+        Color(nsColor: background ?? .windowBackgroundColor)
+            .overlay(Color.black.opacity(dark ? 0.16 : 0.04))
+            .overlay {
+                if let wash {
+                    Rectangle()
+                        .fill(Color(nsColor: wash))
+                        .mask(LinearGradient(
+                            colors: [.white.opacity(dark ? 0.3 : 0.24), .white.opacity(dark ? 0.12 : 0.1)],
+                            startPoint: .top,
+                            endPoint: .bottom))
+                        .transition(.opacity)
+                }
+            }
     }
 }
 
@@ -1430,7 +1542,7 @@ private struct ColorDot: View {
 /// always means status; the fill keeps the tab color, or takes the status color when
 /// the tab has none.
 struct StatusDot: View {
-    let color: TerminalTabColor
+    let color: NSColor?
     let status: Ghostty.AgentStatus?
 
     /// When `status` last changed, so only a finish that just arrived pings.
@@ -1450,7 +1562,7 @@ struct StatusDot: View {
 
     var body: some View {
         let tint = status.map { Color(nsColor: $0.color) }
-        let color = self.color.displayColor.map { Color(nsColor: $0) }
+        let color = self.color.map { Color(nsColor: $0) }
         let fill = dimming.map { dimming in color.map { $0.opacity(dimming) } ?? tint ?? .primary.opacity(dimming) }
             ?? color ?? tint ?? .clear
 
@@ -1553,10 +1665,13 @@ extension Ghostty.AgentStatus {
 }
 
 private extension View {
-    /// Size and selection shape shared by every row of the bar.
-    func tabRow(fill: Color) -> some View {
+    /// Size and selection shape shared by every row of the bar. A raised row casts a faint
+    /// shadow, as a card on the bar.
+    func tabRow(fill: Color, raised: Bool = false) -> some View {
         frame(height: 28)
             .frame(maxWidth: .infinity)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill))
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(fill)
+                .shadow(color: .black.opacity(raised ? 0.1 : 0), radius: 1.5, y: 0.5))
     }
 }

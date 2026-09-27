@@ -25,7 +25,17 @@ extension Ghostty {
         /// The global app configuration. This defines the app level configuration plus any behavior
         /// for new windows, tabs, etc. Note that when creating a new window, it may inherit some
         /// configuration (i.e. font size) from the previously focused window. This would override this.
-        @Published private(set) var config: Config
+        @Published private(set) var config: Config {
+            // Workspace themes lie over the config, so they're built again from the new one.
+            didSet { reapplyThemes() }
+        }
+
+        /// Each Workspace theme's config, by theme name: the config with the theme's file laid
+        /// over it. Built on first use, and dropped when the config changes.
+        private var themedConfigs: [String: Config] = [:]
+
+        /// The Splits that have a Workspace theme, so a config change can give it back.
+        private let themedSurfaces = NSHashTable<SurfaceView>.weakObjects()
 
         /// Preferred config file than the default ones
         private var configPath: String?
@@ -161,17 +171,61 @@ extension Ghostty {
             /// applied config will be updated in ``Self.configChange(_:target:v:)``
         }
 
+        /// The config for Workspace theme `theme`: the config with the theme's file laid over
+        /// it, so the theme's colors win over the config's own. The config itself for nil, and
+        /// for a theme whose file is gone.
+        func config(forTheme theme: String?) -> Config {
+            guard let theme else { return config }
+            if let themed = themedConfigs[theme] { return themed }
+            guard let url = Theme.url(named: theme) else { return config }
+            let themed = Config(at: configPath, overlay: url.path)
+            guard themed.loaded else { return config }
+            themedConfigs[theme] = themed
+            return themed
+        }
+
+        /// Gives `view` Workspace theme `theme`, or the config itself for nil. Does nothing
+        /// when the Split has it already.
+        func setTheme(_ theme: String?, for view: SurfaceView) {
+            guard view.workspaceTheme != theme, let surface = view.surface else { return }
+            view.workspaceTheme = theme
+            if theme == nil { themedSurfaces.remove(view) } else { themedSurfaces.add(view) }
+            guard let config = config(forTheme: theme).config else { return }
+            ghostty_surface_update_config(surface, config)
+        }
+
+        /// A config change reaches every Split as the config itself, so the Splits with a
+        /// Workspace theme get theirs back, built from the new config. It waits a turn, since
+        /// it runs in the middle of the change.
+        private func reapplyThemes() {
+            themedConfigs = [:]
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                for view in themedSurfaces.allObjects {
+                    guard let surface = view.surface,
+                          let config = config(forTheme: view.workspaceTheme).config
+                    else { continue }
+                    ghostty_surface_update_config(surface, config)
+                }
+            }
+        }
+
         func reloadConfig(surface: ghostty_surface_t, soft: Bool = false) {
+            // A Split with a Workspace theme keeps it.
+            let theme = Self.surfaceView(from: surface)?.workspaceTheme
+
             // Soft updates just call with our existing config
             if soft {
-                ghostty_surface_update_config(surface, config.config!)
+                guard let config = config(forTheme: theme).config else { return }
+                ghostty_surface_update_config(surface, config)
                 return
             }
 
             // Hard or full updates have to reload the full configuration.
             // NOTE: We never set this on self.config because this is a surface-only
             // config. We free it after the call.
-            let newConfig = Config(at: configPath)
+            let newConfig = theme.flatMap(Theme.url(named:))
+                .map { Config(at: configPath, overlay: $0.path) } ?? Config(at: configPath)
             guard newConfig.loaded else {
                 Ghostty.logger.warning("failed to reload configuration")
                 return

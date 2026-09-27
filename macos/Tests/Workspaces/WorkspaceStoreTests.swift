@@ -102,13 +102,39 @@ struct WorkspaceStoreTests {
         _ = store.addWorkspace(holding: [])
         #expect(store.workspaces.map(\.color) == [.none, .none, .none])
 
-        store.setColor(.blue, of: hidden)
-        #expect(store.workspaces.map(\.color) == [.none, .blue, .none])
+        store.setColor(.palette(.blue), of: hidden)
+        #expect(store.workspaces.map(\.color) == [.none, .palette(.blue), .none])
         #expect(store.shownIndex == 0)
+
+        store.setColor(.custom(hue: 0.5, saturation: 0.7), of: hidden)
+        #expect(store.workspaces[1].color == .custom(hue: 0.5, saturation: 0.7))
 
         store.setColor(.none, of: hidden)
         #expect(store.workspaces[1].color == .none)
     }
+
+    @Test func setThemeThemesAnyWorkspaceWithoutSwitching() {
+        let store = store(["Workspace 1", "Workspace 2"])
+        let hidden = store.workspaces[1].id
+
+        store.setTheme("Catppuccin Latte", of: hidden)
+        #expect(store.workspaces.map(\.theme) == [nil, "Catppuccin Latte"])
+        #expect(store.shownIndex == 0)
+
+        store.setTheme(nil, of: hidden)
+        #expect(store.workspaces[1].theme == nil)
+    }
+
+    /// Saves from before custom colors stored a Tab palette index, and still decode.
+    @Test func workspaceColorDecodesPaletteIndexesAndRoundTripsCustomColors() throws {
+        let legacy = try JSONDecoder().decode([WorkspaceColor].self, from: Data("[0, 4]".utf8))
+        #expect(legacy == [.none, .palette(.red)])
+
+        let colors: [WorkspaceColor] = [.palette(.teal), .custom(hue: 0.25, saturation: 0.5)]
+        let decoded = try JSONDecoder().decode([WorkspaceColor].self, from: JSONEncoder().encode(colors))
+        #expect(decoded == colors)
+    }
+
     // MARK: Ordering
 
     @Test func addedWorkspaceGoesAtTheEnd() {
@@ -259,7 +285,9 @@ struct WorkspaceStoreTests {
     // MARK: Undo
 
     private func undoState(of store: WorkspaceStore, position: Int) -> WorkspaceStore.UndoState {
-        .init(windowID: store.id, id: UUID(), name: "api", originalName: "Workspace 2", color: .teal, position: position)
+        .init(
+            windowID: store.id, id: UUID(), name: "api", originalName: "Workspace 2",
+            color: .palette(.teal), theme: "Nord", position: position)
     }
 
     @Test func recreatedWorkspaceComesBackAtItsOldPosition() {
@@ -273,7 +301,8 @@ struct WorkspaceStoreTests {
         let workspace = store.workspaces[1]
         #expect(workspace.id == saved.id)
         #expect(workspace.originalName == "Workspace 2")
-        #expect(workspace.color == .teal)
+        #expect(workspace.color == .palette(.teal))
+        #expect(workspace.theme == "Nord")
         #expect(store.shownID == shown)
     }
 

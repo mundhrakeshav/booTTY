@@ -78,9 +78,13 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The store of the Window this Tab belongs to, shown or hidden. A Tab that starts a
     /// Window makes one, holding "Workspace 1"; a Tab added to a Window adopts its store.
     lazy var workspaceStore = WorkspaceStore(tab: self) {
-        // The bar draws the Window's Workspaces, so it follows the Tab to its new store.
-        // No object: reading `window` here would load it before the Tab is set up.
-        didSet { NotificationCenter.default.post(name: TerminalWindow.tabDidChangeNotification, object: nil) }
+        didSet {
+            // The bar draws the Window's Workspaces, so it follows the Tab to its new store.
+            // No object: reading `window` here would load it before the Tab is set up.
+            NotificationCenter.default.post(name: TerminalWindow.tabDidChangeNotification, object: nil)
+            // Its Splits take their Workspace's theme in the new Window.
+            workspaceStore.setNeedsThemeSync()
+        }
     }
 
     /// The target of this Tab's Undo and Redo Move Tab entries, so they alone come off the
@@ -265,6 +269,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         if isHidden { NSApp.invalidateRestorableState() }
         // A Split opening or closing can leave Undo Organize unable to run.
         workspaceStore.dropOrganizeUndoIfStale()
+
+        // A new Split takes its Workspace's theme.
+        let theme = workspaceStore.workspace(holding: self).theme
+        for surface in to where !from.contains(surface) { ghostty.setTheme(theme, for: surface) }
 
         // Update our zoom state
         if let window = window as? TerminalWindow {
@@ -607,8 +615,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 tabCreated = parent.addTabbedWindowSafely(window, ordered: .above)
             }
             if tabCreated {
-                // Cmd+T joins the shown Workspace.
+                // Cmd+T joins the shown Workspace, and takes its theme before it draws.
                 controller.workspaceStore = parentController.workspaceStore
+                controller.workspaceStore.applyThemes()
 
                 // We set the selectedWindow early here because we want the next window
                 // to become first responder as quickly as possible. Usually this is

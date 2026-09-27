@@ -857,7 +857,7 @@ private struct TabColorIndicatorView: View {
 
     var body: some View {
         // Always the same view so a new status animates in place.
-        StatusDot(color: tabColor, status: agentStatus, since: agentStatusDate, dotSize: 6, echoScale: 1.5)
+        StatusDot(color: tabColor.displayColor, status: agentStatus, since: agentStatusDate, dotSize: 6, echoScale: 1.5)
     }
 }
 

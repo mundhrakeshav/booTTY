@@ -41,6 +41,12 @@ extension Ghostty {
             self.init(config: Self.loadConfig(at: path, finalize: finalize))
         }
 
+        /// The config at `path`, or in the default files, with the file at `overlay` loaded
+        /// last, so its values win over the config's own: a Workspace theme's colors.
+        convenience init(at path: String?, overlay: String) {
+            self.init(config: Self.loadConfig(at: path, finalize: true, overlay: overlay))
+        }
+
         convenience init(clone config: ghostty_config_t) {
             self.init(config: ghostty_config_clone(config))
         }
@@ -57,7 +63,8 @@ extension Ghostty {
         /// - Parameters:
         ///   - path: An optional preferred config file path. Pass `nil` to load the default configuration files.
         ///   - finalize: Whether to finalize the configuration to populate default values.
-        static func loadConfig(at path: String?, finalize: Bool) -> ghostty_config_t? {
+        ///   - overlay: An optional file loaded after every other, before finalizing.
+        static func loadConfig(at path: String?, finalize: Bool, overlay: String? = nil) -> ghostty_config_t? {
             // Initialize the global configuration.
             guard let cfg = ghostty_config_new() else {
                 logger.critical("ghostty_config_new failed")
@@ -78,6 +85,10 @@ extension Ghostty {
             }
 
             ghostty_config_load_recursive_files(cfg)
+
+            if let overlay {
+                ghostty_config_load_file(cfg, overlay)
+            }
 
             // TODO: we'd probably do some config loading here... for now we'd
             // have to do this synchronously. When we support config updating we can do

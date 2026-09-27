@@ -80,7 +80,7 @@ struct WorkspaceSwitcherView: View {
                 title: workspace.name,
                 subtitle: selecting.map { "\(count) · \(Self.title(of: $0))" } ?? count,
                 symbols: shortcuts[workspace.id],
-                leadingDot: StatusDot(color: workspace.color, status: status.status, since: status.since),
+                leadingDot: StatusDot(color: workspace.color.displayColor, status: status.status, since: status.since),
                 badge: isShown ? "Shown" : nil,
                 tabs: tabs.map { tab in
                     let focused = tab.focusedSurface

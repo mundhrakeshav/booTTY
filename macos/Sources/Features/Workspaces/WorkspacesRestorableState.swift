@@ -19,7 +19,9 @@ struct WorkspacesRestorableState: TerminalRestorable {
         let id: UUID
         let name: String
         let originalName: String
-        let color: TerminalTabColor
+        let color: WorkspaceColor
+        /// Nil in saves from before Workspace themes.
+        let theme: String?
         /// The index in `tabs` of the remembered Tab.
         let rememberedTabIndex: Int?
         /// Each Tab's archived `TerminalRestorableState`. Empty for the shown Workspace,
@@ -61,6 +63,7 @@ extension WorkspacesRestorableState.Window {
                 name: workspace.name,
                 originalName: workspace.originalName,
                 color: workspace.color,
+                theme: workspace.theme,
                 rememberedTabIndex: tabs.firstIndex { $0 === workspace.rememberedTab },
                 tabs: tabs.map { TerminalRestorableState(from: $0).archived() })
         }

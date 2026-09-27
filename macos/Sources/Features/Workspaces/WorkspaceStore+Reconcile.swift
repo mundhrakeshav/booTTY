@@ -105,6 +105,8 @@ extension WorkspaceStore {
     func bind(_ group: NSWindowTabGroup) {
         tabGroup = group
         hasBound = true
+        // Until now the store couldn't reach the shown Workspace's Tabs to theme them.
+        setNeedsThemeSync()
 
         // KVO fires in the middle of AppKit's tab changes, so reconcile on a later turn that
         // sees consistent state, as VerticalTabBarModel does.

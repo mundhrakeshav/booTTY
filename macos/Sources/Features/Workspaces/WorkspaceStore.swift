@@ -19,7 +19,10 @@ final class WorkspaceStore: ObservableObject {
         var name: String
         /// The name a blank rename restores.
         var originalName: String
-        var color: TerminalTabColor
+        var color: WorkspaceColor
+        /// The Ghostty theme every Split of the Workspace takes over the config's colors, by
+        /// name. Nil keeps the config's.
+        var theme: String?
         /// A hidden Workspace's Tabs, in order. Empty while it's shown: the shown
         /// Workspace's Tabs are the Window's live tab group.
         var hiddenTabs: [TerminalController]
@@ -32,7 +35,8 @@ final class WorkspaceStore: ObservableObject {
             id: UUID = UUID(),
             name: String,
             originalName: String? = nil,
-            color: TerminalTabColor = .none,
+            color: WorkspaceColor = .none,
+            theme: String? = nil,
             hiddenTabs: [TerminalController] = [],
             rememberedTab: TerminalController? = nil
         ) {
@@ -40,6 +44,7 @@ final class WorkspaceStore: ObservableObject {
             self.name = name
             self.originalName = originalName ?? name
             self.color = color
+            self.theme = theme
             self.hiddenTabs = hiddenTabs
             self.rememberedTab = rememberedTab ?? hiddenTabs.first
         }
@@ -57,8 +62,12 @@ final class WorkspaceStore: ObservableObject {
     let id: UUID
 
     @Published var workspaces: [Workspace] {
-        // One that ends or leaves the Window drops out of recency.
-        didSet { recentIDs.removeAll { id in !workspaces.contains { $0.id == id } } }
+        didSet {
+            // One that ends or leaves the Window drops out of recency.
+            recentIDs.removeAll { id in !workspaces.contains { $0.id == id } }
+            // Tabs may have changed Workspace.
+            setNeedsThemeSync()
+        }
     }
     @Published var shownID: Workspace.ID
 
@@ -84,6 +93,9 @@ final class WorkspaceStore: ObservableObject {
     /// Set while the store changes the group itself, so the Window's own callbacks (the
     /// incoming Tab becoming key) don't reconcile a half-done switch.
     var isChanging = false
+
+    /// Set while a `setNeedsThemeSync()` waits for its turn.
+    var themeSyncScheduled = false
 
     /// The scroll gesture over this Window's bar, told apart by its first movement. The
     /// Window has one gesture at a time, and every Tab's monitor reads it.
@@ -348,9 +360,9 @@ final class WorkspaceStore: ObservableObject {
         invalidateRestorableState()
     }
 
-    /// Workspace Color ▸. Any Workspace, hidden ones included. No undo, just
-    /// like a Tab's color.
-    func setColor(_ color: TerminalTabColor, of id: Workspace.ID) {
+    /// Any Workspace's color, hidden ones included. No undo, just like a Tab's
+    /// color.
+    func setColor(_ color: WorkspaceColor, of id: Workspace.ID) {
         guard let index = workspaces.firstIndex(where: { $0.id == id }),
               workspaces[index].color != color
         else { return }
@@ -520,6 +532,7 @@ final class WorkspaceStore: ObservableObject {
                 name: entry.name,
                 originalName: entry.originalName,
                 color: entry.color,
+                theme: entry.theme,
                 hiddenTabs: hiddenTabs,
                 rememberedTab: entry.rememberedTabIndex.flatMap { tabs.indices.contains($0) ? tabs[$0] : nil }))
         }
@@ -534,6 +547,8 @@ final class WorkspaceStore: ObservableObject {
         for tab in restored.flatMap(\.hiddenTabs) { tab.workspaceStore = self }
         workspaces = restored
         shownID = id
+        // Now, so the shown Tabs never draw without their theme.
+        applyThemes()
         invalidateRestorableState()
     }
 

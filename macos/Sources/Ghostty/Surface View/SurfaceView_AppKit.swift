@@ -102,6 +102,10 @@ extension Ghostty {
         /// The configuration derived from the Ghostty config so we don't need to rely on references.
         @Published private(set) var derivedConfig: DerivedConfig
 
+        /// The Workspace theme laid over the config for this Split, or nil when it takes the
+        /// config as is. `Ghostty.App.setTheme(_:for:)` sets it.
+        var workspaceTheme: String?
+
         /// The background color within the color palette of the surface. This is only set if it is
         /// dynamically updated. Otherwise, the background color is the default background color.
         @Published private(set) var backgroundColor: Color?

@@ -10,7 +10,8 @@ extension WorkspaceStore {
         let id: Workspace.ID
         let name: String
         let originalName: String
-        let color: TerminalTabColor
+        let color: WorkspaceColor
+        let theme: String?
         /// Its index in the bar.
         let position: Int
     }
@@ -24,6 +25,7 @@ extension WorkspaceStore {
             name: workspace.name,
             originalName: workspace.originalName,
             color: workspace.color,
+            theme: workspace.theme,
             position: position)
     }
 
@@ -42,8 +44,8 @@ extension WorkspaceStore {
     }
 
     /// Brings back an ended Workspace holding `tabs`, hidden, with its id, name, original
-    /// name, color, and `remembered` Tab (else its first), at its old position, or at the
-    /// end if the Window now has fewer Workspaces.
+    /// name, color, theme, and `remembered` Tab (else its first), at its old position, or at
+    /// the end if the Window now has fewer Workspaces.
     func recreate(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController? = nil) {
         workspaces.insert(Self.workspace(saved, holding: tabs, remembering: remembered), at: min(saved.position, workspaces.count))
         invalidateRestorableState()
@@ -51,7 +53,7 @@ extension WorkspaceStore {
 
     /// Brings back an ended Workspace whose last Window has closed as a Window of its own,
     /// holding `tabs`, which are ordered out and in no Workspace, by Move Workspace to New
-    /// Window's path. It keeps its id, name, original name, and color, and shows
+    /// Window's path. It keeps its id, name, original name, color, and theme, and shows
     /// `remembered`, else its first Tab. The Tabs' window style is their old Window's. False,
     /// with nothing changed, if the Tab couldn't come on screen.
     static func reopen(_ saved: UndoState, holding tabs: [TerminalController], remembering remembered: TerminalController? = nil) -> Bool {
@@ -64,6 +66,7 @@ extension WorkspaceStore {
             name: saved.name,
             originalName: saved.originalName,
             color: saved.color,
+            theme: saved.theme,
             hiddenTabs: tabs,
             rememberedTab: remembered)
     }
